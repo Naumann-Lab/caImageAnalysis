@@ -17,7 +17,7 @@ from suite2p.run_s2p import run_s2p, default_ops
 
 
 class Fish:
-    def __init__(self, folderPath, stimkey='stims'):
+    def __init__(self, folderPath, stimkey="stims"):
         self.basePath = folderPath
         self.stimKey = stimkey
         self.parsePaths()
@@ -27,11 +27,13 @@ class Fish:
                 self.dataPaths["frametimes"]
             )
         except:
-            print('no frametimes')
+            print("no frametimes")
         try:
-            self.log_steps_df = self.raw_text_logfile_to_df(self.dataPaths["log"], self.frametimes_df)
+            self.log_steps_df = self.raw_text_logfile_to_df(
+                self.dataPaths["log"], self.frametimes_df
+            )
         except:
-            print('no log present')
+            print("no log present")
 
         try:
             self.stimulus_df, self.stimulus_df_condensed = self.pandastim_to_df(
@@ -39,70 +41,78 @@ class Fish:
             )
             self.stimulus_df_condensed.loc[:, "original_frame"] = self.frame_starts()
         except:
-            print('no stimuli')
+            print("no stimuli")
 
     def monoc_neuron_colored_vol(self, std_thresh=1.8, alpha=0.75):
         self.parsePaths()
         monocular_dict = {
-            'right' : [1, 0.25, 0, alpha],
-            'left' : [0, 0.25, 1, alpha],
-            'forward' : [0, 1, 0, alpha],
-            'backward' : [1, 0, 1, alpha],
-            'forward_left' : [0, 0.75, 1, alpha],
-            'forward_right' : [0.75, 1, 0, alpha],
-            'backward_left' : [0.25, 0, 1, alpha],
-            'backward_right' : [1, 0, 0.25, alpha]
+            "right": [1, 0.25, 0, alpha],
+            "left": [0, 0.25, 1, alpha],
+            "forward": [0, 1, 0, alpha],
+            "backward": [1, 0, 1, alpha],
+            "forward_left": [0, 0.75, 1, alpha],
+            "forward_right": [0.75, 1, 0, alpha],
+            "backward_left": [0.25, 0, 1, alpha],
+            "backward_right": [1, 0, 0.25, alpha],
         }
         responses, stds, bool_df = self.return_response_dfs(std_thresh)
 
         cell_images = []
         ref_images = []
-        for vol in self.dataPaths['volumes'].keys():
-            ops, iscell, stats, f_cells = self.load_suite2p(self.dataPaths['volumes'][vol]['suite2p'])
+        for vol in self.dataPaths["volumes"].keys():
+            ops, iscell, stats, f_cells = self.load_suite2p(
+                self.dataPaths["volumes"][vol]["suite2p"]
+            )
             plane_df = bool_df[int(vol)][monocular_dict.keys()]
 
-
     # single plane
-    def monoc_neuron_colored(self, vol, std_thresh=1.8, alpha=0.75, kind='full', *args, **kwargs):
+    def monoc_neuron_colored(
+        self, vol, std_thresh=1.8, alpha=0.75, kind="full", *args, **kwargs
+    ):
         self.parsePaths()
-        if kind == 'full':
+        if kind == "full":
             monocular_dict = {
-                'right' : [1, 0.25, 0, alpha],
-                'left' : [0, 0.25, 1, alpha],
-                'forward' : [0, 1, 0, alpha],
-                'backward' : [1, 0, 1, alpha],
-                'forward_left' : [0, 0.75, 1, alpha],
-                'forward_right' : [0.75, 1, 0, alpha],
-                'backward_left' : [0.25, 0, 1, alpha],
-                'backward_right' : [1, 0, 0.25, alpha]
+                "right": [1, 0.25, 0, alpha],
+                "left": [0, 0.25, 1, alpha],
+                "forward": [0, 1, 0, alpha],
+                "backward": [1, 0, 1, alpha],
+                "forward_left": [0, 0.75, 1, alpha],
+                "forward_right": [0.75, 1, 0, alpha],
+                "backward_left": [0.25, 0, 1, alpha],
+                "backward_right": [1, 0, 0.25, alpha],
             }
         else:
             monocular_dict = {
-                'right' : [1, 0.25, 0, alpha],
-                'left' : [0, 0.25, 1, alpha],
-                'forward' : [0, 1, 0, alpha],
+                "right": [1, 0.25, 0, alpha],
+                "left": [0, 0.25, 1, alpha],
+                "forward": [0, 1, 0, alpha],
             }
         responses, stds, bool_df = self.return_response_dfs(std_thresh, *args, **kwargs)
-        ops, iscell, stats, f_cells = self.load_suite2p(self.dataPaths['volumes'][vol]['suite2p'])
+        ops, iscell, stats, f_cells = self.load_suite2p(
+            self.dataPaths["volumes"][vol]["suite2p"]
+        )
         plane_df = bool_df[int(vol)][monocular_dict.keys()]
 
-        cell_img = np.zeros((ops["Ly"], ops["Lx"], 4), 'float64')
+        cell_img = np.zeros((ops["Ly"], ops["Lx"], 4), "float64")
         for row in range(len(plane_df)):
             cell = plane_df.iloc[row]
 
-            nrn_color = [0,0,0,0]
+            nrn_color = [0, 0, 0, 0]
             for stim in monocular_dict.keys():
                 if cell[stim]:
-                    nrn_color = [nrn_color[i] + monocular_dict[stim][i] for i in range(len(nrn_color))]
+                    nrn_color = [
+                        nrn_color[i] + monocular_dict[stim][i]
+                        for i in range(len(nrn_color))
+                    ]
                 else:
                     pass
             nrn_color = np.clip(nrn_color, a_min=0, a_max=1)
-            ypix = stats[cell.name]['ypix']
-            xpix = stats[cell.name]['xpix']
+            ypix = stats[cell.name]["ypix"]
+            xpix = stats[cell.name]["xpix"]
 
             for n, c in enumerate(nrn_color):
                 cell_img[ypix, xpix, n] = c
-        return cell_img, ops['refImg']
+        return cell_img, ops["refImg"]
 
     def return_response_dfs(self, bool_df_thresh=None, stdmode=True, otherThresh=0.05):
         self.parsePaths()
@@ -118,9 +128,15 @@ class Fish:
             else:
                 bool_dfs = []
                 for resp, dev in zip(responses, stds):
-                    std_bool_df = resp >= dev * bool_df_thresh  # checks if response beats standard dev
-                    threshold_bool_df = resp >= otherThresh  # checks if response meets base threshold
-                    sum_bool_df = std_bool_df*1 + threshold_bool_df*1  #  converts to 0,1,2
+                    std_bool_df = (
+                        resp >= dev * bool_df_thresh
+                    )  # checks if response beats standard dev
+                    threshold_bool_df = (
+                        resp >= otherThresh
+                    )  # checks if response meets base threshold
+                    sum_bool_df = (
+                        std_bool_df * 1 + threshold_bool_df * 1
+                    )  #  converts to 0,1,2
                     bool_df = sum_bool_df >= 2
 
                     bool_dfs.append(bool_df)
@@ -256,7 +272,9 @@ class Fish:
         fig.tight_layout()
         plt.show()
 
-    def stimblast_cell_limited(self, cell, vol, start_offset=10, end_offset=20, save=None):
+    def stimblast_cell_limited(
+        self, cell, vol, start_offset=10, end_offset=20, save=None
+    ):
         plot_dictionary = {
             (0, 0): "right",
             (0, 1): "medial_right",
@@ -300,7 +318,7 @@ class Fish:
 
             stimmy = self.stimulus_df_condensed[
                 self.stimulus_df_condensed.stim_name == v
-                ]
+            ]
 
             chunks = []
             for s in stimmy[col]:
@@ -316,7 +334,7 @@ class Fish:
 
         fig.tight_layout()
         if save is not None:
-            plt.savefig(save, format='svg')
+            plt.savefig(save, format="svg")
         plt.show()
 
     def plot_cell(self, cells, vol, pretty=False, save=None):
@@ -353,9 +371,9 @@ class Fish:
             vmax=np.max(masked),
             vmin=0,
         )
-        plt.axis('off')
+        plt.axis("off")
         if save is not None:
-            plt.savefig(save, format='svg')
+            plt.savefig(save, format="svg")
         plt.show()
 
     def neuron_response_df(self, vol=0, offset=5, r_type="mean"):
@@ -376,7 +394,7 @@ class Fish:
                 self.stimulus_df_condensed.stim_name == stimulus
             ]
             starts = stimmy_df[col].values
-            if r_type == 'mean':
+            if r_type == "mean":
                 stim_arr = np.concatenate([np.arange(a, a + offset) for a in starts])
                 meanVals = np.nanmean(f_cells[:, stim_arr], axis=1)
                 stdVals = [None]
@@ -410,11 +428,13 @@ class Fish:
         self.parsePaths()
         img = imread(self.dataPaths["image"])
 
-        diff = self.cardinal_pixelwise(img, self.frametimes_df, vols=False, *args, **kwargs)
+        diff = self.cardinal_pixelwise(
+            img, self.frametimes_df, vols=False, *args, **kwargs
+        )
         if plot:
             plt.figure(figsize=(8, 8))
             plt.imshow(diff)
-            plt.axis('off')
+            plt.axis("off")
             plt.show()
         else:
             return diff
@@ -466,8 +486,10 @@ class Fish:
                     s = frametimes.loc[frametimes.raw_index >= ind].index[0]
                 else:
                     s = ind
-                img = np.nanmean(pic[s : s + offset], axis=0)
-                bg = np.nanmean(pic[s - offset : s], axis=0)
+                # img = np.nanmean(pic[s : s + offset], axis=0)
+                img = np.nanmean(pic[s : s + 5], axis=0)
+                # bg = np.nanmean(pic[s - offset : s], axis=0)
+                bg = np.nanmean(pic[s - 10 : s - 3], axis=0)
                 _img.append(img - bg)
             diff_img = np.mean(_img, axis=0)
 
@@ -838,6 +860,171 @@ class Fish:
             except:
                 pass
 
+    def legacy_volumesplit(self, len_thresh=150):
+        image = imread(self.dataPaths["image"])
+        frametimes = self.legacy_raw_text_frametimes_to_df(self.dataPaths["frametimes"])
+        log_steps = self.legacy_raw_text_logfile_to_df(self.dataPaths["log"])
+        frametimes = self.legacy_alignmentFramesSteps(
+            frametimes, log_steps, time_offset=0.009
+        )
+
+        for n, s in tqdm(enumerate(frametimes.step.unique())):
+            imgInds = frametimes[frametimes.step == s].index
+            new_fts = frametimes[frametimes.step == s].drop(columns="step")
+
+            sub_img = image[imgInds]
+            if len(sub_img) >= len_thresh:
+
+                subStackPath = Path(self.basePath).joinpath(f"img_stack_{n}")
+                if not os.path.exists(subStackPath):
+                    os.mkdir(subStackPath)
+
+                subStackFtPath = subStackPath.joinpath("frametimes.h5")
+                if os.path.exists(subStackFtPath):
+                    os.remove(subStackFtPath)
+                self.frametimes_df.loc[imgInds].to_hdf(subStackFtPath, key="frametimes")
+
+                subStackImgPath = subStackPath.joinpath("image.tif")
+                imsave(subStackImgPath, sub_img)
+
+    @staticmethod
+    def legacy_raw_text_frametimes_to_df(time_path):
+        """
+        Parameters
+        ----------
+        time_path : TYPE path
+            DESCRIPTION. path to the frame times (txt) collected by the imaging software
+
+        Returns
+        -------
+        TYPE dataframe
+            DESCRIPTION. raw data frame times will be listed in datetime format
+        """
+        with open(time_path) as file:
+            contents = file.read()
+        parsed = contents.split("\n")
+
+        times = []
+        for line in range(len(parsed) - 1):
+            times.append(dt.strptime(parsed[line], "%H:%M:%S.%f").time())
+        return pd.DataFrame(times)
+
+    @staticmethod
+    def legacy_raw_text_logfile_to_df(log_path):
+        """
+        Parameters
+        ----------
+        log_path : TYPE path
+            DESCRIPTION. path to the log txt file from imaging software, contains steps
+
+        Returns
+        -------
+        log_steps : TYPE dataframe
+            DESCRIPTION. raw data log txt is filtered, only have the times and steps when the piezo moved
+        """
+        with open(log_path) as file:
+            contents = file.read()
+        split = contents.split("\n")
+
+        movesteps = []
+        times = []
+        for line in range(len(split)):
+            if (
+                "piezo" in split[line]
+                and "connected" not in split[line]
+                and "stopped" not in split[line]
+            ):
+                t = split[line].split(" ")[0][:-1]
+                z = split[line].split(" ")[6]
+                try:
+                    if isinstance(eval(z), float):
+                        times.append(dt.strptime(t, "%H:%M:%S.%f").time())
+                        movesteps.append(z)
+                except NameError:
+                    continue
+        else:
+            # last line is blank and likes to error out
+            pass
+        log_steps = pd.DataFrame({"times": times, "steps": movesteps})
+        return log_steps
+
+    @staticmethod
+    def legacy_alignmentFramesSteps(
+        frametimes, logtimes, intermediate_return=False, time_offset=0.1
+    ):
+        """
+        Parameters
+        ----------
+        frametimes : TYPE dataframe
+            DESCRIPTION. times that frames were taken, converted from the raw_text_frametimes_to_df function
+        logtimes : TYPE dataframe
+            DESCRIPTION. times and steps (um) when the piezo moved through the image collection, converted in the raw_text_logfile_to_df function
+
+        Returns
+        -------
+        frametimes : TYPE dataframe, modified from the raw_text_logfile_to_df frametimes
+            DESCRIPTION. contains the aligned steps from the log file to the times that the frames were collected
+        """
+
+        ## milliseconds off between the log/step information and frametimes time stamp
+        logtimes_mod = []  ## modified logtimes list
+        missed_steps = []
+
+        for t in range(len(frametimes)):
+            listed_time = str(frametimes.values[t][0]).split(":")
+            time_val = float(listed_time[-1])
+
+            seconds_min = time_val - time_offset
+            seconds_max = time_val + time_offset
+            # clip function to make sure the min is 0, no negative times
+            seconds_min = np.clip(seconds_min, a_min=0, a_max=999)
+
+            min_listed_time = listed_time.copy()
+            min_listed_time[-1] = str(np.float32(seconds_min))
+
+            max_listed_time = listed_time.copy()
+            max_listed_time[-1] = str(np.float32(seconds_max))
+
+            if seconds_max > 60:
+                seconds_max -= 60
+                max_listed_time[-1] = str(np.float16(seconds_max))
+                new_seconds = int(max_listed_time[1]) + 1
+                max_listed_time[1] = str(int(new_seconds))
+            else:
+                pass
+
+            if seconds_max >= 60:
+                seconds_max -= 60
+                max_listed_time[-1] = str(np.float16(seconds_max))
+                new_seconds = int(max_listed_time[1]) + 1
+                max_listed_time[1] = str(int(new_seconds))
+            else:
+                pass
+
+            mintime = dt.strptime(":".join(min_listed_time), "%H:%M:%S.%f").time()
+
+            maxtime = dt.strptime(":".join(max_listed_time), "%H:%M:%S.%f").time()
+
+            temp = logtimes[(logtimes.times >= mintime) & (logtimes.times <= maxtime)]
+
+            ## sometimes there are missed steps (no frame with the next step in the stack) so we need to take that out
+            if len(temp) != 0:
+                logtimes_mod.append(temp)
+            else:
+                missed_steps.append(t)
+        ## this is a check here, so if intermediate_return is true, then it will stop here and return the frametimes and logtimes_mod dataframes
+        if intermediate_return:
+            return frametimes, logtimes_mod
+
+        frametimes_with_steps = []
+        for df_row in logtimes_mod:
+            frametimes_with_steps.append(df_row.steps.values[0])
+
+        frametimes.drop(missed_steps, inplace=True)
+        frametimes.loc[:, "step"] = frametimes_with_steps
+        frametimes.loc[:, "step"] = frametimes.step.astype(np.float32)
+        return frametimes
+
     @staticmethod
     def norm_fdff(f_cells):
         minVals = np.percentile(f_cells, 10, axis=1)
@@ -997,11 +1184,16 @@ class Fish:
         return 1 / np.mean(np.diff(times))
 
     @staticmethod
-    def generate_barcodes(response_df, responseThreshold=0.25):
+    def generate_barcodes(response_df=None, responseThreshold=0.25, bool_df=None):
         from itertools import combinations, chain
 
+        assert (
+            response_df is not None or bool_df is not None
+        ), "must include bool or response df"
+
         # makes dataframe of neurons with their responses
-        bool_df = pd.DataFrame(response_df >= responseThreshold)
+        if bool_df is None:
+            bool_df = pd.DataFrame(response_df >= responseThreshold)
         cols = bool_df.columns.values
         raw_groupings = [
             cols[np.where(bool_df.iloc[i] == 1)] for i in range(len(bool_df))
@@ -1009,7 +1201,7 @@ class Fish:
         groupings_df = pd.DataFrame(raw_groupings).T
         groupings_df.columns = bool_df.index
 
-        nrows = 2 ** len(response_df.columns)
+        nrows = 2 ** len(bool_df.columns)
         ncols = len(cols)
         # print(f'{nrows} possible combinations')
 
