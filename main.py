@@ -440,6 +440,7 @@ class Fish:
             return diff
 
     def volumePixelwise(self, _return=False, *args, **kwargs):
+        self.parsePaths()
         if _return:
             diffs = []
         for v in self.dataPaths["volumes"].keys():
@@ -860,17 +861,19 @@ class Fish:
             except:
                 pass
 
-    def legacy_volumesplit(self, len_thresh=150):
+    def legacy_volumesplit(self, len_thresh=150, crop=False):
         image = imread(self.dataPaths["image"])
         frametimes = self.legacy_raw_text_frametimes_to_df(self.dataPaths["frametimes"])
         log_steps = self.legacy_raw_text_logfile_to_df(self.dataPaths["log"])
         frametimes = self.legacy_alignmentFramesSteps(
             frametimes, log_steps, time_offset=0.009
         )
+        if crop:
+            image = image[:, :, image.shape[1] // 10 :]
 
-        for n, s in tqdm(enumerate(frametimes.step.unique())):
+        for n, s in enumerate(tqdm(frametimes.step.unique())):
             imgInds = frametimes[frametimes.step == s].index
-            new_fts = frametimes[frametimes.step == s].drop(columns="step")
+            # new_fts = frametimes[frametimes.step == s].drop(columns="step")
 
             sub_img = image[imgInds]
             if len(sub_img) >= len_thresh:
@@ -886,6 +889,7 @@ class Fish:
 
                 subStackImgPath = subStackPath.joinpath("image.tif")
                 imsave(subStackImgPath, sub_img)
+        del image
 
     @staticmethod
     def legacy_raw_text_frametimes_to_df(time_path):
