@@ -12,6 +12,7 @@ from datetime import datetime as dt
 from tifffile import imread, imsave
 from tqdm import tqdm
 from pathlib import Path
+from scipy.stats import zscore
 
 from suite2p.run_s2p import run_s2p, default_ops
 
@@ -42,6 +43,11 @@ class Fish:
             self.stimulus_df_condensed.loc[:, "original_frame"] = self.frame_starts()
         except:
             print("no stimuli")
+
+        try:
+            self.tag_volume_frames()
+        except:
+            pass
 
     def monoc_neuron_colored_vol(self, std_thresh=1.8, alpha=0.75):
         self.parsePaths()
@@ -463,19 +469,39 @@ class Fish:
         return diffs
 
     def cardinal_pixelwise(
-        self, pic, frametimes, offset=5, brighterFactor=1.5, brighter=5, vols=True
+        self,
+        pic,
+        frametimes,
+        offset=5,
+        brighterFactor=1.5,
+        brighter=10,
+        vols=True,
+        invert=False,
     ):
-        cardinals = {
-            "forward": [0, 1, 0],
-            "forward_left": [0, 0.75, 1],
-            "left": [0, 0.25, 1],
-            "backward_left": [0.25, 0, 1],
-            "backward": [1, 0, 1],
-            "backward_right": [1, 0, 0.25],
-            "right": [1, 0.25, 0],
-            "forward_right": [0.75, 1, 0],
-        }
-
+        if not invert:
+            cardinals = {
+                "forward": [0, 1, 0],
+                "forward_left": [0, 0.75, 1],
+                "left": [0, 0.25, 1],
+                "backward_left": [0.25, 0, 1],
+                "backward": [1, 0, 1],
+                "backward_right": [1, 0, 0.25],
+                "right": [1, 0.25, 0],
+                "forward_right": [0.75, 1, 0],
+            }
+        else:
+            pic = pic[:, :, ::-1]
+            # this one handles fish inversion
+            cardinals = {
+                "backward": [0, 1, 0],
+                "backward_right": [0, 0.75, 1],
+                "right": [0, 0.25, 1],
+                "forward_right": [0.25, 0, 1],
+                "forward": [1, 0, 1],
+                "forward_left": [1, 0, 0.25],
+                "left": [1, 0.25, 0],
+                "backward_left": [0.75, 1, 0],
+            }
         diff_imgs = {}
         for stimulus_name in cardinals.keys():
             _stims = self.stimulus_df_condensed[
@@ -861,35 +887,239 @@ class Fish:
             except:
                 pass
 
-    def legacy_volumesplit(self, len_thresh=150, crop=False):
-        image = imread(self.dataPaths["image"])
-        frametimes = self.legacy_raw_text_frametimes_to_df(self.dataPaths["frametimes"])
-        log_steps = self.legacy_raw_text_logfile_to_df(self.dataPaths["log"])
-        frametimes = self.legacy_alignmentFramesSteps(
-            frametimes, log_steps, time_offset=0.009
-        )
-        if crop:
-            image = image[:, :, image.shape[1] // 10 :]
+    def legacy_volumesplit(self, len_thresh=150, crop=False, force=False):
+        if len(self.dataPaths["volumes"].keys()) > 1:
+            if not force:
+                print("skipping volume split")
+            else:
+                image = imread(self.dataPaths["image"])
+                frametimes = self.legacy_raw_text_frametimes_to_df(
+                    self.dataPaths["frametimes"]
+                )
+                log_steps = self.legacy_raw_text_logfile_to_df(self.dataPaths["log"])
+                frametimes = self.legacy_alignmentFramesSteps(
+                    frametimes, log_steps, time_offset=0.009
+                )
+                if crop:
+                    image = image[:, :, image.shape[1] // 10 :]
 
-        for n, s in enumerate(tqdm(frametimes.step.unique())):
-            imgInds = frametimes[frametimes.step == s].index
-            # new_fts = frametimes[frametimes.step == s].drop(columns="step")
+                for n, s in enumerate(tqdm(frametimes.step.unique())):
+                    imgInds = frametimes[frametimes.step == s].index
+                    # new_fts = frametimes[frametimes.step == s].drop(columns="step")
 
-            sub_img = image[imgInds]
-            if len(sub_img) >= len_thresh:
+                    sub_img = image[imgInds]
+                    if len(sub_img) >= len_thresh:
 
-                subStackPath = Path(self.basePath).joinpath(f"img_stack_{n}")
-                if not os.path.exists(subStackPath):
-                    os.mkdir(subStackPath)
+                        subStackPath = Path(self.basePath).joinpath(f"img_stack_{n}")
+                        if not os.path.exists(subStackPath):
+                            os.mkdir(subStackPath)
 
-                subStackFtPath = subStackPath.joinpath("frametimes.h5")
-                if os.path.exists(subStackFtPath):
-                    os.remove(subStackFtPath)
-                self.frametimes_df.loc[imgInds].to_hdf(subStackFtPath, key="frametimes")
+                        subStackFtPath = subStackPath.joinpath("frametimes.h5")
+                        if os.path.exists(subStackFtPath):
+                            os.remove(subStackFtPath)
+                        self.frametimes_df.loc[imgInds].to_hdf(
+                            subStackFtPath, key="frametimes"
+                        )
 
-                subStackImgPath = subStackPath.joinpath("image.tif")
-                imsave(subStackImgPath, sub_img)
-        del image
+                        subStackImgPath = subStackPath.joinpath("image.tif")
+                        imsave(subStackImgPath, sub_img)
+                del image
+        else:
+            image = imread(self.dataPaths["image"])
+            frametimes = self.legacy_raw_text_frametimes_to_df(
+                self.dataPaths["frametimes"]
+            )
+            log_steps = self.legacy_raw_text_logfile_to_df(self.dataPaths["log"])
+            frametimes = self.legacy_alignmentFramesSteps(
+                frametimes, log_steps, time_offset=0.009
+            )
+            if crop:
+                image = image[:, :, image.shape[1] // 10 :]
+
+            for n, s in enumerate(tqdm(frametimes.step.unique())):
+                imgInds = frametimes[frametimes.step == s].index
+                # new_fts = frametimes[frametimes.step == s].drop(columns="step")
+
+                sub_img = image[imgInds]
+                if len(sub_img) >= len_thresh:
+
+                    subStackPath = Path(self.basePath).joinpath(f"img_stack_{n}")
+                    if not os.path.exists(subStackPath):
+                        os.mkdir(subStackPath)
+
+                    subStackFtPath = subStackPath.joinpath("frametimes.h5")
+                    if os.path.exists(subStackFtPath):
+                        os.remove(subStackFtPath)
+                    self.frametimes_df.loc[imgInds].to_hdf(
+                        subStackFtPath, key="frametimes"
+                    )
+
+                    subStackImgPath = subStackPath.joinpath("image.tif")
+                    imsave(subStackImgPath, sub_img)
+            del image
+
+    def zdiff_stimdicts(self, used_offsets=(-10, 15), invertstims=True):
+        invStimDict = {
+            "medial_right": "medial_left",
+            "medial_left": "medial_right",
+            "right": "left",
+            "left": "right",
+            "converging": "converging",
+            "diverging": "diverging",
+            "lateral_left": "lateral_right",
+            "lateral_right": "lateral_left",
+            "forward": "backward",
+            "backward": "forward",
+            "forward_left": "backward_right",
+            "backward_left": "forward_right",
+            "backward_right": "forward_left",
+            "forward_right": "backward_left",
+            "x_forward": "backward_x",
+            "forward_x": "x_backward",
+            "backward_x": "x_forward",
+            "x_backward": "forward_x",
+            "forward_backward": "forward_backward",
+            "backward_forward": "backward_forward",
+        }
+        if invertstims:
+            self.stimulus_df_condensed.loc[
+                :, "stim_nameINV"
+            ] = self.stimulus_df_condensed.stim_name.map(invStimDict)
+
+            if len(self.dataPaths["volumes"].keys()) > 1:
+
+                self.stimdicts = {
+                    v: {"meanArr": None, "errArr": None}
+                    for v in self.dataPaths["volumes"].keys()
+                }
+                for vol in tqdm(self.dataPaths["volumes"].keys()):
+                    col = vol + "_frame"
+
+                    ops, iscell, stats, f_cells = self.load_suite2p(
+                        self.dataPaths["volumes"][str(vol)]["suite2p"]
+                    )
+                    pretty_cells = [self.normcell(i) for i in f_cells]
+                    stimDict = {
+                        i: {} for i in self.stimulus_df_condensed.stim_nameINV.unique()
+                    }
+                    errDict = {
+                        i: {} for i in self.stimulus_df_condensed.stim_nameINV.unique()
+                    }
+                    for stim in self.stimulus_df_condensed.stim_nameINV.unique():
+                        arrs = self.arrangedArrays(
+                            self.stimulus_df_condensed[
+                                self.stimulus_df_condensed.stim_nameINV == stim
+                            ][col],
+                            used_offsets,
+                        )
+                        for n, nrn in enumerate(pretty_cells):
+                            resp_arrs = []
+                            for arr in arrs:
+                                resp_arrs.append(nrn[arr])
+                            stimDict[stim][n] = np.nanmean(resp_arrs, axis=0)
+                            errDict[stim][n] = np.nanstd(resp_arrs, axis=0) / np.sqrt(
+                                len(resp_arrs)
+                            )
+                    self.stimdicts[vol]["meanArr"] = stimDict
+                    self.stimdicts[vol]["errArr"] = errDict
+        else:
+            pass
+
+    def zdiff_booldf(self, threshold=0.7, used_offsets=(-10, 15), stim_offset=5):
+        if len(self.dataPaths["volumes"].keys()) > 1:
+            self.bool_dfs = []
+            for vol in tqdm(self.dataPaths["volumes"].keys()):
+                planeDict = {}
+                for stim in self.stimdicts[vol]["meanArr"].keys():
+                    if stim not in planeDict.keys():
+                        planeDict[stim] = {}
+                    for nrn in self.stimdicts[vol]["meanArr"][stim].keys():
+
+                        cellArr = self.stimdicts[vol]["meanArr"][stim][nrn]
+
+                        stimArr = np.zeros(len(cellArr))
+                        stimArr[
+                            -used_offsets[0] : -used_offsets[0] + stim_offset - 2
+                        ] = 1.5
+                        stimArr = pretty(stimArr)
+                        corrVal = round(np.corrcoef(stimArr, cellArr)[0][1], 3)
+                        if corrVal >= threshold:
+                            planeDict[stim][nrn] = True
+                        else:
+                            planeDict[stim][nrn] = False
+                planedf = pd.DataFrame(planeDict)
+                planedf = planedf.loc[planedf.sum(axis=1) > 0]
+                self.bool_dfs.append(planedf)
+
+        else:
+            pass
+
+    def doublePlot(self, alpha= 0.75, used_offsets=(-10, 15), threshold=0.7, brighter=10):
+
+        monocular_dict = {
+            "right": [1, 0.25, 0, alpha],
+            "left": [0, 0.25, 1, alpha],
+            "forward": [0, 1, 0, alpha],
+            "backward": [1, 0, 1, alpha],
+            "forward_left": [0, 0.75, 1, alpha],
+            "forward_right": [0.75, 1, 0, alpha],
+            "backward_left": [0.25, 0, 1, alpha],
+            "backward_right": [1, 0, 0.25, alpha],
+        }
+        fig, ax = plt.subplots(2,5, figsize=(24,10))
+
+        pixelwiseDiff = self.volumePixelwise(_return=True, invert=True, brighter=brighter)
+        for n, img in enumerate(pixelwiseDiff):
+            ax[0][n].imshow(img)
+
+        if not hasattr(self, 'bool_dfs'):
+            self.zdiff_stimdicts(used_offsets=used_offsets)
+            self.zdiff_booldf(used_offsets=used_offsets, threshold=threshold)
+
+        for m, vol in enumerate(self.dataPaths['volumes'].keys()):
+            plane_df = self.bool_dfs[int(vol)][monocular_dict.keys()]
+            ops, iscell, stats, f_cells = self.load_suite2p(self.dataPaths["volumes"][vol]["suite2p"])
+            cell_img = np.zeros((ops["Ly"], ops["Lx"], 4), "float64")
+            for row in range(len(plane_df)):
+                cell = plane_df.iloc[row]
+
+                nrn_color = [0, 0, 0, 0]
+                for stim in monocular_dict.keys():
+                    if cell[stim]:
+                        nrn_color = [
+                            nrn_color[i] + monocular_dict[stim][i]
+                            for i in range(len(nrn_color))
+                        ]
+                    else:
+                        pass
+                nrn_color = np.clip(nrn_color, a_min=0, a_max=1)
+                ypix = stats[cell.name]["ypix"]
+                xpix = stats[cell.name]["xpix"]
+
+                for n, c in enumerate(nrn_color):
+                    cell_img[ypix, xpix, n] = c
+
+            ax[1][m].imshow(ops['refImg'][:, ::-1], cmap='gray', alpha=0.75, vmax=np.percentile(ops['refImg'], 99.5))
+            ax[1][m].imshow(cell_img[:, ::-1])
+
+        plt.show()
+
+    @staticmethod
+    def arrangedArrays(series, offsets=(-10, 10)):
+        series = series.values
+        a = []
+        for repeat in range(len(series)):
+            s = series[repeat] + offsets[0]
+            e = series[repeat] + offsets[1]
+            a.append(np.arange(s, e))
+        return np.array(a)
+
+    @staticmethod
+    def normcell(arr):
+        diffs = np.diff(arr)
+        zscores = zscore(diffs)
+        prettyz = pretty(zscores)
+        return prettyz
 
     @staticmethod
     def legacy_raw_text_frametimes_to_df(time_path):
@@ -1297,3 +1527,7 @@ class Fish:
         )
 
         return all_combinations
+
+
+def pretty(x, n=3):
+    return np.convolve(x, np.ones(n) / n, mode="same")
