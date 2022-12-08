@@ -12,7 +12,7 @@ except ModuleNotFoundError:
 
 import os
 
-from ImageAnalysisCodes import utils
+from old_stuff.ImageAnalysisCodes import utils
 
 import numpy as np
 import pandas as pd

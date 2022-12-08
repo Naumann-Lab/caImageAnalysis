@@ -5,7 +5,7 @@ from nptdms import TdmsFile
 from datetime import datetime as dt
 from datetime import date
 
-from ImageAnalysisCodes.visualize import eva_weightings
+from old_stuff.ImageAnalysisCodes.visualize import eva_weightings
 
 import datetime
 import shutil
@@ -1364,7 +1364,7 @@ def better_volume_splits(base_path, len_thresh=150):
             print(f'saved {new_framet_path}')
 
 def full_vol_wrapper(base_path):
-    from ImageAnalysisCodes import core
+    from old_stuff.ImageAnalysisCodes import core
 
     better_volume_splits(base_path)
 
@@ -1446,7 +1446,7 @@ def return_thresholded(base_path, threshold=0.3,  color_set = 'full', response_t
 
 
 def return_locationed(base_path, threshold=0.3):
-    from ImageAnalysisCodes import visualize
+    from old_stuff.ImageAnalysisCodes import visualize
 
     if not isinstance(Path(base_path), Path):
         base_path = Path(base_path)

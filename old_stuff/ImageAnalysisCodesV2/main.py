@@ -16,7 +16,7 @@ from scipy.stats import zscore
 
 from suite2p.run_s2p import run_s2p, default_ops
 
-from ImageAnalysisCodesV2 import angles
+from old_stuff.ImageAnalysisCodesV2 import angles
 
 
 class Fish:

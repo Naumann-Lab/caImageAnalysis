@@ -1,4 +1,4 @@
-from ImageAnalysisCodes import utils
+from old_stuff.ImageAnalysisCodes import utils
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib as mpl
@@ -821,7 +821,8 @@ def pixelwisevolumes(planePath):
     return fin_img, _all_img, stim_df[stim_df.stimulus.isin(eva_weightings.keys())].stimulus.unique()
 
 def spatial_neurons(base_path, x=[0,9999], y=[0,9999]):
-    ops, iscell, stats, f_cells = utils.load_suite2p(utils.pathSorter(base_path)['output']['suite2p'])
+    ops, iscell, stats, f_cells = utils.load_suite2p(
+        utils.pathSorter(base_path)['output']['suite2p'])
     i = 0
     xs = []
     ys = []
@@ -875,7 +876,8 @@ def neuronColor(basePath, threshold=1.5, offset=5, offset2=5, figshape=(12,12), 
         stim_df, cells = utils.stim_cell_returner(basePath, s2p=[ops, iscell, stats, f_cells])
 
     else:
-        ops, iscell, stats, f_cells = utils.load_suite2p(utils.pathSorter(basePath)['output']['suite2p'])
+        ops, iscell, stats, f_cells = utils.load_suite2p(
+            utils.pathSorter(basePath)['output']['suite2p'])
         stim_df, cells = utils.stim_cell_returner(basePath)
 
     if z_scored:
@@ -970,7 +972,8 @@ def neuronColor(basePath, threshold=1.5, offset=5, offset2=5, figshape=(12,12), 
 
 
 def topneuroncolor(basePath, threshold=0.5, offset=5, z_scored=False, return_stuff = False):
-    ops, iscell, stats, f_cells = utils.load_suite2p(utils.pathSorter(basePath)['output']['suite2p'])
+    ops, iscell, stats, f_cells = utils.load_suite2p(
+        utils.pathSorter(basePath)['output']['suite2p'])
     stim_df, cells = utils.stim_cell_returner(basePath)
 
     tunedCells, celldf, iscell, stats, f_cells, mstim_df, stim_df = neuronColor(basePath, threshold=threshold,
@@ -1141,7 +1144,8 @@ def active_passive_plot(basePath, stim='forward', sig=3, abr_cutoff=75):
     rollingVals = pd.Series(full_tail["/'TailLoc'/'TailCurvature'"].values).rolling(1000).median()[tail_data.index]
     diffVals = smoothedVals - rollingVals
 
-    aligned_stims = pd.read_hdf(utils.pathSorter(basePath)['stimuli']['frame_aligned'])
+    aligned_stims = pd.read_hdf(
+        utils.pathSorter(basePath)['stimuli']['frame_aligned'])
 
     try:
         staticIndices = aligned_stims[(aligned_stims.velocity_0 == 0) & (aligned_stims.velocity_1 == 0)].index
@@ -1248,7 +1252,7 @@ def monocplot(planepath, stimchoice, colormap, start_offset=45, background_perce
         vals = []
         for stim in stimchoice:
             s = stim_df[stim_df.stimulus.isin([stim])]
-            stim_inds = np.clip(utils.arrangedArrays(s), a_min=0, a_max=plane_num-1)
+            stim_inds = np.clip(utils.arrangedArrays(s), a_min=0, a_max=plane_num - 1)
             stimResponse = np.mean(celltrace[stim_inds])
             vals.append(stimResponse)
         _stimchoice.append(np.where(vals==np.max(vals))[0][0])
@@ -1656,7 +1660,8 @@ class ImagingDataVolumetric:
     def __init__(self, data_path, run=False):
         self.datapath = data_path
 
-        self.plane_list = list(utils.pathSorter(self.datapath)['image']['volume'].values())
+        self.plane_list = list(
+            utils.pathSorter(self.datapath)['image']['volume'].values())
         self.datum_dict = {i: {} for i in self.plane_list}
 
         self.load_stimuli()
@@ -1669,7 +1674,8 @@ class ImagingDataVolumetric:
 
     def load_s2p(self):
         for plane in self.plane_list:
-            ops, iscell, stats, f_cells = utils.load_suite2p(utils.pathSorter(plane)['stimuli']['frame_aligned'].parents[0].joinpath('suite2p/plane0'))
+            ops, iscell, stats, f_cells = utils.load_suite2p(
+                utils.pathSorter(plane)['stimuli']['frame_aligned'].parents[0].joinpath('suite2p/plane0'))
 
             self.datum_dict[plane]['suite2p'] = {}
             self.datum_dict[plane]['suite2p']['ops'] = ops
