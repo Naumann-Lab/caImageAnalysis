@@ -24,7 +24,7 @@ except:
     print("no s2p available")
 
 from old_stuff.ImageAnalysisCodesV2 import angles
-from arrutils import pretty
+from utilties.arrutils import pretty
 
 
 class LegacyFish:
