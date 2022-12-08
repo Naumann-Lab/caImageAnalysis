@@ -17,7 +17,12 @@ def packVols(a_fish):
 
 
 def volumeValidity(a_fish, stimChoice):
-    return {vol : a_fish.bool_dfs[int(vol)][a_fish.bool_dfs[int(vol)][stimChoice] == True].index for vol in a_fish.dataPaths['volumes'].keys()}
+    return {
+        vol: a_fish.bool_dfs[int(vol)][
+            a_fish.bool_dfs[int(vol)][stimChoice] == True
+        ].index
+        for vol in a_fish.dataPaths["volumes"].keys()
+    }
 
 
 def grabPeakNeurons(a_fish, stimChoice, n=25):
@@ -35,7 +40,11 @@ def grabPeakNeurons(a_fish, stimChoice, n=25):
         max_dict[c] = vals
     max_df = pd.DataFrame(max_dict)
     peakstims = max_df[constants.monocular_dict.keys()].idxmax(axis=1)
-    max_inds = max_df[(peakstims==stimChoice)].sort_values(by=stimChoice, ascending=False).index
+    max_inds = (
+        max_df[(peakstims == stimChoice)]
+        .sort_values(by=stimChoice, ascending=False)
+        .index
+    )
 
     valid_inds = volumeValidity(a_fish, stimChoice)
 

@@ -19,4 +19,4 @@ monocular_dict_alpha = {
     "backward_left": [0.25, 0, 1, 1],
     "backward_right": [1, 0, 0.25, 1],
 }
-baseBinocs = ['medial_left', 'lateral_left', 'medial_right', 'lateral_right']
+baseBinocs = ["medial_left", "lateral_left", "medial_right", "lateral_right"]

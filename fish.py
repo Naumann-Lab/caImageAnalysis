@@ -7,7 +7,7 @@ import numpy as np
 try:
     import caiman as cm
 except:
-    print('no caiman available')
+    print("no caiman available")
 
 import matplotlib.pyplot as plt
 import matplotlib as mpl
@@ -21,17 +21,18 @@ from scipy.stats import zscore
 try:
     from suite2p.run_s2p import run_s2p, default_ops
 except:
-    print('no s2p available')
+    print("no s2p available")
 
 from old_stuff.ImageAnalysisCodesV2 import angles
 from arrutils import pretty
 
 
 class LegacyFish:
-    '''
+    """
     all sorts of extra nonsense and things :) will be cleaned into a new fish
     ...Coming Soon...TM
-    '''
+    """
+
     def __init__(self, folderPath, stimkey="stims"):
         self.basePath = folderPath
         self.stimKey = stimkey
@@ -87,7 +88,7 @@ class LegacyFish:
 
     # single plane
     def monoc_neuron_colored(
-            self, vol, std_thresh=1.8, alpha=0.75, kind="full", *args, **kwargs
+        self, vol, std_thresh=1.8, alpha=0.75, kind="full", *args, **kwargs
     ):
         self.parsePaths()
         if kind == "full":
@@ -149,13 +150,13 @@ class LegacyFish:
                 bool_dfs = []
                 for resp, dev in zip(responses, stds):
                     std_bool_df = (
-                            resp >= dev * bool_df_thresh
+                        resp >= dev * bool_df_thresh
                     )  # checks if response beats standard dev
                     threshold_bool_df = (
-                            resp >= otherThresh
+                        resp >= otherThresh
                     )  # checks if response meets base threshold
                     sum_bool_df = (
-                            std_bool_df * 1 + threshold_bool_df * 1
+                        std_bool_df * 1 + threshold_bool_df * 1
                     )  #  converts to 0,1,2
                     bool_df = sum_bool_df >= 2
 
@@ -278,7 +279,7 @@ class LegacyFish:
 
             stimmy = self.stimulus_df_condensed[
                 self.stimulus_df_condensed.stim_name == v
-                ]
+            ]
 
             chunks = []
             for s in stimmy[col]:
@@ -293,7 +294,7 @@ class LegacyFish:
         plt.show()
 
     def stimblast_cell_limited(
-            self, cell, vol, start_offset=10, end_offset=20, save=None
+        self, cell, vol, start_offset=10, end_offset=20, save=None
     ):
         plot_dictionary = {
             (0, 0): "right",
@@ -338,7 +339,7 @@ class LegacyFish:
 
             stimmy = self.stimulus_df_condensed[
                 self.stimulus_df_condensed.stim_name == v
-                ]
+            ]
 
             chunks = []
             for s in stimmy[col]:
@@ -412,7 +413,7 @@ class LegacyFish:
         for stimulus in self.stimulus_df_condensed.stim_name.unique():
             stimmy_df = self.stimulus_df_condensed[
                 self.stimulus_df_condensed.stim_name == stimulus
-                ]
+            ]
             starts = stimmy_df[col].values
             if r_type == "mean":
                 stim_arr = np.concatenate([np.arange(a, a + offset) for a in starts])
@@ -483,14 +484,14 @@ class LegacyFish:
         return diffs
 
     def cardinal_pixelwise(
-            self,
-            pic,
-            frametimes,
-            offset=5,
-            brighterFactor=1.5,
-            brighter=10,
-            vols=True,
-            invert=False,
+        self,
+        pic,
+        frametimes,
+        offset=5,
+        brighterFactor=1.5,
+        brighter=10,
+        vols=True,
+        invert=False,
     ):
         if not invert:
             cardinals = {
@@ -520,7 +521,7 @@ class LegacyFish:
         for stimulus_name in cardinals.keys():
             _stims = self.stimulus_df_condensed[
                 self.stimulus_df_condensed.stim_name == stimulus_name
-                ]
+            ]
             _img = []
             for ind in _stims.original_frame.values:
                 if vols:
@@ -579,9 +580,9 @@ class LegacyFish:
         times = []
         for line in range(len(split)):
             if (
-                    "piezo" in split[line]
-                    and "connected" not in split[line]
-                    and "stopped" not in split[line]
+                "piezo" in split[line]
+                and "connected" not in split[line]
+                and "stopped" not in split[line]
             ):
                 t = split[line].split(" ")[0][:-1]
                 z = split[line].split(" ")[6]
@@ -730,9 +731,9 @@ class LegacyFish:
         if not force:
             try:
                 if os.path.exists(
-                        self.dataPaths["volumes"]["0"]["image"]
-                                .parents[0]
-                                .joinpath("suite2p")
+                    self.dataPaths["volumes"]["0"]["image"]
+                    .parents[0]
+                    .joinpath("suite2p")
                 ):
                     print("skipped suite2p")
                     return
@@ -771,11 +772,11 @@ class LegacyFish:
         if not force:
             try:
                 if os.path.exists(
-                        (
-                                self.dataPaths["volumes"]["0"]["image"]
-                                        .parents[0]
-                                        .joinpath("original_image")
-                        )
+                    (
+                        self.dataPaths["volumes"]["0"]["image"]
+                        .parents[0]
+                        .joinpath("original_image")
+                    )
                 ):
                     print("skipped move correct")
                     return
@@ -815,7 +816,7 @@ class LegacyFish:
         return [
             self.frametimes_df[
                 self.frametimes_df.time >= self.stimulus_df_condensed.time.values[i]
-                ].index[0]
+            ].index[0]
             for i in range(len(self.stimulus_df_condensed))
         ]
 
@@ -997,7 +998,7 @@ class LegacyFish:
         }
         if invertstims:
             self.stimulus_df_condensed.loc[
-            :, "stim_nameINV"
+                :, "stim_nameINV"
             ] = self.stimulus_df_condensed.stim_name.map(invStimDict)
 
             if len(self.dataPaths["volumes"].keys()) > 1:
@@ -1023,7 +1024,7 @@ class LegacyFish:
                         arrs = self.arrangedArrays(
                             self.stimulus_df_condensed[
                                 self.stimulus_df_condensed.stim_nameINV == stim
-                                ][col],
+                            ][col],
                             used_offsets,
                         )
                         for n, nrn in enumerate(pretty_cells):
@@ -1039,7 +1040,9 @@ class LegacyFish:
         else:
             pass
 
-    def zdiff_booldf(self, threshold=0.65, used_offsets=(-10, 13), stim_offset=5, zero_arr=True):
+    def zdiff_booldf(
+        self, threshold=0.65, used_offsets=(-10, 13), stim_offset=5, zero_arr=True
+    ):
         if len(self.dataPaths["volumes"].keys()) > 1:
             self.bool_dfs = []
             for vol in tqdm(self.dataPaths["volumes"].keys()):
@@ -1054,7 +1057,7 @@ class LegacyFish:
                             cellArr = np.clip(cellArr, a_min=0, a_max=99)
                         stimArr = np.zeros(len(cellArr))
                         stimArr[
-                        -used_offsets[0] : -used_offsets[0] + stim_offset - 2
+                            -used_offsets[0] : -used_offsets[0] + stim_offset - 2
                         ] = 1.5
                         stimArr = pretty(stimArr)
                         corrVal = round(np.corrcoef(stimArr, cellArr)[0][1], 3)
@@ -1069,7 +1072,9 @@ class LegacyFish:
         else:
             pass
 
-    def doublePlot(self, alpha= 0.65, used_offsets=(-10, 13), threshold=0.7, brighter=10):
+    def doublePlot(
+        self, alpha=0.65, used_offsets=(-10, 13), threshold=0.7, brighter=10
+    ):
 
         monocular_dict = {
             "right": [1, 0.25, 0, alpha],
@@ -1081,19 +1086,23 @@ class LegacyFish:
             "backward_left": [0.25, 0, 1, alpha],
             "backward_right": [1, 0, 0.25, alpha],
         }
-        fig, ax = plt.subplots(2,5, figsize=(24,10))
+        fig, ax = plt.subplots(2, 5, figsize=(24, 10))
 
-        pixelwiseDiff = self.volumePixelwise(_return=True, invert=True, brighter=brighter)
+        pixelwiseDiff = self.volumePixelwise(
+            _return=True, invert=True, brighter=brighter
+        )
         for n, img in enumerate(pixelwiseDiff):
             ax[0][n].imshow(img)
 
-        if not hasattr(self, 'bool_dfs'):
+        if not hasattr(self, "bool_dfs"):
             self.zdiff_stimdicts(used_offsets=used_offsets)
             self.zdiff_booldf(used_offsets=used_offsets, threshold=threshold)
 
-        for m, vol in enumerate(self.dataPaths['volumes'].keys()):
+        for m, vol in enumerate(self.dataPaths["volumes"].keys()):
             plane_df = self.bool_dfs[int(vol)][monocular_dict.keys()]
-            ops, iscell, stats, f_cells = self.load_suite2p(self.dataPaths["volumes"][vol]["suite2p"])
+            ops, iscell, stats, f_cells = self.load_suite2p(
+                self.dataPaths["volumes"][vol]["suite2p"]
+            )
             cell_img = np.zeros((ops["Ly"], ops["Lx"], 4), "float64")
             for row in range(len(plane_df)):
                 cell = plane_df.iloc[row]
@@ -1114,12 +1123,24 @@ class LegacyFish:
                 for n, c in enumerate(nrn_color):
                     cell_img[ypix, xpix, n] = c
 
-            ax[1][m].imshow(ops['refImg'][:, ::-1], cmap='gray', alpha=0.75, vmax=np.percentile(ops['refImg'], 99.5))
+            ax[1][m].imshow(
+                ops["refImg"][:, ::-1],
+                cmap="gray",
+                alpha=0.75,
+                vmax=np.percentile(ops["refImg"], 99.5),
+            )
             ax[1][m].imshow(cell_img[:, ::-1])
 
         plt.show()
 
-    def triplePlot(self, alpha= 0.65, used_offsets=(-10, 13), threshold=0.7, brighter=10, stim_offset=5):
+    def triplePlot(
+        self,
+        alpha=0.65,
+        used_offsets=(-10, 13),
+        threshold=0.7,
+        brighter=10,
+        stim_offset=5,
+    ):
 
         monocular_dict = {
             "right": [1, 0.25, 0, alpha],
@@ -1131,20 +1152,24 @@ class LegacyFish:
             "backward_left": [0.25, 0, 1, alpha],
             "backward_right": [1, 0, 0.25, alpha],
         }
-        fig, ax = plt.subplots(3,5, figsize=(45,15))
+        fig, ax = plt.subplots(3, 5, figsize=(45, 15))
 
-        pixelwiseDiff = self.volumePixelwise(_return=True, invert=True, brighter=brighter)
+        pixelwiseDiff = self.volumePixelwise(
+            _return=True, invert=True, brighter=brighter
+        )
         for n, img in enumerate(pixelwiseDiff):
             ax[0][n].imshow(img)
-            ax[0][n].axis('off')
+            ax[0][n].axis("off")
 
-        if not hasattr(self, 'bool_dfs'):
+        if not hasattr(self, "bool_dfs"):
             self.zdiff_stimdicts(used_offsets=used_offsets)
             self.zdiff_booldf(used_offsets=used_offsets, threshold=threshold)
 
-        for m, vol in enumerate(self.dataPaths['volumes'].keys()):
+        for m, vol in enumerate(self.dataPaths["volumes"].keys()):
             plane_df = self.bool_dfs[int(vol)][monocular_dict.keys()]
-            ops, iscell, stats, f_cells = self.load_suite2p(self.dataPaths["volumes"][vol]["suite2p"])
+            ops, iscell, stats, f_cells = self.load_suite2p(
+                self.dataPaths["volumes"][vol]["suite2p"]
+            )
             cell_img = np.zeros((ops["Ly"], ops["Lx"], 4), "float64")
             for row in range(len(plane_df)):
                 cell = plane_df.iloc[row]
@@ -1165,13 +1190,27 @@ class LegacyFish:
                 for n, c in enumerate(nrn_color):
                     cell_img[ypix, xpix, n] = c
 
-            ax[1][m].imshow(ops['refImg'][:, ::-1], cmap='gray', alpha=0.75, vmax=np.percentile(ops['refImg'], 99.5))
+            ax[1][m].imshow(
+                ops["refImg"][:, ::-1],
+                cmap="gray",
+                alpha=0.75,
+                vmax=np.percentile(ops["refImg"], 99.5),
+            )
             ax[1][m].imshow(cell_img[:, ::-1])
-            ax[1][m].axis('off')
+            ax[1][m].axis("off")
 
-        monocStims = ['right', 'left', 'forward', 'backward', 'forward_left', 'forward_right','backward_left', 'backward_right']
-        pltdict = {0:11, 1:12, 2:13, 3:14, 4:15}
-        for g, vol in enumerate(self.dataPaths['volumes'].keys()):
+        monocStims = [
+            "right",
+            "left",
+            "forward",
+            "backward",
+            "forward_left",
+            "forward_right",
+            "backward_left",
+            "backward_right",
+        ]
+        pltdict = {0: 11, 1: 12, 2: 13, 3: 14, 4: 15}
+        for g, vol in enumerate(self.dataPaths["volumes"].keys()):
             nrnDict = {}
 
             for nrn in self.bool_dfs[int(vol)].index.values:
@@ -1179,9 +1218,12 @@ class LegacyFish:
                     nrnDict[nrn] = {}
 
                 for stim in monocStims:
-                    val = np.nanmedian(self.stimdicts[vol]['meanArr'][stim][nrn][-used_offsets[0]:-used_offsets[0]+stim_offset])
+                    val = np.nanmedian(
+                        self.stimdicts[vol]["meanArr"][stim][nrn][
+                            -used_offsets[0] : -used_offsets[0] + stim_offset
+                        ]
+                    )
                     nrnDict[nrn][stim] = val
-
 
             thetas = []
             thetavals = []
@@ -1195,11 +1237,20 @@ class LegacyFish:
                 thetas.append(theta)
                 thetavals.append(thetaval)
 
-            plotty = plt.subplot(3,5,pltdict[g], polar=True)
-            [plotty.plot([0, angles.radians(t)], [0, tval], linestyle ='-', c=angles.color_returner(tval, t, 0.15), alpha=0.7) for t, tval in zip(thetas, thetavals)]
-            plotty.set_theta_zero_location('N')
+            plotty = plt.subplot(3, 5, pltdict[g], polar=True)
+            [
+                plotty.plot(
+                    [0, angles.radians(t)],
+                    [0, tval],
+                    linestyle="-",
+                    c=angles.color_returner(tval, t, 0.15),
+                    alpha=0.7,
+                )
+                for t, tval in zip(thetas, thetavals)
+            ]
+            plotty.set_theta_zero_location("N")
             plotty.set_theta_direction(-1)
-            plotty.set_ylim(0,1.15)
+            plotty.set_ylim(0, 1.15)
 
         fig.tight_layout()
         plt.show()
@@ -1264,9 +1315,9 @@ class LegacyFish:
         times = []
         for line in range(len(split)):
             if (
-                    "piezo" in split[line]
-                    and "connected" not in split[line]
-                    and "stopped" not in split[line]
+                "piezo" in split[line]
+                and "connected" not in split[line]
+                and "stopped" not in split[line]
             ):
                 t = split[line].split(" ")[0][:-1]
                 z = split[line].split(" ")[6]
@@ -1284,7 +1335,7 @@ class LegacyFish:
 
     @staticmethod
     def legacy_alignmentFramesSteps(
-            frametimes, logtimes, intermediate_return=False, time_offset=0.1
+        frametimes, logtimes, intermediate_return=False, time_offset=0.1
     ):
         """
         Parameters
@@ -1383,7 +1434,7 @@ class LegacyFish:
         trimmed_logsteps = logsteps[
             (logsteps.time >= frametimes.iloc[0].values[0])
             & (logsteps.time <= frametimes.iloc[-1].values[0])
-            ]
+        ]
         return trimmed_logsteps
 
     @staticmethod
@@ -1466,10 +1517,10 @@ class LegacyFish:
             m_els = cm.load(mc.fname_tot_els)
 
             output = m_els[
-                     :,
-                     2 * bord_px_rig : -2 * bord_px_rig,
-                     2 * bord_px_rig : -2 * bord_px_rig,
-                     ]
+                :,
+                2 * bord_px_rig : -2 * bord_px_rig,
+                2 * bord_px_rig : -2 * bord_px_rig,
+            ]
 
             # imagePathFolder = Path(imagePath).parents[0]
             if not keep_mmaps:
@@ -1497,8 +1548,8 @@ class LegacyFish:
         test1 = increment
         while True:
             testerBool = (
-                    frametimes.loc[:, "time"].values[test0].minute
-                    == frametimes.loc[:, "time"].values[test1].minute
+                frametimes.loc[:, "time"].values[test0].minute
+                == frametimes.loc[:, "time"].values[test1].minute
             )
             if testerBool:
                 break
@@ -1522,7 +1573,7 @@ class LegacyFish:
         from itertools import combinations, chain
 
         assert (
-                response_df is not None or bool_df is not None
+            response_df is not None or bool_df is not None
         ), "must include bool or response df"
 
         # makes dataframe of neurons with their responses
@@ -1627,4 +1678,3 @@ class LegacyFish:
         )
 
         return all_combinations
-

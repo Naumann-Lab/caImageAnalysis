@@ -20,9 +20,9 @@ def multilayered_graph(*subset_sizes):
 def calculate_diff_matrix(img1, img2, init_val=50):
     for image in [img1, img2]:
         try:
-            assert (image.min() == 0)
+            assert image.min() == 0
         except AssertionError:
-            print('image must contain background class')
+            print("image must contain background class")
 
     img1 = np.int32(img1)
     img2 = np.int32(img2)
@@ -38,7 +38,13 @@ def calculate_diff_matrix(img1, img2, init_val=50):
     for y in unique_img2:
         for x in unique_img1:
             # diff = ((np.array(np.where(img1 == x)) - np.array(np.where(img2 == y))) ** 2).sum() # previous working solution, doesnt handle arbirtrary array sizes
-            diff = ((np.mean(np.where(img1 == x), axis=1) - np.mean(np.where(img2 == y), axis=1)) ** 2).sum()
+            diff = (
+                (
+                    np.mean(np.where(img1 == x), axis=1)
+                    - np.mean(np.where(img2 == y), axis=1)
+                )
+                ** 2
+            ).sum()
 
             diff_matrix[x, y] = diff
 
@@ -74,9 +80,9 @@ def find_match(input_image_1, input_image_2, plot=False):
 
     pos = nx.multipartite_layout(G, subset_key="layer")
 
-    nx.set_edge_attributes(G, values=weights, name='weight')
+    nx.set_edge_attributes(G, values=weights, name="weight")
 
-    labels = nx.get_edge_attributes(G, 'weight')
+    labels = nx.get_edge_attributes(G, "weight")
     if plot:
         # nx.draw_networkx_edge_labels(G, pos, edge_labels=labels, horizontalalignment='left', verticalalignment='top')
         nx.draw(G, pos, with_labels=True)
@@ -85,7 +91,7 @@ def find_match(input_image_1, input_image_2, plot=False):
 
 def map_matches(mapped_array, match_dictionary, first_layer_depth):
     ### adapted from https://stackoverflow.com/questions/16992713/translate-every-element-in-numpy-array-according-to-key ###
-    u,inv = np.unique(mapped_array, return_inverse = True)
+    u, inv = np.unique(mapped_array, return_inverse=True)
 
     for k in u:
         if k not in match_dictionary:
@@ -98,22 +104,27 @@ def map_matches(mapped_array, match_dictionary, first_layer_depth):
         if match_dictionary[key] <= first_layer_depth:
             del match_dictionary[key]
     match_dictionary[0] = first_layer_depth
-    return np.array([match_dictionary[x]-first_layer_depth for x in u])[inv].reshape(mapped_array.shape)
+    return np.array([match_dictionary[x] - first_layer_depth for x in u])[inv].reshape(
+        mapped_array.shape
+    )
+
 
 ## example on two frames ##
-if __name__ == '__main__':
+if __name__ == "__main__":
     import zarr
     from scipy import ndimage
 
-    #open data
-    zarr_dir = '/home/loringm/Downloads/SIMULATED_DATASET/01/data.n5'
+    # open data
+    zarr_dir = "/home/loringm/Downloads/SIMULATED_DATASET/01/data.n5"
     data = zarr.open(zarr_dir)
-    imgs = data['GT'][:, 30, 144:400, 144:400]
+    imgs = data["GT"][:, 30, 144:400, 144:400]
 
     # convert data to binary and assign some (non tracked) labels to them
     bnr_images = [np.array(img > 0, dtype=np.int8) for img in imgs]
     labeled_images = [ndimage.label(bnrimage)[0] for bnrimage in bnr_images]
 
-    n=2
-    match_dic, l1_shape = find_match(labeled_images[n], labeled_images[n - 1], plot=False)
+    n = 2
+    match_dic, l1_shape = find_match(
+        labeled_images[n], labeled_images[n - 1], plot=False
+    )
     predicted_image = map_matches(labeled_images[n], match_dic, l1_shape)

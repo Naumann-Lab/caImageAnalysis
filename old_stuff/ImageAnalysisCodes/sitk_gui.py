@@ -17,13 +17,13 @@ class RegistrationPointDataAquisition(object):
     """
 
     def __init__(
-            self,
-            fixed_image,
-            moving_image,
-            fixed_window_level=None,
-            moving_window_level=None,
-            figure_size=(10, 8),
-            known_transformation=None,
+        self,
+        fixed_image,
+        moving_image,
+        fixed_window_level=None,
+        moving_window_level=None,
+        figure_size=(10, 8),
+        known_transformation=None,
     ):
         self.fixed_image = fixed_image
         (
@@ -179,7 +179,7 @@ class RegistrationPointDataAquisition(object):
         text_y_offset = -10
         for i, pnt in enumerate(self.fixed_point_indexes):
             if (
-                    self.fixed_slider and int(pnt[2] + 0.5) == self.fixed_slider.value
+                self.fixed_slider and int(pnt[2] + 0.5) == self.fixed_slider.value
             ) or not self.fixed_slider:
                 self.fixed_axes.scatter(
                     pnt[0], pnt[1], s=90, marker="+", color=self.text_and_marker_color
@@ -218,7 +218,7 @@ class RegistrationPointDataAquisition(object):
         )
         for i, pnt in enumerate(self.moving_point_indexes):
             if (
-                    self.moving_slider and int(pnt[2] + 0.5) == self.moving_slider.value
+                self.moving_slider and int(pnt[2] + 0.5) == self.moving_slider.value
             ) or not self.moving_slider:
                 self.moving_axes.scatter(
                     pnt[0], pnt[1], s=90, marker="+", color=self.text_and_marker_color
@@ -322,8 +322,8 @@ class RegistrationPointDataAquisition(object):
                         if self.moving_slider:
                             z_index = int(moving_point_indexes[2] + 0.5)
                             if (
-                                    self.moving_slider.max >= z_index
-                                    and self.moving_slider.min <= z_index
+                                self.moving_slider.max >= z_index
+                                and self.moving_slider.min <= z_index
                             ):
                                 self.moving_slider.value = z_index
                     self.update_display()
@@ -352,8 +352,8 @@ class RegistrationPointDataAquisition(object):
                         if self.fixed_slider:
                             z_index = int(fixed_point_indexes[2] + 0.5)
                             if (
-                                    self.fixed_slider.max >= z_index
-                                    and self.fixed_slider.min <= z_index
+                                self.fixed_slider.max >= z_index
+                                and self.fixed_slider.min <= z_index
                             ):
                                 self.fixed_slider.value = z_index
                     self.update_display()
@@ -465,7 +465,7 @@ class PointDataAquisition(object):
         text_y_offset = -10
         for i, pnt in enumerate(self.point_indexes):
             if (
-                    self.slice_slider and int(pnt[2] + 0.5) == self.slice_slider.value
+                self.slice_slider and int(pnt[2] + 0.5) == self.slice_slider.value
             ) or not self.slice_slider:
                 self.axes.scatter(pnt[0], pnt[1], s=90, marker="+", color="yellow")
                 # Get point in pixels.
@@ -512,10 +512,10 @@ class PointDataAquisition(object):
                     + ") dimension does not match image dimension."
                 )
             outside_2d_bounds = (
-                    p[0] >= self.npa.shape[2]
-                    or p[0] < 0
-                    or p[1] >= self.npa.shape[1]
-                    or p[1] < 0
+                p[0] >= self.npa.shape[2]
+                or p[0] < 0
+                or p[1] >= self.npa.shape[1]
+                or p[1] < 0
             )
             outside_bounds = outside_2d_bounds or (
                 False if self.npa.ndim == 2 else p[2] >= self.npa.shape[0] or p[2] < 0
@@ -561,11 +561,11 @@ class PointDataAquisition(object):
 
 
 def multi_image_display2D(
-        image_list,
-        title_list=None,
-        window_level_list=None,
-        figure_size=(10, 8),
-        horizontal=True,
+    image_list,
+    title_list=None,
+    window_level_list=None,
+    figure_size=(10, 8),
+    horizontal=True,
 ):
 
     if title_list:
@@ -591,7 +591,7 @@ def multi_image_display2D(
 
     # Draw the image(s)
     for ax, npa, title, min_intensity, max_intensity in zip(
-            axes, npa_list, title_list, min_intensity_list, max_intensity_list
+        axes, npa_list, title_list, min_intensity_list, max_intensity_list
     ):
         ax.imshow(npa, cmap=plt.cm.Greys_r, vmin=min_intensity, vmax=max_intensity)
         ax.set_title(title)
@@ -618,15 +618,15 @@ class MultiImageDisplay(object):
     """
 
     def __init__(
-            self,
-            image_list,
-            axis=0,
-            shared_slider=False,
-            title_list=None,
-            window_level_list=None,
-            intensity_slider_range_percentile=[2, 98],
-            figure_size=(10, 8),
-            horizontal=True,
+        self,
+        image_list,
+        axis=0,
+        shared_slider=False,
+        title_list=None,
+        window_level_list=None,
+        intensity_slider_range_percentile=[2, 98],
+        figure_size=(10, 8),
+        horizontal=True,
     ):
 
         self.npa_list, wl_range, wl_init = self.get_window_level_numpy_array(
@@ -655,7 +655,7 @@ class MultiImageDisplay(object):
         # Display the data and the controls, first time we display the image is outside the "update_display" method
         # as that method relies on the previous zoom factor which doesn't exist yet.
         for ax, npa, slider, wl_slider in zip(
-                self.axes, self.npa_list, self.slider_list, self.wl_list
+            self.axes, self.npa_list, self.slider_list, self.wl_list
         ):
             self.slc[self.axis] = slice(slider.value, slider.value + 1)
             # Need to use squeeze to collapse degenerate dimension (e.g. RGB image size 124 124 1 3)
@@ -727,7 +727,7 @@ class MultiImageDisplay(object):
         return widgets.VBox(children=[slicer_box, wl_box])
 
     def get_window_level_numpy_array(
-            self, image_list, window_level_list, intensity_slider_range_percentile
+        self, image_list, window_level_list, intensity_slider_range_percentile
     ):
         # Using GetArray and not GetArrayView because we don't keep references
         # to the original images. If they are deleted outside the view would become
@@ -772,7 +772,7 @@ class MultiImageDisplay(object):
 
         # Draw the image(s)
         for ax, npa, title, slider, wl_slider in zip(
-                self.axes, self.npa_list, self.title_list, self.slider_list, self.wl_list
+            self.axes, self.npa_list, self.title_list, self.slider_list, self.wl_list
         ):
             # We want to keep the zoom factor which was set prior to display, so we log it before
             # clearing the axes.
@@ -940,8 +940,8 @@ class ROIDataAquisition(object):
         if self.slice_slider:
             for roi_data in self.rois:
                 if (
-                        self.slice_slider.value >= roi_data[3][0]
-                        and self.slice_slider.value <= roi_data[3][1]
+                    self.slice_slider.value >= roi_data[3][0]
+                    and self.slice_slider.value <= roi_data[3][1]
                 ):
                     roi_data[0].set_visible(True)
                 else:
@@ -970,7 +970,7 @@ class ROIDataAquisition(object):
                         roi[0][1] - roi[0][0],
                         roi[1][1] - roi[1][0],
                         **self.roi_display_properties,
-                        ),
+                    ),
                     roi[0],
                     roi[1],
                     roi[2] if self.npa.ndim == 3 else None,
@@ -1002,7 +1002,7 @@ class ROIDataAquisition(object):
                     )
                 # Note that SimpleITK uses x-y-z specification vs. numpy's z-y-x
                 if not (
-                        bounds[0] >= 0 and bounds[1] < self.npa.shape[self.npa.ndim - i]
+                    bounds[0] >= 0 and bounds[1] < self.npa.shape[self.npa.ndim - i]
                 ):
                     raise ValueError(
                         "Given ROI ("
@@ -1023,7 +1023,7 @@ class ROIDataAquisition(object):
                         roi_extent[1] - roi_extent[0],
                         roi_extent[3] - roi_extent[2],
                         **self.roi_display_properties,
-                        ),
+                    ),
                     (roi_extent[0], roi_extent[1]),
                     (roi_extent[2], roi_extent[3]),
                     self.roi_range_slider.value if self.roi_range_slider else None,
@@ -1085,7 +1085,7 @@ class PairedPointDataManipulation(object):
     """
 
     def __init__(
-            self, transform=sitk.Euler2DTransform(), data_scale=100.0, figure_size=(8, 6)
+        self, transform=sitk.Euler2DTransform(), data_scale=100.0, figure_size=(8, 6)
     ):
         self.figure_size = figure_size
 
@@ -1231,7 +1231,7 @@ class PairedPointDataManipulation(object):
         self.moving_fiducials_glyphs = []
         self.moving_targets_glyphs = []
         for fixed_fiducial, moving_fiducial in zip(
-                self.fixed_fiducials, self.moving_fiducials
+            self.fixed_fiducials, self.moving_fiducials
         ):
             self.axes.plot(
                 fixed_fiducial[0], fixed_fiducial[1], **(self.FIXED_FIDUCIAL_CONFIG)
@@ -1267,7 +1267,7 @@ class PairedPointDataManipulation(object):
 
     def update_centroid(self):
         if self.viewing_checkbox.value == "rotate" and (
-                self.moving_targets or self.moving_fiducials
+            self.moving_targets or self.moving_fiducials
         ):
             n = len(self.moving_fiducials) + len(self.moving_targets)
             x, y = zip(*(self.moving_fiducials + self.moving_targets))
@@ -1388,7 +1388,7 @@ class PairedPointDataManipulation(object):
                     self.previous = [
                         event.xdata - self.centroid[0],
                         event.ydata - self.centroid[1],
-                        ]
+                    ]
 
     def on_motion(self, event):
         if event.button == 1:  # left click
@@ -1417,7 +1417,7 @@ class PairedPointDataManipulation(object):
                     glyph.set_data(
                         ox + np.cos(angle) * (px - ox) - np.sin(angle) * (py - oy),
                         oy + np.sin(angle) * (px - ox) + np.cos(angle) * (py - oy),
-                        )
+                    )
                 self.previous = v2
                 self.fig.canvas.draw_idle()
                 self.fig.canvas.flush_events()
@@ -1425,17 +1425,17 @@ class PairedPointDataManipulation(object):
     def on_release(self, event):
         if event.button == 1:  # left click
             if (
-                    self.viewing_checkbox.value == "translate"
-                    or self.viewing_checkbox.value == "rotate"
+                self.viewing_checkbox.value == "translate"
+                or self.viewing_checkbox.value == "rotate"
             ):
                 # Update the actual data using the glyphs (modified during translation/rotation)
                 for glyph, fiducial in zip(
-                        self.moving_fiducials_glyphs, self.moving_fiducials
+                    self.moving_fiducials_glyphs, self.moving_fiducials
                 ):
                     fiducial[0] = float(glyph.get_xdata())
                     fiducial[1] = float(glyph.get_ydata())
                 for glyph, target in zip(
-                        self.moving_targets_glyphs, self.moving_targets
+                    self.moving_targets_glyphs, self.moving_targets
                 ):
                     target[0] = float(glyph.get_xdata())
                     target[1] = float(glyph.get_ydata())
@@ -1492,14 +1492,14 @@ class PairedPointDataManipulation(object):
 
 
 def display_errors(
-        fixed_fiducials,
-        fixed_targets,
-        FLE_errors,
-        FRE_errors,
-        TRE_errors,
-        min_err=None,
-        max_err=None,
-        title="Registration Errors",
+    fixed_fiducials,
+    fixed_targets,
+    FLE_errors,
+    FRE_errors,
+    TRE_errors,
+    min_err=None,
+    max_err=None,
+    title="Registration Errors",
 ):
     if not min_err:
         min_err = min(FRE_errors[2], TRE_errors[2])
@@ -1555,6 +1555,7 @@ def display_errors(
     plt.colorbar(collection, shrink=0.8)
     plt.show()
 
+
 def mask_image_multiply(mask, image):
     components_per_pixel = image.GetNumberOfComponentsPerPixel()
     if components_per_pixel == 1:
@@ -1604,10 +1605,11 @@ def alpha_blend(image1, image2, alpha=0.5, mask1=None, mask2=None):
         alpha * intersection_mask, img1
     ) + mask_image_multiply((1 - alpha) * intersection_mask, img2)
     return (
-            intersection_image
-            + mask_image_multiply(mask2 - intersection_mask, img2)
-            + mask_image_multiply(mask1 - intersection_mask, img1)
+        intersection_image
+        + mask_image_multiply(mask2 - intersection_mask, img2)
+        + mask_image_multiply(mask1 - intersection_mask, img1)
     )
+
 
 def make_isotropic(image, interpolator=sitk.sitkLinear, spacing=None):
     """
