@@ -5,6 +5,11 @@ import constants
 
 
 def packVols(a_fish):
+    """
+
+    :param a_fish: some Fish Class describing a single experiment
+    :return: dict of volumes : s2p stuff, dict of volumes : dataframes with stim chunks for each neuron
+    """
     vols = a_fish.dataPaths["volumes"]
     s2p_dict = {vol: a_fish.load_suite2p(vols[vol]["suite2p"]) for vol in vols.keys()}
     stimArrs = {
@@ -17,6 +22,11 @@ def packVols(a_fish):
 
 
 def volumeValidity(a_fish, stimChoice):
+    """
+    :param a_fish: some Fish Class describing a single experiment
+    :param stimChoice: stimulus of choice
+    :return: dict of volumes : valid indices
+    """
     return {
         vol: a_fish.bool_dfs[int(vol)][
             a_fish.bool_dfs[int(vol)][stimChoice] == True
@@ -26,6 +36,13 @@ def volumeValidity(a_fish, stimChoice):
 
 
 def grabPeakNeurons(a_fish, stimChoice, n=25):
+    """
+
+    :param a_fish: some Fish Class describing a single experiment
+    :param stimChoice: stimulus of choice
+    :param n: how many neurons
+    :return: normalized traces for top n neurons
+    """
     vols2p, volstims = packVols(a_fish)
     for vol, df in volstims.items():
         df.loc[:, "vol"] = vol
