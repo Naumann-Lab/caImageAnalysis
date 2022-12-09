@@ -35,7 +35,7 @@ def volumeValidity(a_fish, stimChoice):
     }
 
 
-def grabPeakNeurons(a_fish, stimChoice, n=25):
+def grabPeakNeurons(a_fish, stimChoice, n=25, retvals="arrays"):
     """
 
     :param a_fish: some Fish Class describing a single experiment
@@ -74,12 +74,43 @@ def grabPeakNeurons(a_fish, stimChoice, n=25):
             validated.append(m)
 
     max_inds = max_inds[validated][:n]
+    if len(max_inds) < n:
+        n = len(max_inds)
 
-    cell_arrs = []
-    for i in range(n):
-        used_vol = df_vols[max_inds[i]]
-        vol_ind = df_inds[max_inds[i]]
-        ops, iscell, stats, f_cells = vols2p[used_vol]
-        norm_cells = a_fish.norm_fdff(f_cells)
-        cell_arrs.append(norm_cells[vol_ind])
-    return cell_arrs
+    if retvals == "arrays":
+        cell_arrs = []
+        for i in range(n):
+            used_vol = df_vols[max_inds[i]]
+            vol_ind = df_inds[max_inds[i]]
+            ops, iscell, stats, f_cells = vols2p[used_vol]
+            norm_cells = a_fish.norm_fdff(f_cells)
+            cell_arrs.append(norm_cells[vol_ind])
+        return cell_arrs
+
+    if retvals == "positions":
+        ypos = []
+        xpos = []
+        for i in range(n):
+            used_vol = df_vols[max_inds[i]]
+            vol_ind = df_inds[max_inds[i]]
+            ops, iscell, stats, f_cells = vols2p[used_vol]
+            ypix = stats[vol_ind]["ypix"]
+            xpix = stats[vol_ind]["xpix"]
+
+            xpos.append(np.nanmean(xpix))
+            ypos.append(np.nanmean(ypix))
+
+        refs = []
+        for vol in vols2p.keys():
+            ops, iscell, stats, f_cells = vols2p[vol]
+            refs.append(ops["refImg"])
+
+        min1 = np.min([r.shape[0] for r in refs])
+        min2 = np.min([r.shape[1] for r in refs])
+
+        for r in range(len(refs)):
+            refs[r] = refs[r][:min1, :min2]
+
+        refimg = np.nanmean(np.array(refs), axis=0)
+
+        return xpos, ypos, refimg

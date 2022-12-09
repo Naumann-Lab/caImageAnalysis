@@ -43,7 +43,14 @@ nulldict = {
     "backward_right": "forward_left",
 }
 
-baseBinocs = ["medial_left", "lateral_left", "medial_right", "lateral_right"]
+baseBinocs = [
+    "medial_left",
+    "lateral_left",
+    "medial_right",
+    "lateral_right",
+    "diverging",
+    "converging",
+]
 
 deg_dict = {
     "right": 90,
