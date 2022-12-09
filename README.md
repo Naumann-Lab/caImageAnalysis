@@ -1,4 +1,6 @@
 # caImageAnalysis
+python 3.7 caiman + suite2p environment
+
 calcium imaging functional analysis
 
 
