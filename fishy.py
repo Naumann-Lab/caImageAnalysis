@@ -42,8 +42,8 @@ class BaseFish:
 
 
 class ProcessFish(BaseFish):
-    def __init__(self, input_tau=1.5):
-        super().__init__()
+    def __init__(self, input_tau=1.5, *args, **kwargs):
+        super().__init__(*args, **kwargs)
 
         self.tau = input_tau
 
@@ -173,3 +173,33 @@ class ProcessFish(BaseFish):
             for f in frametimes.loc[:, "time"].values[test0:test1]
         ]
         return 1 / np.mean(np.diff(times))
+
+
+class VizStimFish(BaseFish):
+    def __init__(self, stim_key="stims", stim_fxn=None, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.add_stims(stim_key, stim_fxn)
+
+    def add_stims(self, stim_key, stim_fxn):
+        with os.scandir(self.folder_path) as entries:
+            for entry in entries:
+                if stim_key in entry.name:
+                    self.data_paths['stimuli'] = Path(entry.path)
+
+        try:
+            _ = self.data_paths['stimuli']
+        except KeyError:
+            print('failed to find stimuli')
+            return
+
+        if stim_fxn:
+            self.stimulus_df = stim_fxn(self.data_paths['stimuli'])
+            self.tag_frames()
+
+    def tag_frames(self):
+        return [
+            self.frametimes_df[
+                self.frametimes_df.time >= self.stimulus_df.time.values[i]
+                ].index[0]
+            for i in range(len(self.stimulus_df))
+        ]

@@ -23,3 +23,12 @@ def tolerant_mean(arrs):
     for idx, l in enumerate(arrs):
         arr[: len(l), idx] = l
     return arr.mean(axis=-1), arr.std(axis=-1)
+
+
+def norm_fdff(cell_array):
+    minVals = np.percentile(cell_array, 10, axis=1)
+    zerod_arr = np.array(
+        [np.subtract(cell_array[n], i) for n, i in enumerate(minVals)]
+    )
+    normed_arr = np.array([np.divide(arr, arr.max()) for arr in zerod_arr])
+    return normed_arr
