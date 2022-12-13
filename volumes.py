@@ -3,6 +3,7 @@ import numpy as np
 
 import constants
 
+###  CURRRENTLY EXPECTS LEGACY FISH [not fishys] ###
 
 def packVols(a_fish):
     """
