@@ -52,7 +52,10 @@ class BaseFish:
                 self.data_paths["image"].parents[0]
                 == self.data_paths["move_corrected_image"].parents[0]
             ):
-                pathutils.move_og_image(self.data_paths["image"])
+                try:
+                    pathutils.move_og_image(self.data_paths["image"])
+                except:
+                    print('failed to move original image out of folder')
 
     def raw_text_frametimes_to_df(self):
         with open(self.data_paths["frametimes"]) as file:
@@ -144,16 +147,17 @@ class WorkingFish(VizStimFish):
         **kwargs
     ):
         super().__init__(*args, **kwargs)
+
+        if "move_correcteed_image" not in self.data_paths:
+            raise TankError
+
         self.stim_offset = stim_offset
         self.offsets = used_offsets
 
         if not lightweight:
             from tifffile import imread
 
-            try:
-                self.image = imread(self.data_paths["move_corrected_image"])
-            except KeyError:
-                return
+            self.image = imread(self.data_paths["move_corrected_image"])
 
             if invert:
                 self.image = self.image[:, :, ::-1]
@@ -224,3 +228,11 @@ class VolumeFish:
         self.volumes[newKey] = new_fish
         if ind:
             self.volume_inds[ind] = newKey
+
+
+class TankError(Exception):
+    '''
+    Fish doesn't belong in the tank.
+    Give him some processing first
+    '''
+    pass
