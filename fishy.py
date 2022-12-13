@@ -78,6 +78,16 @@ class BaseFish:
                              allow_pickle=True)
         self.f_cells = np.load(self.data_paths["suite2p"].joinpath("F.npy"))
 
+    def return_cell_rois(self, cells):
+        rois = []
+        for cell in cells:
+            ypix = self.stats[cell]["ypix"]
+            xpix = self.stats[cell]["xpix"]
+            mean_y = int(np.mean(ypix))
+            mean_x = int(np.mean(xpix))
+            rois.append([mean_y, mean_x])
+        return rois
+
     @staticmethod
     def hzReturner(frametimes):
         increment = 15
@@ -107,7 +117,7 @@ class BaseFish:
 
 
 class VizStimFish(BaseFish):
-    def __init__(self, stim_key="stims", stim_fxn=None, *args, **kwargs):
+    def __init__(self, stim_key="stims", stim_fxn=None, stim_fxn_args=None, *args, **kwargs):
         """
 
         :param stim_key: filename key to find stims in folder
@@ -116,6 +126,9 @@ class VizStimFish(BaseFish):
         :param kwargs:
         """
         super().__init__(*args, **kwargs)
+        if stim_fxn_args is None:
+            stim_fxn_args = []
+        self.stim_fxn_args = stim_fxn_args
         self.add_stims(stim_key, stim_fxn)
 
     def add_stims(self, stim_key, stim_fxn):
@@ -131,7 +144,7 @@ class VizStimFish(BaseFish):
             return
 
         if stim_fxn:
-            self.stimulus_df = stim_fxn(self.data_paths["stimuli"])
+            self.stimulus_df = stim_fxn(self.data_paths["stimuli"], **self.stim_fxn_args)
             self.tag_frames()
 
     def tag_frames(self):
@@ -146,7 +159,7 @@ class VizStimFish(BaseFish):
 
 
 # class TailTrackedFish(VizStimFish):
-#     def __init__(self, *args, **kwargs):
+#     def __init__(self, tail_key, *args, **kwargs):
 #         super().__init__(*args, **kwargs)
 #
 #     def katlyn1(self):
@@ -242,6 +255,8 @@ class VolumeFish:
         self.volume_inds = {}
 
     def add_volume(self, new_fish, ind=None):
+        assert isinstance(new_fish, BaseFish), "fish must be a fish"
+
         newKey = new_fish.folder_path.name
         self.volumes[newKey] = new_fish
         if ind:
