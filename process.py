@@ -68,6 +68,7 @@ def run_movement_correction(base_fish, caiman_ops=None, keep_mmaps=False):
 
 def run_suite2p(base_fish, input_tau=1.5, s2p_ops=None):
     from suite2p.run_s2p import run_s2p, default_ops
+
     base_fish.process_filestructure()  # why not update :)
 
     if (
