@@ -9,10 +9,10 @@ import numpy as np
 
 from pathlib import Path
 from datetime import datetime as dt
-
+from tifffile import imread
 # local imports
 import constants
-from utilities import pathutils
+from utilities import pathutils, arrutils
 
 
 class BaseFish:
@@ -79,6 +79,9 @@ class BaseFish:
         self.f_cells = np.load(self.data_paths["suite2p"].joinpath("F.npy"))
 
     def return_cell_rois(self, cells):
+        if isinstance(cells, int):
+            cells = [cells]
+
         rois = []
         for cell in cells:
             ypix = self.stats[cell]["ypix"]
@@ -115,6 +118,8 @@ class BaseFish:
         ]
         return 1 / np.mean(np.diff(times))
 
+    def __str__(self):
+        return "fish"
 
 class VizStimFish(BaseFish):
     def __init__(self, stim_key="stims", stim_fxn=None, stim_fxn_args=None, *args, **kwargs):
@@ -170,6 +175,9 @@ class VizStimFish(BaseFish):
 #     def katlyn2(self):
 
 class WorkingFish(VizStimFish):
+    '''
+    the classic: the every-man's briefcase wielding workhorse
+    '''
     def __init__(
         self,
         lightweight=False,
@@ -183,25 +191,32 @@ class WorkingFish(VizStimFish):
 
         if "move_corrected_image" not in self.data_paths:
             raise TankError
-
+        self.lightweightmode = lightweight
         self.stim_offset = stim_offset
         self.offsets = used_offsets
+        self.invert = invert
+
+        if invert:
+            self.stimulus_df.stim_name = self.stimulus_df.stim_name.map(
+                constants.invStimDict
+            )
 
         if not lightweight:
-            from tifffile import imread
-
             self.image = imread(self.data_paths["move_corrected_image"])
-
             if invert:
                 self.image = self.image[:, :, ::-1]
-                self.stimulus_df.stim_name = self.stimulus_df.stim_name.map(
-                    constants.invStimDict
-                )
+
             self.diff_image = self.make_difference_image()
 
-            self.load_suite2p()
+        self.load_suite2p()
+        self.build_stimdicts()
 
     def make_difference_image(self, selectivityFactor=1.5, brightnessFactor=10):
+        if not hasattr(self, 'image'):
+            self.image = imread(self.data_paths["move_corrected_image"])
+            if self.invert:
+                self.image = self.image[:, :, ::-1]
+
         diff_imgs = {}
         for stimulus_name in constants.monocular_dict.keys():
             stim_occurences = self.stimulus_df[
@@ -250,22 +265,62 @@ class WorkingFish(VizStimFish):
 
         final_image = np.sum(_all_img, axis=0)
         final_image /= np.max(final_image)
+
+        if self.lightweightmode:
+            del self.image
+
         return final_image * brightnessFactor
+
+    def build_stimdicts(self):
+        self.stim_dict = {i: {} for i in self.stimulus_df.stim_name.unique()}
+        self.err_dict = {i: {} for i in self.stimulus_df.stim_name.unique()}
+        self.zdiff_cells = [arrutils.zdiffcell(i) for i in self.f_cells]
+
+        for stim in self.stimulus_df.stim_name.unique():
+            arrs = arrutils.subsection_arrays(self.stimulus_df[self.stimulus_df.stim_name==stim].frame.values)
+
+            for n, nrn in enumerate(self.zdiff_cells):
+                resp_arrs = []
+                for arr in arrs:
+                    resp_arrs.append(nrn[arr])
+                self.stim_dict[stim][n] = np.nanmean(resp_arrs, axis=0)
+                self.err_dict[stim][n] = np.nanstd(resp_arrs, axis=0) / np.sqrt(len(resp_arrs))
 
 
 class VolumeFish:
     def __init__(self):
         self.volumes = {}
         self.volume_inds = {}
+        self.last_ind = 0
 
     def add_volume(self, new_fish, ind=None):
-        assert isinstance(new_fish, BaseFish), "fish must be a fish"
+        assert str(new_fish) == "fish", "must be a fish" #  isinstance sometimes failing??
+        # assert isinstance(new_fish, BaseFish), "must be a fish" #  this is randomly buggin out
 
         newKey = new_fish.folder_path.name
         self.volumes[newKey] = new_fish
         if ind:
             self.volume_inds[ind] = newKey
+        else:
+            self.volume_inds[self.last_ind] = newKey
+            self.last_ind += 1
 
+    def add_diff_imgs(self, *args, **kwargs):
+        for v in self.volumes.values():
+            v.diff_image = v.make_difference_image(*args, **kwargs)
+
+    def volume_diff(self):
+        all_diffs = [v.diff_image for v in self.volumes.values()]
+        ind1 = [i.shape[0] for i in all_diffs]
+        ind2 = [i.shape[1] for i in all_diffs]
+        min_ind1 = min(ind1)
+        min_ind2 = min(ind2)
+        trim_diffs = [i[:min_ind1, :min_ind2, :] for i in all_diffs]
+        return np.sum(trim_diffs, axis=0)
+
+    #custom getter to extract volume of interest
+    def __getitem__(self, index):
+        return self.volumes[self.volume_inds[index]]
 
 class TankError(Exception):
     '''
