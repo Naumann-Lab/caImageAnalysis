@@ -15,8 +15,10 @@ import constants
 
 
 class BaseFish:
-    def __init__(self, basePath, frametimes_key='frametimes'):
-        self.process_filestructure(basePath, frametimes_key)  # generates self.data_paths
+    def __init__(self, basePath, frametimes_key="frametimes"):
+        self.process_filestructure(
+            basePath, frametimes_key
+        )  # generates self.data_paths
         self.raw_text_frametimes_to_df()  # generates self.frametimes_df
 
     def process_filestructure(self, folderPath, frametimes_key):
@@ -49,6 +51,8 @@ class ProcessFish(BaseFish):
         super().__init__(*args, **kwargs)
 
         self.tau = input_tau
+        self.run_movement_correction()
+        self.run_suite2p()
 
     def run_movement_correction(self, caiman_ops=None, keep_mmaps=False):
         import caiman as cm
@@ -122,7 +126,7 @@ class ProcessFish(BaseFish):
         if os.path.exists(original_image_path) and os.path.exists(new_path):
             os.remove(original_image_path)
 
-        self.data_paths['move_corrected_image'] = new_path
+        self.data_paths["move_corrected_image"] = new_path
 
     def run_suite2p(self, s2p_ops=None):
         from suite2p.run_s2p import run_s2p, default_ops
@@ -180,13 +184,13 @@ class ProcessFish(BaseFish):
 
 class VizStimFish(BaseFish):
     def __init__(self, stim_key="stims", stim_fxn=None, *args, **kwargs):
-        '''
+        """
 
         :param stim_key: filename key to find stims in folder
         :param stim_fxn: processes stimuli of interest: returns df with minimum "stim_name" and "time" columns
         :param args:
         :param kwargs:
-        '''
+        """
         super().__init__(*args, **kwargs)
         self.add_stims(stim_key, stim_fxn)
 
@@ -194,26 +198,27 @@ class VizStimFish(BaseFish):
         with os.scandir(self.folder_path) as entries:
             for entry in entries:
                 if stim_key in entry.name:
-                    self.data_paths['stimuli'] = Path(entry.path)
+                    self.data_paths["stimuli"] = Path(entry.path)
 
         try:
-            _ = self.data_paths['stimuli']
+            _ = self.data_paths["stimuli"]
         except KeyError:
-            print('failed to find stimuli')
+            print("failed to find stimuli")
             return
 
         if stim_fxn:
-            self.stimulus_df = stim_fxn(self.data_paths['stimuli'])
+            self.stimulus_df = stim_fxn(self.data_paths["stimuli"])
             self.tag_frames()
 
     def tag_frames(self):
-        frame_matches =  [
+        frame_matches = [
             self.frametimes_df[
                 self.frametimes_df.time >= self.stimulus_df.time.values[i]
-                ].index[0]
+            ].index[0]
             for i in range(len(self.stimulus_df))
         ]
-        self.stimulus_df.loc[:, 'frame'] = frame_matches
+        self.stimulus_df.loc[:, "frame"] = frame_matches
+        self.stimulus_df.drop(columns="time", inplace=True)
 
 
 class WorkingFish(VizStimFish):
@@ -225,7 +230,7 @@ class WorkingFish(VizStimFish):
             from tifffile import imread
 
             try:
-                self.image = imread(self.data_paths['move_corrected_image'])
+                self.image = imread(self.data_paths["move_corrected_image"])
             except KeyError:
                 return
 
@@ -237,17 +242,21 @@ class WorkingFish(VizStimFish):
     def make_difference_image(self, selectivityFactor=1.5, brightnessFactor=10):
         diff_imgs = {}
         for stimulus_name in constants.monocular_dict.keys():
-            stim_occurences = self.stimulus_df[self.stimulus_df.stim_name == stimulus_name].frame.values
+            stim_occurences = self.stimulus_df[
+                self.stimulus_df.stim_name == stimulus_name
+            ].frame.values
 
             stim_diff_imgs = []
             for ind in stim_occurences:
-                peak = np.nanmean(self.image[ind: ind + self.stim_offset], axis=0)
-                background = np.nanmean(self.image[ind - 2 * self.stim_offset: ind-1], axis=0)
+                peak = np.nanmean(self.image[ind : ind + self.stim_offset], axis=0)
+                background = np.nanmean(
+                    self.image[ind - 2 * self.stim_offset : ind - 1], axis=0
+                )
                 stim_diff_imgs.append(peak - background)
 
             diff_imgs[stimulus_name] = np.nanmean(stim_diff_imgs, axis=0)
 
-        max_value = np.max([np.max(i) for i in diff_imgs.values()]) # for scaling
+        max_value = np.max([np.max(i) for i in diff_imgs.values()])  # for scaling
 
         color_images = []
         for stimulus_name, diff_image in diff_imgs.items():
@@ -267,7 +276,11 @@ class WorkingFish(VizStimFish):
 
             color_images.append(
                 np.dstack(
-                    (red_val**selectivityFactor, green_val**selectivityFactor, blue_val**selectivityFactor)
+                    (
+                        red_val**selectivityFactor,
+                        green_val**selectivityFactor,
+                        blue_val**selectivityFactor,
+                    )
                 )
             )
         new_max_value = np.max(color_images)
