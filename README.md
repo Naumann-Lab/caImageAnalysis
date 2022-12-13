@@ -1,4 +1,6 @@
 # caImageAnalysis
+<img align = "right" width = "240" src="mascot.png ">
+
 python 3.7 caiman + suite2p environment
 
 calcium imaging functional analysis

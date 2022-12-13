@@ -69,6 +69,15 @@ class BaseFish:
         times_df.rename({0: "time"}, axis=1, inplace=True)
         self.frametimes_df = times_df
 
+    def load_suite2p(self):
+        self.ops = np.load(self.data_paths["suite2p"].joinpath("plane0/ops.npy"),
+                           allow_pickle=True).item()
+        self.iscell = np.load(self.data_paths["suite2p"].joinpath("/iscell.npy"),
+                              allow_pickle=True)[:, 0].astype(bool)
+        self.stats = np.load(self.data_paths["suite2p"].joinpath("plane0/stat.npy"),
+                             allow_pickle=True)
+        self.f_cells = np.load(self.data_paths["suite2p"].joinpath("plane0/F.npy"))
+
     @staticmethod
     def hzReturner(frametimes):
         increment = 15
@@ -165,6 +174,8 @@ class WorkingFish(VizStimFish):
                     constants.invStimDict
                 )
             self.diff_image = self.make_difference_image()
+
+            self.load_suite2p()
 
     def make_difference_image(self, selectivityFactor=1.5, brightnessFactor=10):
         diff_imgs = {}
