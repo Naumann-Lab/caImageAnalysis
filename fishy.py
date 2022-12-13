@@ -38,22 +38,19 @@ class BaseFish:
                     self.data_paths["frametimes"] = Path(entry.path)
 
                 if os.path.isdir(entry.path):
-                    if entry.name == 'suite2p':
-                        self.data_paths['suite2p'] = Path(entry.path).joinpath('plane0')
+                    if entry.name == "suite2p":
+                        self.data_paths["suite2p"] = Path(entry.path).joinpath("plane0")
 
                     if entry.name == "original_image":
                         with os.scandir(entry.path) as imgdiver:
                             for poss_img in imgdiver:
-                                if poss_img.name.endswith('.tif'):
-                                    self.data_paths['image'] = Path(poss_img.path)
+                                if poss_img.name.endswith(".tif"):
+                                    self.data_paths["image"] = Path(poss_img.path)
 
-        if (
-                "image" in self.data_paths
-                and "move_corrected_image" in self.data_paths
-        ):
+        if "image" in self.data_paths and "move_corrected_image" in self.data_paths:
             if (
-                    self.data_paths["image"].parents[0]
-                    == self.data_paths["move_corrected_image"].parents[0]
+                self.data_paths["image"].parents[0]
+                == self.data_paths["move_corrected_image"].parents[0]
             ):
                 pathutils.move_og_image(self.data_paths["image"])
 
@@ -137,7 +134,15 @@ class VizStimFish(BaseFish):
 
 
 class WorkingFish(VizStimFish):
-    def __init__(self, lightweight=False, invert=True, stim_offset=5, used_offsets=(-10, 14), *args, **kwargs):
+    def __init__(
+        self,
+        lightweight=False,
+        invert=True,
+        stim_offset=5,
+        used_offsets=(-10, 14),
+        *args,
+        **kwargs
+    ):
         super().__init__(*args, **kwargs)
         self.stim_offset = stim_offset
         self.offsets = used_offsets
@@ -166,10 +171,8 @@ class WorkingFish(VizStimFish):
 
             stim_diff_imgs = []
             for ind in stim_occurences:
-                peak = np.nanmean(self.image[ind: ind + self.offsets[1]], axis=0)
-                background = np.nanmean(
-                    self.image[ind + self.offsets[0]: ind], axis=0
-                )
+                peak = np.nanmean(self.image[ind : ind + self.offsets[1]], axis=0)
+                background = np.nanmean(self.image[ind + self.offsets[0] : ind], axis=0)
                 stim_diff_imgs.append(peak - background)
 
             diff_imgs[stimulus_name] = np.nanmean(stim_diff_imgs, axis=0)
