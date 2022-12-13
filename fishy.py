@@ -70,13 +70,13 @@ class BaseFish:
         self.frametimes_df = times_df
 
     def load_suite2p(self):
-        self.ops = np.load(self.data_paths["suite2p"].joinpath("plane0/ops.npy"),
+        self.ops = np.load(self.data_paths["suite2p"].joinpath("ops.npy"),
                            allow_pickle=True).item()
-        self.iscell = np.load(self.data_paths["suite2p"].joinpath("/iscell.npy"),
+        self.iscell = np.load(self.data_paths["suite2p"].joinpath("iscell.npy"),
                               allow_pickle=True)[:, 0].astype(bool)
-        self.stats = np.load(self.data_paths["suite2p"].joinpath("plane0/stat.npy"),
+        self.stats = np.load(self.data_paths["suite2p"].joinpath("stat.npy"),
                              allow_pickle=True)
-        self.f_cells = np.load(self.data_paths["suite2p"].joinpath("plane0/F.npy"))
+        self.f_cells = np.load(self.data_paths["suite2p"].joinpath("F.npy"))
 
     @staticmethod
     def hzReturner(frametimes):
@@ -145,6 +145,13 @@ class VizStimFish(BaseFish):
         self.stimulus_df.drop(columns="time", inplace=True)
 
 
+# class TailTrackedFish(VizStimFish):
+#     def __init__(self, *args, **kwargs):
+#         super().__init__(*args, **kwargs)
+#
+#     def katlyn1(self):
+#     def katlyn2(self):
+
 class WorkingFish(VizStimFish):
     def __init__(
         self,
@@ -157,7 +164,7 @@ class WorkingFish(VizStimFish):
     ):
         super().__init__(*args, **kwargs)
 
-        if "move_correcteed_image" not in self.data_paths:
+        if "move_corrected_image" not in self.data_paths:
             raise TankError
 
         self.stim_offset = stim_offset
