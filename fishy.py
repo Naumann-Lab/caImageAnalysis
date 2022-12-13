@@ -131,8 +131,8 @@ class WorkingFish(VizStimFish):
 
             if invert:
                 self.image = self.image[:, :, ::-1]
-
-            self.diff_image = self.make_difference_image(*args, **kwargs)
+                self.stimulus_df.stim_name = self.stimulus_df.stim_name.map(constants.invStimDict)
+            self.diff_image = self.make_difference_image()
 
     def make_difference_image(self, selectivityFactor=1.5, brightnessFactor=10):
         diff_imgs = {}
