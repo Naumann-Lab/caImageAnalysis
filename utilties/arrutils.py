@@ -32,3 +32,12 @@ def norm_fdff(cell_array):
     )
     normed_arr = np.array([np.divide(arr, arr.max()) for arr in zerod_arr])
     return normed_arr
+
+
+def subsection_arrays(input_array, offsets=(-10, 10)):
+    a = []
+    for repeat in range(len(input_array)):
+        s = input_array[repeat] + offsets[0]
+        e = input_array[repeat] + offsets[1]
+        a.append(np.arange(s, e))
+    return np.array(a)
