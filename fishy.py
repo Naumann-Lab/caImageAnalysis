@@ -12,7 +12,7 @@ from datetime import datetime as dt
 
 # local imports
 import constants
-import utilities
+from utilities import pathutils
 
 
 class BaseFish:
@@ -36,6 +36,19 @@ class BaseFish:
                     self.data_paths["log"] = Path(entry.path)
                 elif entry.name.endswith(".txt") and self.frametimes_key in entry.name:
                     self.data_paths["frametimes"] = Path(entry.path)
+
+                if os.path.isdir(entry.path) and entry.name == 'suite2p':
+                    self.data_paths['suite2p'] = Path(entry.path).joinpath('plane0')
+
+        if (
+                "image" in self.data_paths
+                and "move_corrected_image" in self.data_paths
+        ):
+            if (
+                    self.data_paths["image"].parents[0]
+                    == self.data_paths["move_corrected_image"].parents[0]
+            ):
+                pathutils.move_og_image(self.data_paths["image"])
 
     def raw_text_frametimes_to_df(self):
         with open(self.data_paths["frametimes"]) as file:
@@ -188,3 +201,15 @@ class WorkingFish(VizStimFish):
         final_image = np.sum(_all_img, axis=0)
         final_image /= np.max(final_image)
         return final_image * brightnessFactor
+
+
+class VolumeFish:
+    def __init__(self):
+        self.volumes = {}
+        self.volume_inds = {}
+
+    def add_volume(self, new_fish, ind=None):
+        newKey = new_fish.folder_path.name
+        self.volumes[newKey] = new_fish
+        if ind:
+            self.volume_inds[ind] = newKey

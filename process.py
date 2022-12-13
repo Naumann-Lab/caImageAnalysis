@@ -71,16 +71,6 @@ def run_suite2p(base_fish, input_tau=1.5, s2p_ops=None):
 
     base_fish.process_filestructure()  # why not update :)
 
-    if (
-        "image" in base_fish.data_paths
-        and "move_corrected_image" in base_fish.data_paths
-    ):
-        if (
-            base_fish.data_paths["image"].parents[0]
-            == base_fish.data_paths["move_corrected_image"].parents[0]
-        ):
-            pathutils.move_og_image(base_fish.data_paths["image"])
-
     imageHz = base_fish.hzReturner(base_fish.frametimes_df)
     try:
         imagepath = base_fish.data_paths["move_corrected_image"]
