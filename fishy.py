@@ -144,7 +144,11 @@ class VizStimFish(BaseFish):
             return
 
         if stim_fxn:
-            self.stimulus_df = stim_fxn(self.data_paths["stimuli"], **self.stim_fxn_args)
+            if self.stim_fxn_args:
+                self.stimulus_df = stim_fxn(self.data_paths["stimuli"], **self.stim_fxn_args)
+            else:
+                self.stimulus_df = stim_fxn(self.data_paths["stimuli"])
+
             self.tag_frames()
 
     def tag_frames(self):
