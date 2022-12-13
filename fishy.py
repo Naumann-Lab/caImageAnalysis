@@ -14,6 +14,7 @@ from datetime import datetime as dt
 import constants
 import utilities
 
+
 class BaseFish:
     def __init__(self, folder_path, frametimes_key="frametimes"):
         self.folder_path = Path(folder_path)
@@ -55,8 +56,8 @@ class BaseFish:
         test1 = increment
         while True:
             testerBool = (
-                    frametimes.loc[:, "time"].values[test0].minute
-                    == frametimes.loc[:, "time"].values[test1].minute
+                frametimes.loc[:, "time"].values[test0].minute
+                == frametimes.loc[:, "time"].values[test1].minute
             )
             if testerBool:
                 break

@@ -9,7 +9,7 @@ def run_movement_correction(base_fish, caiman_ops=None, keep_mmaps=False):
     import caiman as cm
     from tifffile import imsave
 
-    original_image_path = base_fish.data_paths['image']
+    original_image_path = base_fish.data_paths["image"]
 
     if not caiman_ops:
         caiman_ops = {
@@ -47,10 +47,10 @@ def run_movement_correction(base_fish, caiman_ops=None, keep_mmaps=False):
     mc.motion_correct(save_movie=True, template=mc.total_template_rig)
     m_els = cm.load(mc.fname_tot_els)
     output = m_els[
-             :,
-             2 * bord_px_rig : -2 * bord_px_rig,
-             2 * bord_px_rig : -2 * bord_px_rig,
-             ]
+        :,
+        2 * bord_px_rig : -2 * bord_px_rig,
+        2 * bord_px_rig : -2 * bord_px_rig,
+    ]
     if not keep_mmaps:
         with os.scandir(original_image_path.parents[0]) as entries:
             for entry in entries:
@@ -68,9 +68,15 @@ def run_movement_correction(base_fish, caiman_ops=None, keep_mmaps=False):
 def run_suite2p(base_fish, input_tau=1.5, s2p_ops=None):
     from suite2p.run_s2p import run_s2p, default_ops
 
-    if "image" in base_fish.data_paths and "move_corrected_image" in base_fish.data_paths:
-        if base_fish.data_paths['image'].parents[0] == base_fish.data_paths['move_corrected_image'].parents[0]:
-            pathutils.move_og_image(base_fish.data_paths['image'])
+    if (
+        "image" in base_fish.data_paths
+        and "move_corrected_image" in base_fish.data_paths
+    ):
+        if (
+            base_fish.data_paths["image"].parents[0]
+            == base_fish.data_paths["move_corrected_image"].parents[0]
+        ):
+            pathutils.move_og_image(base_fish.data_paths["image"])
 
     imageHz = base_fish.hzReturner(base_fish.frametimes_df)
     try:
