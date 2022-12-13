@@ -37,8 +37,15 @@ class BaseFish:
                 elif entry.name.endswith(".txt") and self.frametimes_key in entry.name:
                     self.data_paths["frametimes"] = Path(entry.path)
 
-                if os.path.isdir(entry.path) and entry.name == 'suite2p':
-                    self.data_paths['suite2p'] = Path(entry.path).joinpath('plane0')
+                if os.path.isdir(entry.path):
+                    if entry.name == 'suite2p':
+                        self.data_paths['suite2p'] = Path(entry.path).joinpath('plane0')
+
+                    if entry.name == "original_image":
+                        with os.scandir(entry.path) as imgdiver:
+                            for poss_img in imgdiver:
+                                if poss_img.name.endswith('.tif'):
+                                    self.data_paths['image'] = Path(poss_img.path)
 
         if (
                 "image" in self.data_paths
@@ -130,9 +137,10 @@ class VizStimFish(BaseFish):
 
 
 class WorkingFish(VizStimFish):
-    def __init__(self, lightweight=False, invert=True, stim_offset=5, *args, **kwargs):
+    def __init__(self, lightweight=False, invert=True, stim_offset=5, used_offsets=(-10, 14), *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.stim_offset = stim_offset
+        self.offsets = used_offsets
 
         if not lightweight:
             from tifffile import imread
@@ -158,9 +166,9 @@ class WorkingFish(VizStimFish):
 
             stim_diff_imgs = []
             for ind in stim_occurences:
-                peak = np.nanmean(self.image[ind : ind + self.stim_offset], axis=0)
+                peak = np.nanmean(self.image[ind: ind + self.offsets[1]], axis=0)
                 background = np.nanmean(
-                    self.image[ind - 2 * self.stim_offset : ind - 1], axis=0
+                    self.image[ind + self.offsets[0]: ind], axis=0
                 )
                 stim_diff_imgs.append(peak - background)
 
