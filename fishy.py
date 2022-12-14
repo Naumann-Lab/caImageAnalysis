@@ -170,6 +170,10 @@ class VizStimFish(BaseFish):
         self.stim_fxn_args = stim_fxn_args
         self.add_stims(stim_key, stim_fxn)
 
+        if self.invert:
+            self.stimulus_df.loc[:, "stim_name"] = self.stimulus_df.stim_name.map(
+                constants.invStimDict
+            )
         self.stim_offset = stim_offset
         self.offsets = used_offsets
 
@@ -265,24 +269,13 @@ class WorkingFish(VizStimFish):
     the classic: the every-man's briefcase wielding workhorse
     """
 
-    def __init__(self, lightweight=False, *args, **kwargs):
+    def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
         if "move_corrected_image" not in self.data_paths:
             raise TankError
-        self.lightweightmode = lightweight
 
-        if self.invert:
-            self.stimulus_df.loc[:, "stim_name"] = self.stimulus_df.stim_name.map(
-                constants.invStimDict
-            )
-
-        if not lightweight:
-            self.image = imread(self.data_paths["move_corrected_image"])
-            if self.invert:
-                self.image = self.image[:, :, ::-1]
-
-            self.diff_image = self.make_difference_image()
+        self.diff_image = self.make_difference_image()
 
         self.load_suite2p()
         self.build_stimdicts()
