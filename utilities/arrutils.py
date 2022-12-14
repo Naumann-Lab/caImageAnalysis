@@ -44,5 +44,5 @@ def zdiffcell(arr):
     from scipy.stats import zscore
     diffs = np.diff(arr)
     zscores = zscore(diffs)
-    prettyz = pretty(zscores)
+    prettyz = pretty(zscores, 3)
     return prettyz

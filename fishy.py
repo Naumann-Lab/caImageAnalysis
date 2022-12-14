@@ -277,7 +277,7 @@ class WorkingFish(VizStimFish):
         self.zdiff_cells = [arrutils.zdiffcell(i) for i in self.f_cells]
 
         for stim in self.stimulus_df.stim_name.unique():
-            arrs = arrutils.subsection_arrays(self.stimulus_df[self.stimulus_df.stim_name==stim].frame.values)
+            arrs = arrutils.subsection_arrays(self.stimulus_df[self.stimulus_df.stim_name==stim].frame.values, self.offsets)
 
             for n, nrn in enumerate(self.zdiff_cells):
                 resp_arrs = []
@@ -285,6 +285,46 @@ class WorkingFish(VizStimFish):
                     resp_arrs.append(nrn[arr])
                 self.stim_dict[stim][n] = np.nanmean(resp_arrs, axis=0)
                 self.err_dict[stim][n] = np.nanstd(resp_arrs, axis=0) / np.sqrt(len(resp_arrs))
+
+        self.neuron_dict = {}
+        for neuron in self.stim_dict["forward"].keys(): # generic stim to grab all neurons
+            if neuron not in self.neuron_dict.keys():
+                self.neuron_dict[neuron] = {}
+
+            for stim in self.stimulus_df.stim_name.unique():
+                self.neuron_dict[neuron][stim] = np.nanmedian(self.stim_dict[stim][neuron][-self.offsets[0]:-self.offsets[0]+self.stim_offset])
+
+    def build_booldf(self, stim_arr=None, corr_threshold=0.65, zero_arr=True):
+        if not hasattr(self, 'stim_dict'):
+            self.build_stimdicts()
+
+        if not stim_arr:
+            provided = False
+        else:
+            provided = True
+
+        corr_dict = {}
+        bool_dict = {}
+        for stim in self.stim_dict.keys():
+            if stim not in bool_dict.keys():
+                bool_dict[stim] = {}
+                corr_dict[stim] = {}
+            for nrn in self.stim_dict[stim].keys():
+                cell_array = self.stim_dict[stim][nrn]
+                if zero_arr:
+                    cell_array = np.clip(cell_array, a_min = 0, a_max = 99)
+                if not provided:
+                    stim_arr = np.zeros(len(cell_array))
+                    stim_arr[-self.offsets[0] + 2 : -self.offsets[0] + self.stim_offset - 2] = 1.5
+                    stim_arr = arrutils.pretty(stim_arr, 3)
+                corrVal = round(np.corrcoef(stim_arr, cell_array)[0][1], 3)
+
+                corr_dict[stim][nrn] = corrVal
+                bool_dict[stim][nrn] = corrVal >= corr_threshold
+        self.booldf = pd.DataFrame(bool_dict)
+        self.corrdf = pd.DataFrame(corr_dict)
+
+        self.booldf = self.booldf.loc[self.booldf.sum(axis=1) > 0]
 
 
 class VolumeFish:
