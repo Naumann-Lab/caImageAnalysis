@@ -10,6 +10,7 @@ import numpy as np
 from pathlib import Path
 from datetime import datetime as dt
 from tifffile import imread
+from tqdm.auto import tqdm
 
 # local imports
 import constants
@@ -208,7 +209,7 @@ class WorkingFish(VizStimFish):
         self.invert = invert
 
         if invert:
-            self.stimulus_df.stim_name = self.stimulus_df.stim_name.map(
+            self.stimulus_df.loc[:, 'stim_name'] = self.stimulus_df.stim_name.map(
                 constants.invStimDict
             )
 
@@ -402,7 +403,7 @@ class VolumeFish:
             self.last_ind += 1
 
     def add_diff_imgs(self, *args, **kwargs):
-        for v in self.volumes.values():
+        for v in tqdm(self.volumes.values()):
             v.diff_image = v.make_difference_image(*args, **kwargs)
 
     def volume_diff(self):
