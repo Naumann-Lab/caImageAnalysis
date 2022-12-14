@@ -10,6 +10,7 @@ import numpy as np
 from pathlib import Path
 from datetime import datetime as dt
 from tifffile import imread
+
 # local imports
 import constants
 from utilities import pathutils, arrutils
@@ -55,7 +56,7 @@ class BaseFish:
                 try:
                     pathutils.move_og_image(self.data_paths["image"])
                 except:
-                    print('failed to move original image out of folder')
+                    print("failed to move original image out of folder")
 
     def raw_text_frametimes_to_df(self):
         with open(self.data_paths["frametimes"]) as file:
@@ -70,12 +71,15 @@ class BaseFish:
         self.frametimes_df = times_df
 
     def load_suite2p(self):
-        self.ops = np.load(self.data_paths["suite2p"].joinpath("ops.npy"),
-                           allow_pickle=True).item()
-        self.iscell = np.load(self.data_paths["suite2p"].joinpath("iscell.npy"),
-                              allow_pickle=True)[:, 0].astype(bool)
-        self.stats = np.load(self.data_paths["suite2p"].joinpath("stat.npy"),
-                             allow_pickle=True)
+        self.ops = np.load(
+            self.data_paths["suite2p"].joinpath("ops.npy"), allow_pickle=True
+        ).item()
+        self.iscell = np.load(
+            self.data_paths["suite2p"].joinpath("iscell.npy"), allow_pickle=True
+        )[:, 0].astype(bool)
+        self.stats = np.load(
+            self.data_paths["suite2p"].joinpath("stat.npy"), allow_pickle=True
+        )
         self.f_cells = np.load(self.data_paths["suite2p"].joinpath("F.npy"))
 
     def return_cell_rois(self, cells):
@@ -121,8 +125,11 @@ class BaseFish:
     def __str__(self):
         return "fish"
 
+
 class VizStimFish(BaseFish):
-    def __init__(self, stim_key="stims", stim_fxn=None, stim_fxn_args=None, *args, **kwargs):
+    def __init__(
+        self, stim_key="stims", stim_fxn=None, stim_fxn_args=None, *args, **kwargs
+    ):
         """
 
         :param stim_key: filename key to find stims in folder
@@ -150,7 +157,9 @@ class VizStimFish(BaseFish):
 
         if stim_fxn:
             if self.stim_fxn_args:
-                self.stimulus_df = stim_fxn(self.data_paths["stimuli"], **self.stim_fxn_args)
+                self.stimulus_df = stim_fxn(
+                    self.data_paths["stimuli"], **self.stim_fxn_args
+                )
             else:
                 self.stimulus_df = stim_fxn(self.data_paths["stimuli"])
 
@@ -174,10 +183,12 @@ class VizStimFish(BaseFish):
 #     def katlyn1(self):
 #     def katlyn2(self):
 
+
 class WorkingFish(VizStimFish):
-    '''
+    """
     the classic: the every-man's briefcase wielding workhorse
-    '''
+    """
+
     def __init__(
         self,
         lightweight=False,
@@ -212,7 +223,7 @@ class WorkingFish(VizStimFish):
         self.build_stimdicts()
 
     def make_difference_image(self, selectivityFactor=1.5, brightnessFactor=10):
-        if not hasattr(self, 'image'):
+        if not hasattr(self, "image"):
             self.image = imread(self.data_paths["move_corrected_image"])
             if self.invert:
                 self.image = self.image[:, :, ::-1]
@@ -277,25 +288,36 @@ class WorkingFish(VizStimFish):
         self.zdiff_cells = [arrutils.zdiffcell(i) for i in self.f_cells]
 
         for stim in self.stimulus_df.stim_name.unique():
-            arrs = arrutils.subsection_arrays(self.stimulus_df[self.stimulus_df.stim_name==stim].frame.values, self.offsets)
+            arrs = arrutils.subsection_arrays(
+                self.stimulus_df[self.stimulus_df.stim_name == stim].frame.values,
+                self.offsets,
+            )
 
             for n, nrn in enumerate(self.zdiff_cells):
                 resp_arrs = []
                 for arr in arrs:
                     resp_arrs.append(nrn[arr])
                 self.stim_dict[stim][n] = np.nanmean(resp_arrs, axis=0)
-                self.err_dict[stim][n] = np.nanstd(resp_arrs, axis=0) / np.sqrt(len(resp_arrs))
+                self.err_dict[stim][n] = np.nanstd(resp_arrs, axis=0) / np.sqrt(
+                    len(resp_arrs)
+                )
 
         self.neuron_dict = {}
-        for neuron in self.stim_dict["forward"].keys(): # generic stim to grab all neurons
+        for neuron in self.stim_dict[
+            "forward"
+        ].keys():  # generic stim to grab all neurons
             if neuron not in self.neuron_dict.keys():
                 self.neuron_dict[neuron] = {}
 
             for stim in self.stimulus_df.stim_name.unique():
-                self.neuron_dict[neuron][stim] = np.nanmedian(self.stim_dict[stim][neuron][-self.offsets[0]:-self.offsets[0]+self.stim_offset])
+                self.neuron_dict[neuron][stim] = np.nanmedian(
+                    self.stim_dict[stim][neuron][
+                        -self.offsets[0] : -self.offsets[0] + self.stim_offset
+                    ]
+                )
 
     def build_booldf(self, stim_arr=None, corr_threshold=0.65, zero_arr=True):
-        if not hasattr(self, 'stim_dict'):
+        if not hasattr(self, "stim_dict"):
             self.build_stimdicts()
 
         if not stim_arr:
@@ -312,10 +334,12 @@ class WorkingFish(VizStimFish):
             for nrn in self.stim_dict[stim].keys():
                 cell_array = self.stim_dict[stim][nrn]
                 if zero_arr:
-                    cell_array = np.clip(cell_array, a_min = 0, a_max = 99)
+                    cell_array = np.clip(cell_array, a_min=0, a_max=99)
                 if not provided:
                     stim_arr = np.zeros(len(cell_array))
-                    stim_arr[-self.offsets[0] + 2 : -self.offsets[0] + self.stim_offset - 2] = 1.5
+                    stim_arr[
+                        -self.offsets[0] + 2 : -self.offsets[0] + self.stim_offset - 2
+                    ] = 1.5
                     stim_arr = arrutils.pretty(stim_arr, 3)
                 corrVal = round(np.corrcoef(stim_arr, cell_array)[0][1], 3)
 
@@ -334,7 +358,9 @@ class VolumeFish:
         self.last_ind = 0
 
     def add_volume(self, new_fish, ind=None):
-        assert str(new_fish) == "fish", "must be a fish" #  isinstance sometimes failing??
+        assert (
+            str(new_fish) == "fish"
+        ), "must be a fish"  #  isinstance sometimes failing??
         # assert isinstance(new_fish, BaseFish), "must be a fish" #  this is randomly buggin out
 
         newKey = new_fish.folder_path.name
@@ -358,13 +384,15 @@ class VolumeFish:
         trim_diffs = [i[:min_ind1, :min_ind2, :] for i in all_diffs]
         return np.sum(trim_diffs, axis=0)
 
-    #custom getter to extract volume of interest
+    # custom getter to extract volume of interest
     def __getitem__(self, index):
         return self.volumes[self.volume_inds[index]]
 
+
 class TankError(Exception):
-    '''
+    """
     Fish doesn't belong in the tank.
     Give him some processing first
-    '''
+    """
+
     pass

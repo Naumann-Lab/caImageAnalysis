@@ -95,7 +95,7 @@ def run_suite2p(base_fish, input_tau=1.5, s2p_ops=None, force=False):
             "allow_overlap": True,
             "block_size": [32, 32],
             "fs": imageHz,
-            "tiff_list" : [imagepath.name]
+            "tiff_list": [imagepath.name],
         }
     ops = default_ops()
     db = {}

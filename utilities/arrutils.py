@@ -40,8 +40,10 @@ def subsection_arrays(input_array, offsets=(-10, 10)):
         a.append(np.arange(s, e))
     return np.array(a)
 
+
 def zdiffcell(arr):
     from scipy.stats import zscore
+
     diffs = np.diff(arr)
     zscores = zscore(diffs)
     prettyz = pretty(zscores, 3)
