@@ -18,7 +18,12 @@ from utilities import pathutils, arrutils
 
 
 class BaseFish:
-    def __init__(self, folder_path, frametimes_key="frametimes", invert=True,):
+    def __init__(
+        self,
+        folder_path,
+        frametimes_key="frametimes",
+        invert=True,
+    ):
         self.folder_path = Path(folder_path)
         self.frametimes_key = frametimes_key
 
@@ -132,16 +137,24 @@ class BaseFish:
         if "move_corrected_image" in self.data_paths.keys():
             image = imread(self.data_paths["move_corrected_image"])
         else:
-            image = imread(self.data_paths['image'])
+            image = imread(self.data_paths["image"])
 
         if self.invert:
             image = image[:, :, ::-1]
 
         return image
 
+
 class VizStimFish(BaseFish):
     def __init__(
-        self, stim_key="stims", stim_fxn=None, stim_fxn_args=None, stim_offset=5, used_offsets=(-10, 14), *args, **kwargs
+        self,
+        stim_key="stims",
+        stim_fxn=None,
+        stim_fxn_args=None,
+        stim_offset=5,
+        used_offsets=(-10, 14),
+        *args,
+        **kwargs,
     ):
         """
 
@@ -199,7 +212,7 @@ class VizStimFish(BaseFish):
         for stimulus_name in constants.monocular_dict.keys():
             stim_occurences = self.stimulus_df[
                 self.stimulus_df.stim_name == stimulus_name
-                ].frame.values
+            ].frame.values
 
             stim_diff_imgs = []
             for ind in stim_occurences:
@@ -252,21 +265,15 @@ class WorkingFish(VizStimFish):
     the classic: the every-man's briefcase wielding workhorse
     """
 
-    def __init__(
-        self,
-        lightweight=False,
-        *args,
-        **kwargs
-    ):
+    def __init__(self, lightweight=False, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
         if "move_corrected_image" not in self.data_paths:
             raise TankError
         self.lightweightmode = lightweight
 
-
         if self.invert:
-            self.stimulus_df.loc[:, 'stim_name'] = self.stimulus_df.stim_name.map(
+            self.stimulus_df.loc[:, "stim_name"] = self.stimulus_df.stim_name.map(
                 constants.invStimDict
             )
 
@@ -358,12 +365,17 @@ class WorkingFish(VizStimFish):
 
         for neuron in self.neuron_dict.keys():
             myneuron = self.neuron_dict[neuron]
-            clr_longform = [stimval * np.clip(i, a_min=0, a_max=99) for stimname, stimval in zip(myneuron.keys(), myneuron.values()) if stimname in constants.monocular_dict.keys() for i in constants.monocular_dict[stimname] ]
+            clr_longform = [
+                stimval * np.clip(i, a_min=0, a_max=99)
+                for stimname, stimval in zip(myneuron.keys(), myneuron.values())
+                if stimname in constants.monocular_dict.keys()
+                for i in constants.monocular_dict[stimname]
+            ]
             reds = clr_longform[::3]
             greens = clr_longform[1::3]
             blues = clr_longform[2::3]
 
-            fullcolor = np.sum([reds,greens, blues], axis=1)
+            fullcolor = np.sum([reds, greens, blues], axis=1)
 
             if max(fullcolor) > 1.0:
                 fullcolor /= max(fullcolor)
@@ -386,8 +398,8 @@ class VolumeFish:
         self.iter_ind = -1
 
     def add_volume(self, new_fish, ind=None):
-        assert (
-            "fish" in str(new_fish)
+        assert "fish" in str(
+            new_fish
         ), "must be a fish"  #  isinstance sometimes failing??
         # assert isinstance(new_fish, BaseFish), "must be a fish" #  this is randomly buggin out
 
