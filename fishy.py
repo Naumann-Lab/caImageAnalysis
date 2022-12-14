@@ -18,9 +18,11 @@ from utilities import pathutils, arrutils
 
 
 class BaseFish:
-    def __init__(self, folder_path, frametimes_key="frametimes"):
+    def __init__(self, folder_path, frametimes_key="frametimes", invert=True,):
         self.folder_path = Path(folder_path)
         self.frametimes_key = frametimes_key
+
+        self.invert = invert
 
         self.process_filestructure()  # generates self.data_paths
         self.raw_text_frametimes_to_df()  # generates self.frametimes_df
@@ -126,10 +128,20 @@ class BaseFish:
     def __str__(self):
         return f"fish {self.folder_path.name}"
 
+    def load_image(self):
+        if "move_corrected_image" in self.data_paths.keys():
+            image = imread(self.data_paths["move_corrected_image"])
+        else:
+            image = imread(self.data_paths['image'])
+
+        if self.invert:
+            image = image[:, :, ::-1]
+
+        return image
 
 class VizStimFish(BaseFish):
     def __init__(
-        self, stim_key="stims", stim_fxn=None, stim_fxn_args=None, *args, **kwargs
+        self, stim_key="stims", stim_fxn=None, stim_fxn_args=None, stim_offset=5, used_offsets=(-10, 14), *args, **kwargs
     ):
         """
 
@@ -141,8 +153,12 @@ class VizStimFish(BaseFish):
         super().__init__(*args, **kwargs)
         if stim_fxn_args is None:
             stim_fxn_args = []
+
         self.stim_fxn_args = stim_fxn_args
         self.add_stims(stim_key, stim_fxn)
+
+        self.stim_offset = stim_offset
+        self.offsets = used_offsets
 
     def add_stims(self, stim_key, stim_fxn):
         with os.scandir(self.folder_path) as entries:
@@ -176,69 +192,19 @@ class VizStimFish(BaseFish):
         self.stimulus_df.loc[:, "frame"] = frame_matches
         self.stimulus_df.drop(columns="time", inplace=True)
 
-
-# class TailTrackedFish(VizStimFish):
-#     def __init__(self, tail_key, *args, **kwargs):
-#         super().__init__(*args, **kwargs)
-#
-#     def katlyn1(self):
-#     def katlyn2(self):
-
-
-class WorkingFish(VizStimFish):
-    """
-    the classic: the every-man's briefcase wielding workhorse
-    """
-
-    def __init__(
-        self,
-        lightweight=False,
-        invert=True,
-        stim_offset=5,
-        used_offsets=(-10, 14),
-        *args,
-        **kwargs
-    ):
-        super().__init__(*args, **kwargs)
-
-        if "move_corrected_image" not in self.data_paths:
-            raise TankError
-        self.lightweightmode = lightweight
-        self.stim_offset = stim_offset
-        self.offsets = used_offsets
-        self.invert = invert
-
-        if invert:
-            self.stimulus_df.loc[:, 'stim_name'] = self.stimulus_df.stim_name.map(
-                constants.invStimDict
-            )
-
-        if not lightweight:
-            self.image = imread(self.data_paths["move_corrected_image"])
-            if invert:
-                self.image = self.image[:, :, ::-1]
-
-            self.diff_image = self.make_difference_image()
-
-        self.load_suite2p()
-        self.build_stimdicts()
-
     def make_difference_image(self, selectivityFactor=1.5, brightnessFactor=10):
-        if not hasattr(self, "image"):
-            self.image = imread(self.data_paths["move_corrected_image"])
-            if self.invert:
-                self.image = self.image[:, :, ::-1]
+        image = self.load_image()
 
         diff_imgs = {}
         for stimulus_name in constants.monocular_dict.keys():
             stim_occurences = self.stimulus_df[
                 self.stimulus_df.stim_name == stimulus_name
-            ].frame.values
+                ].frame.values
 
             stim_diff_imgs = []
             for ind in stim_occurences:
-                peak = np.nanmean(self.image[ind : ind + self.offsets[1]], axis=0)
-                background = np.nanmean(self.image[ind + self.offsets[0] : ind], axis=0)
+                peak = np.nanmean(image[ind : ind + self.offsets[1]], axis=0)
+                background = np.nanmean(image[ind + self.offsets[0] : ind], axis=0)
                 stim_diff_imgs.append(peak - background)
 
             diff_imgs[stimulus_name] = np.nanmean(stim_diff_imgs, axis=0)
@@ -278,10 +244,41 @@ class WorkingFish(VizStimFish):
         final_image = np.sum(_all_img, axis=0)
         final_image /= np.max(final_image)
 
-        if self.lightweightmode:
-            del self.image
-
         return final_image * brightnessFactor
+
+
+class WorkingFish(VizStimFish):
+    """
+    the classic: the every-man's briefcase wielding workhorse
+    """
+
+    def __init__(
+        self,
+        lightweight=False,
+        *args,
+        **kwargs
+    ):
+        super().__init__(*args, **kwargs)
+
+        if "move_corrected_image" not in self.data_paths:
+            raise TankError
+        self.lightweightmode = lightweight
+
+
+        if self.invert:
+            self.stimulus_df.loc[:, 'stim_name'] = self.stimulus_df.stim_name.map(
+                constants.invStimDict
+            )
+
+        if not lightweight:
+            self.image = imread(self.data_paths["move_corrected_image"])
+            if self.invert:
+                self.image = self.image[:, :, ::-1]
+
+            self.diff_image = self.make_difference_image()
+
+        self.load_suite2p()
+        self.build_stimdicts()
 
     def build_stimdicts(self):
         self.stim_dict = {i: {} for i in self.stimulus_df.stim_name.unique()}
