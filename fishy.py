@@ -123,7 +123,7 @@ class BaseFish:
         return 1 / np.mean(np.diff(times))
 
     def __str__(self):
-        return "fish"
+        return f"fish {self.folder_path.name}"
 
 
 class VizStimFish(BaseFish):
@@ -350,16 +350,46 @@ class WorkingFish(VizStimFish):
 
         self.booldf = self.booldf.loc[self.booldf.sum(axis=1) > 0]
 
+    def make_computed_image_data(self):
+        if not hasattr(self, "neuron_dict"):
+            self.build_stimdicts()
+        xpos = []
+        ypos = []
+        colors = []
+        neurons = []
+
+        for neuron in self.neuron_dict.keys():
+            myneuron = self.neuron_dict[neuron]
+            clr_longform = [stimval * np.clip(i, a_min=0, a_max=99) for stimname, stimval in zip(myneuron.keys(), myneuron.values()) if stimname in constants.monocular_dict.keys() for i in constants.monocular_dict[stimname] ]
+            reds = clr_longform[::3]
+            greens = clr_longform[1::3]
+            blues = clr_longform[2::3]
+
+            fullcolor = np.sum([reds,greens, blues], axis=1)
+
+            if max(fullcolor) > 1.0:
+                fullcolor /= max(fullcolor)
+            fullcolor = np.clip(fullcolor, a_min=0, a_max=1.0)
+            if np.sum(fullcolor) > 1:
+                yloc, xloc = self.return_cell_rois(neuron)[0]
+
+                xpos.append(xloc)
+                ypos.append(yloc)
+                colors.append(fullcolor)
+                neurons.append(neuron)
+        return xpos, ypos, colors, neurons
+
 
 class VolumeFish:
     def __init__(self):
         self.volumes = {}
         self.volume_inds = {}
         self.last_ind = 0
+        self.iter_ind = -1
 
     def add_volume(self, new_fish, ind=None):
         assert (
-            str(new_fish) == "fish"
+            "fish" in str(new_fish)
         ), "must be a fish"  #  isinstance sometimes failing??
         # assert isinstance(new_fish, BaseFish), "must be a fish" #  this is randomly buggin out
 
@@ -384,9 +414,29 @@ class VolumeFish:
         trim_diffs = [i[:min_ind1, :min_ind2, :] for i in all_diffs]
         return np.sum(trim_diffs, axis=0)
 
+    def volume_computed_image(self):
+        all_x = []
+        all_y = []
+        all_colors = []
+        all_neurons = []
+        for v in self:
+            xpos, ypos, colors, neurons = v.make_computed_image_data()
+
+            all_x += xpos
+            all_y += ypos
+            all_colors += colors
+            all_neurons += neurons
+        return all_x, all_y, all_colors, all_neurons
+
     # custom getter to extract volume of interest
     def __getitem__(self, index):
-        return self.volumes[self.volume_inds[index]]
+        try:
+            return self.volumes[self.volume_inds[index]]
+        except KeyError:
+            raise StopIteration  # technically thrown if your try to get a vol thats not there, useful because lets us loops
+
+    def __len__(self):
+        return self.last_ind
 
 
 class TankError(Exception):
