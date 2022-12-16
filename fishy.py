@@ -349,7 +349,7 @@ class WorkingFish(VizStimFish):
 
         self.booldf = self.booldf.loc[self.booldf.sum(axis=1) > 0]
 
-    def make_computed_image_data(self):
+    def make_computed_image_data(self, colorsumthresh=1):
         if not hasattr(self, "neuron_dict"):
             self.build_stimdicts()
         xpos = []
@@ -374,7 +374,7 @@ class WorkingFish(VizStimFish):
             if max(fullcolor) > 1.0:
                 fullcolor /= max(fullcolor)
             fullcolor = np.clip(fullcolor, a_min=0, a_max=1.0)
-            if np.sum(fullcolor) > 1:
+            if np.sum(fullcolor) > colorsumthresh:
                 yloc, xloc = self.return_cell_rois(neuron)[0]
 
                 xpos.append(xloc)
@@ -418,13 +418,13 @@ class VolumeFish:
         trim_diffs = [i[:min_ind1, :min_ind2, :] for i in all_diffs]
         return np.sum(trim_diffs, axis=0)
 
-    def volume_computed_image(self):
+    def volume_computed_image(self, *args, **kwargs):
         all_x = []
         all_y = []
         all_colors = []
         all_neurons = []
         for v in self:
-            xpos, ypos, colors, neurons = v.make_computed_image_data()
+            xpos, ypos, colors, neurons = v.make_computed_image_data(*args, **kwargs)
 
             all_x += xpos
             all_y += ypos
