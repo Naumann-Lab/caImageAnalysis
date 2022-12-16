@@ -269,11 +269,12 @@ class WorkingFish(VizStimFish):
     the classic: the every-man's briefcase wielding workhorse
     """
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, corr_threshold=0.65, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
         if "move_corrected_image" not in self.data_paths:
             raise TankError
+        self.corr_threshold = corr_threshold
 
         self.diff_image = self.make_difference_image()
 
@@ -314,7 +315,7 @@ class WorkingFish(VizStimFish):
                     ]
                 )
 
-    def build_booldf(self, stim_arr=None, corr_threshold=0.65, zero_arr=True):
+    def build_booldf(self, stim_arr=None, zero_arr=True):
         if not hasattr(self, "stim_dict"):
             self.build_stimdicts()
 
@@ -342,7 +343,7 @@ class WorkingFish(VizStimFish):
                 corrVal = round(np.corrcoef(stim_arr, cell_array)[0][1], 3)
 
                 corr_dict[stim][nrn] = corrVal
-                bool_dict[stim][nrn] = corrVal >= corr_threshold
+                bool_dict[stim][nrn] = corrVal >= self.corr_threshold
         self.booldf = pd.DataFrame(bool_dict)
         self.corrdf = pd.DataFrame(corr_dict)
 
