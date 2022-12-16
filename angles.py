@@ -8,6 +8,7 @@ def calc_dsi(neuron_dict):
     """
     (Rpref - Rnull) / Rpref
     looks like:
+        {
         'medial_left': 0.461736435336726,
          'left': 0.5925878932078679,
          'converging': 0.029447067041127453,
@@ -21,7 +22,8 @@ def calc_dsi(neuron_dict):
          'medial_right': -0.05511859467341785,
          'forward_right': 0.18775133336228983,
          'right': -0.01675205305495877,
-         'backward': 0.029301415571743355}
+         'backward': 0.029301415571743355
+         }
     """
     monoc_neuron = {
         k: v for k, v in neuron_dict.items() if k in constants.monocular_dict
