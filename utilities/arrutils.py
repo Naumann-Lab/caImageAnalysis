@@ -48,3 +48,12 @@ def zdiffcell(arr):
     zscores = zscore(diffs)
     prettyz = pretty(zscores, 3)
     return prettyz
+
+def zscoring (data_array):
+    from scipy.stats import zscore
+
+    zscores = zscore(data_array)
+    conv_zscores = pretty(zscores)
+    return conv_zscores
+
+#%%
