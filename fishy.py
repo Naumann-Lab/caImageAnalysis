@@ -106,10 +106,14 @@ class BaseFish:
 
     def return_cells_by_location(self, xmin=0, xmax=99999, ymin=0, ymax=99999):
         cell_df = pd.DataFrame(
-            self.return_cell_rois(np.arange(0, len(self.f_cells))),
-            columns=['y', 'x'])
-        return cell_df[(cell_df.y >= ymin) & (cell_df.y <= ymax) & (cell_df.x >= xmin) & (cell_df.x <= xmax)].index.values
-
+            self.return_cell_rois(np.arange(0, len(self.f_cells))), columns=["y", "x"]
+        )
+        return cell_df[
+            (cell_df.y >= ymin)
+            & (cell_df.y <= ymax)
+            & (cell_df.x >= xmin)
+            & (cell_df.x <= xmax)
+        ].index.values
 
     @staticmethod
     def hzReturner(frametimes):
@@ -655,16 +659,19 @@ class WorkingFish(VizStimFish):
                 neurons.append(neuron)
         return xpos, ypos, colors, neurons
 
-    def make_computed_image_data_by_loc(self, xmin=0, xmax=99999, ymin=0, ymax=9999,
-                                        *args, **kwargs):
+    def make_computed_image_data_by_loc(
+        self, xmin=0, xmax=99999, ymin=0, ymax=9999, *args, **kwargs
+    ):
         xpos, ypos, colors, neurons = self.make_computed_image_data(*args, **kwargs)
-        loc_cells = self.return_cells_by_location(xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax)
+        loc_cells = self.return_cells_by_location(
+            xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax
+        )
 
         valid_cells = [i for i in neurons if i in loc_cells]
         valid_inds = [neurons.index(i) for i in valid_cells]
-        valid_x = [i for n,i in enumerate(xpos) if n in valid_inds]
-        valid_y = [i for n,i in enumerate(ypos) if n in valid_inds]
-        valid_colors = [i for n,i in enumerate(colors) if n in valid_inds]
+        valid_x = [i for n, i in enumerate(xpos) if n in valid_inds]
+        valid_y = [i for n, i in enumerate(ypos) if n in valid_inds]
+        valid_colors = [i for n, i in enumerate(colors) if n in valid_inds]
         return valid_x, valid_y, valid_colors, valid_cells
 
 
@@ -688,6 +695,21 @@ class VolumeFish:
         else:
             self.volume_inds[self.last_ind] = newKey
             self.last_ind += 1
+
+    # custom getter to extract volume of interest
+    def __getitem__(self, index):
+        try:
+            return self.volumes[self.volume_inds[index]]
+        except KeyError:
+            raise StopIteration  # technically thrown if your try to get a vol thats not there, useful because lets us loops
+
+    def __len__(self):
+        return self.last_ind
+
+
+class VizStimVolume(VolumeFish):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
 
     def add_diff_imgs(self, *args, **kwargs):
         for v in tqdm(self.volumes.values()):
@@ -722,22 +744,15 @@ class VolumeFish:
         all_colors = []
         all_neurons = []
         for v in self:
-            xpos, ypos, colors, neurons = v.make_computed_image_data_by_loc(*args, **kwargs)
+            xpos, ypos, colors, neurons = v.make_computed_image_data_by_loc(
+                *args, **kwargs
+            )
 
             all_x += xpos
             all_y += ypos
             all_colors += colors
             all_neurons += neurons
         return all_x, all_y, all_colors, all_neurons
-    # custom getter to extract volume of interest
-    def __getitem__(self, index):
-        try:
-            return self.volumes[self.volume_inds[index]]
-        except KeyError:
-            raise StopIteration  # technically thrown if your try to get a vol thats not there, useful because lets us loops
-
-    def __len__(self):
-        return self.last_ind
 
 
 class TankError(Exception):
