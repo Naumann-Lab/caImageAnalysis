@@ -344,16 +344,21 @@ class TailTrackedFish(VizStimFish):
         self.tail_stimulus_df.loc[:, 'img_stacks'] = image_infos
 
 
-    def bout_finder(self, sig = 4, interpeak_dst= 50):
+    def bout_finder(self, sig = 4, interpeak_dst= 50, height=None, width=None, prominence=1):
         from scipy.signal import find_peaks
         import scipy.ndimage
         # sig = sigma for gaussian filter on the tail data
         # interpeak_dst = ms, distance between bouts
         #tail deflection sum from central axis of fish, filtered with gaussian fit
+        if width is None:
+            width = [0, 750]
+        if height is None:
+            height = [20, 120]
+
         filtered_deflections = scipy.ndimage.gaussian_filter(self.tail_df["/'TailLoc'/'TailDeflectSum'"].values, sigma=sig)
 
-        peak_deflection, peaks = scipy.signal.find_peaks(abs(filtered_deflections), height=[20,120],
-                                                         threshold=None, prominence=1, width=[0, 750]
+        peak_deflection, peaks = scipy.signal.find_peaks(abs(filtered_deflections), height = height,
+                                                         threshold=None, prominence = prominence, width = width
                                                          )
         # get bout peaks
         leftofPeak = peaks['left_ips']
@@ -403,6 +408,8 @@ class TailTrackedFish(VizStimFish):
         self.tail_bouts_df['bout_dir'][self.tail_bouts_df['bout_angle'] > 0] = 'left'
         self.tail_bouts_df['bout_dir'][self.tail_bouts_df['bout_angle'] < 0] = 'right'
         #tail_bouts_df has bout indices, frames from image frametimes, and bout direction
+        return self.tail_bouts_df
+
 
     def bout_responsive_neurons (self, offset = 2, thresh = 0.2):
         nrns = []
