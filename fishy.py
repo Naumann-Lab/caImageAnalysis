@@ -104,6 +104,13 @@ class BaseFish:
             rois.append([mean_y, mean_x])
         return rois
 
+    def return_cells_by_location(self, xmin=0, xmax=99999, ymin=0, ymax=99999):
+        cell_df = pd.DataFrame(
+            self.return_cell_rois(np.arange(0, len(self.f_cells))),
+            columns=['y', 'x'])
+        return cell_df[(cell_df.y >= ymin) & (cell_df.y <= ymax) & (cell_df.x >= xmin) & (cell_df.x <= xmax)].index.values
+
+
     @staticmethod
     def hzReturner(frametimes):
         increment = 15
@@ -293,7 +300,7 @@ class TailTrackedFish(VizStimFish):
         self.add_tail(tail_key, tail_fxn)
         self.stim_tail_frame_alignment()
 
-        self.bout_finder(sig = 4, interpeak_dst= 50, height=None, width=None, prominence=1)
+        self.bout_finder(sig=4, interpeak_dst=50, height=None, width=None, prominence=1)
         self.bout_responsive_neurons()
 
     def add_tail(self, tail_key, tail_fxn):
@@ -399,25 +406,32 @@ class TailTrackedFish(VizStimFish):
 
         self.tail_stimulus_df.loc[:, "img_stacks"] = image_infos
 
-
-    def bout_finder(self, sig = 4, interpeak_dst= 50, height=None, width=None, prominence=1):
+    def bout_finder(
+        self, sig=4, interpeak_dst=50, height=None, width=None, prominence=1
+    ):
         from scipy.signal import find_peaks
         import scipy.ndimage
 
         # sig = sigma for gaussian filter on the tail data
         # interpeak_dst = ms, distance between bouts
 
-        #tail deflection sum from central axis of fish, filtered with gaussian fit
+        # tail deflection sum from central axis of fish, filtered with gaussian fit
         if width is None:
             width = [0, 750]
         if height is None:
             height = [20, 120]
 
-        filtered_deflections = scipy.ndimage.gaussian_filter(self.tail_df["/'TailLoc'/'TailDeflectSum'"].values, sigma=sig)
+        filtered_deflections = scipy.ndimage.gaussian_filter(
+            self.tail_df["/'TailLoc'/'TailDeflectSum'"].values, sigma=sig
+        )
 
-        peak_deflection, peaks = scipy.signal.find_peaks(abs(filtered_deflections), height = height,
-                                                         threshold=None, prominence = prominence, width = width
-                                                         )
+        peak_deflection, peaks = scipy.signal.find_peaks(
+            abs(filtered_deflections),
+            height=height,
+            threshold=None,
+            prominence=prominence,
+            width=width,
+        )
         # get bout peaks
         leftofPeak = peaks["left_ips"]
         rightofPeak = peaks["right_ips"]
@@ -459,23 +473,25 @@ class TailTrackedFish(VizStimFish):
             if bout_ind not in dict_info.keys():
                 dict_info[bout_ind] = {}
 
+            bout_angle = np.sum(
+                self.tail_df.iloc[:, 4].values[
+                    relevant_pts[bout_ind][0] : relevant_pts[bout_ind][1]
+                ]
+            )  # total bout angle
+            dict_info[bout_ind]["bout_angle"] = bout_angle
 
-            bout_angle = np.sum(self.tail_df.iloc[:,4].values[relevant_pts[bout_ind][0]:relevant_pts[bout_ind][1]]) # total bout angle
-            dict_info[bout_ind]['bout_angle'] = bout_angle
+            frame_start = self.tail_df.iloc[:, -1].values[relevant_pts[bout_ind][0]]
+            frame_end = self.tail_df.iloc[:, -1].values[relevant_pts[bout_ind][1]]
+            dict_info[bout_ind]["image_frames"] = frame_start, frame_end
 
-            frame_start = self.tail_df.iloc[:,-1].values[relevant_pts[bout_ind][0]]
-            frame_end = self.tail_df.iloc[:,-1].values[relevant_pts[bout_ind][1]]
-            dict_info[bout_ind]['image_frames'] = frame_start, frame_end
-
-        self.tail_bouts_df = pd.DataFrame.from_dict(dict_info, 'index')
-        self.tail_bouts_df.loc[:, 'bout_dir'] = np.zeros(self.tail_bouts_df.shape[0])
-        self.tail_bouts_df['bout_dir'][self.tail_bouts_df['bout_angle'] > 0] = 'left'
-        self.tail_bouts_df['bout_dir'][self.tail_bouts_df['bout_angle'] < 0] = 'right'
-        #tail_bouts_df has bout indices, frames from image frametimes, and bout direction
+        self.tail_bouts_df = pd.DataFrame.from_dict(dict_info, "index")
+        self.tail_bouts_df.loc[:, "bout_dir"] = np.zeros(self.tail_bouts_df.shape[0])
+        self.tail_bouts_df["bout_dir"][self.tail_bouts_df["bout_angle"] > 0] = "left"
+        self.tail_bouts_df["bout_dir"][self.tail_bouts_df["bout_angle"] < 0] = "right"
+        # tail_bouts_df has bout indices, frames from image frametimes, and bout direction
         return self.tail_bouts_df
 
-
-    def bout_responsive_neurons (self, offset = 2, thresh = 0.2):
+    def bout_responsive_neurons(self, offset=2, thresh=0.2):
         nrns = []
         vals = []
         bouts = []
