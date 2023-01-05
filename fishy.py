@@ -655,6 +655,18 @@ class WorkingFish(VizStimFish):
                 neurons.append(neuron)
         return xpos, ypos, colors, neurons
 
+    def make_computed_image_data_by_loc(self, xmin=0, xmax=99999, ymin=0, ymax=9999,
+                                        *args, **kwargs):
+        xpos, ypos, colors, neurons = self.make_computed_image_data(*args, **kwargs)
+        loc_cells = self.return_cells_by_location(xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax)
+
+        valid_cells = [i for i in neurons if i in loc_cells]
+        valid_inds = [neurons.index(i) for i in valid_cells]
+        valid_x = [i for n,i in enumerate(xpos) if n in valid_inds]
+        valid_y = [i for n,i in enumerate(ypos) if n in valid_inds]
+        valid_colors = [i for n,i in enumerate(colors) if n in valid_inds]
+        return valid_x, valid_y, valid_colors, valid_cells
+
 
 class VolumeFish:
     def __init__(self):
@@ -704,6 +716,19 @@ class VolumeFish:
             all_neurons += neurons
         return all_x, all_y, all_colors, all_neurons
 
+    def volume_computed_image_loc(self, *args, **kwargs):
+        all_x = []
+        all_y = []
+        all_colors = []
+        all_neurons = []
+        for v in self:
+            xpos, ypos, colors, neurons = v.make_computed_image_data_by_loc(*args, **kwargs)
+
+            all_x += xpos
+            all_y += ypos
+            all_colors += colors
+            all_neurons += neurons
+        return all_x, all_y, all_colors, all_neurons
     # custom getter to extract volume of interest
     def __getitem__(self, index):
         try:
