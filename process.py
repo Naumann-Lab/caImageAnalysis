@@ -71,7 +71,13 @@ def run_movement_correction(base_fish, caiman_ops=None, keep_mmaps=False, force=
 
 
 def run_suite2p(base_fish, input_tau=1.5, s2p_ops=None, force=False):
-    from suite2p.suite2p import run_s2p, default_ops
+    try:
+        from suite2p import run_s2p, default_ops
+    except:
+        try:
+            from suite2p.suite2p import run_s2p, default_ops
+        except:
+            print("failed to import suite2p")
 
     base_fish.process_filestructure()  # why not update :)
 

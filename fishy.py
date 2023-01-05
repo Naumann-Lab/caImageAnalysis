@@ -31,7 +31,7 @@ class BaseFish:
 
         self.process_filestructure()  # generates self.data_paths
         self.raw_text_frametimes_to_df()  # generates self.frametimes_df
-        #self.load_suite2p() # loads in suite2p paths
+        # self.load_suite2p() # loads in suite2p paths
 
     def process_filestructure(self):
         self.data_paths = {}
@@ -208,14 +208,18 @@ class VizStimFish(BaseFish):
             for i in range(len(self.stimulus_df))
         ]
         self.stimulus_df.loc[:, "frame"] = frame_matches
-        #self.stimulus_df.drop(columns="time", inplace=True) #this needs to be included in the stimulus_df for TailTrackingFish
+        # self.stimulus_df.drop(columns="time", inplace=True) #this needs to be included in the stimulus_df for TailTrackingFish
 
     def make_difference_image(self, selectivityFactor=1.5, brightnessFactor=10):
         image = self.load_image()
 
         diff_imgs = {}
-        #for stimulus_name in constants.monocular_dict.keys():
-        for stimulus_name in self.stimulus_df.stim_name.values.unique(): #KF edit, only have relevant stims
+        # for stimulus_name in constants.monocular_dict.keys():
+        for (
+            stimulus_name
+        ) in (
+            self.stimulus_df.stim_name.values.unique()
+        ):  # KF edit, only have relevant stims
             stim_occurences = self.stimulus_df[
                 self.stimulus_df.stim_name == stimulus_name
             ].frame.values
@@ -226,7 +230,9 @@ class VizStimFish(BaseFish):
                 background = np.nanmean(image[ind + self.offsets[0] : ind], axis=0)
                 stim_diff_imgs.append(peak - background)
 
-            diff_imgs[stimulus_name] = np.nanmean(stim_diff_imgs, axis=0, dtype=np.float64)
+            diff_imgs[stimulus_name] = np.nanmean(
+                stim_diff_imgs, axis=0, dtype=np.float64
+            )
 
         max_value = np.max([np.max(i) for i in diff_imgs.values()])  # for scaling
 
@@ -265,18 +271,21 @@ class VizStimFish(BaseFish):
 
         return final_image * brightnessFactor
 
+
 class TailTrackedFish(VizStimFish):
-    def __init__(self, tail_key = 'tail', tail_fxn=None, tail_fxn_args=None, *args, **kwargs):
+    def __init__(
+        self, tail_key="tail", tail_fxn=None, tail_fxn_args=None, *args, **kwargs
+    ):
         super().__init__(*args, **kwargs)
         # need to have 'tail' in the tail output file
-        #tail_fxn is a variable for a fxn that is in the tailtracking.py
+        # tail_fxn is a variable for a fxn that is in the tailtracking.py
 
         if tail_fxn_args is None:
             tail_fxn_args = []
         self.tail_fxn_args = tail_fxn_args
         self.add_tail(tail_key, tail_fxn)
         self.stim_tail_frame_alignment()
-        self.bout_finder(sig = 4, interpeak_dst= 50)
+        self.bout_finder(sig=4, interpeak_dst=50)
         self.bout_responsive_neurons()
 
     def add_tail(self, tail_key, tail_fxn):
@@ -291,120 +300,173 @@ class TailTrackedFish(VizStimFish):
             return
         if tail_fxn:
             if self.tail_fxn_args:
-                self.tail_df = tail_fxn(
-                    self.data_paths["tail"], **self.tail_fxn_args
-                )
+                self.tail_df = tail_fxn(self.data_paths["tail"], **self.tail_fxn_args)
             else:
                 self.tail_df = tail_fxn(self.data_paths["tail"])
 
-
         # aligning tail conv times to image frame times
-    def stim_tail_frame_alignment(self):
-        #trimming tail df to match the size of the imaging times
-        if 'frame' not in self.tail_df.columns: #do not have to run this again if already has it
-            try:
-                self.tail_df = self.tail_df[(self.tail_df.conv_t>=self.frametimes_df.values[0][0])
-                                            &(self.tail_df.conv_t<=self.frametimes_df.values[-1][0])]
 
-                for frameN in tqdm(range(len(self.frametimes_df.values)),"aligning frametimes to tail data"):
+    def stim_tail_frame_alignment(self):
+        # trimming tail df to match the size of the imaging times
+        if (
+            "frame" not in self.tail_df.columns
+        ):  # do not have to run this again if already has it
+            try:
+                self.tail_df = self.tail_df[
+                    (self.tail_df.conv_t >= self.frametimes_df.values[0][0])
+                    & (self.tail_df.conv_t <= self.frametimes_df.values[-1][0])
+                ]
+
+                for frameN in tqdm(
+                    range(len(self.frametimes_df.values)),
+                    "aligning frametimes to tail data",
+                ):
                     try:
-                        indices = self.tail_df[(self.tail_df.conv_t >= self.frametimes_df.values[frameN][0]) & (
-                                self.tail_df.conv_t <= self.frametimes_df.values[frameN + 1][0])].index
+                        indices = self.tail_df[
+                            (
+                                self.tail_df.conv_t
+                                >= self.frametimes_df.values[frameN][0]
+                            )
+                            & (
+                                self.tail_df.conv_t
+                                <= self.frametimes_df.values[frameN + 1][0]
+                            )
+                        ].index
                     except IndexError:
                         pass
-                    self.tail_df.loc[indices, 'frame'] = frameN
+                    self.tail_df.loc[indices, "frame"] = frameN
             except:
                 pass
 
         # making a stimulus df with tail index and image index values for each stim
-        final_t = self.frametimes_df['time'].iloc[-1] # last time in imaging
+        final_t = self.frametimes_df["time"].iloc[-1]  # last time in imaging
         image_infos = []
         tail_infos = []
         self.tail_stimulus_df = self.stimulus_df.copy()
         for i in range(len(self.tail_stimulus_df)):
             if i == len(self.tail_stimulus_df) - 1:
                 tail_infos.append(
-                    self.tail_df[(self.tail_df.conv_t >= self.tail_stimulus_df.time.values[i])&
-                                 (self.tail_df.conv_t <= final_t)].index)
+                    self.tail_df[
+                        (self.tail_df.conv_t >= self.tail_stimulus_df.time.values[i])
+                        & (self.tail_df.conv_t <= final_t)
+                    ].index
+                )
                 break
             else:
-                tail_infos.append(self.tail_df[(self.tail_df.conv_t >= self.tail_stimulus_df.time.values[i]) & (
-                        self.tail_df.conv_t <= self.tail_stimulus_df.time.values[i + 1])].index)
-        self.tail_stimulus_df.loc[:, 'tail_index'] = tail_infos
+                tail_infos.append(
+                    self.tail_df[
+                        (self.tail_df.conv_t >= self.tail_stimulus_df.time.values[i])
+                        & (
+                            self.tail_df.conv_t
+                            <= self.tail_stimulus_df.time.values[i + 1]
+                        )
+                    ].index
+                )
+        self.tail_stimulus_df.loc[:, "tail_index"] = tail_infos
 
         for j in range(len(self.tail_stimulus_df)):
             if j == len(self.tail_stimulus_df) - 1:
                 image_infos.append(
-                    self.frametimes_df[(self.frametimes_df['time'] >= self.tail_stimulus_df.time.values[j])&
-                                       (self.frametimes_df['time'] <= final_t)].index)
+                    self.frametimes_df[
+                        (
+                            self.frametimes_df["time"]
+                            >= self.tail_stimulus_df.time.values[j]
+                        )
+                        & (self.frametimes_df["time"] <= final_t)
+                    ].index
+                )
             else:
-                image_infos.append(self.frametimes_df[(self.frametimes_df['time'] >= self.tail_stimulus_df.time.values[j]) & (
-                        self.frametimes_df['time'] <= self.tail_stimulus_df.time.values[j + 1])].index)
+                image_infos.append(
+                    self.frametimes_df[
+                        (
+                            self.frametimes_df["time"]
+                            >= self.tail_stimulus_df.time.values[j]
+                        )
+                        & (
+                            self.frametimes_df["time"]
+                            <= self.tail_stimulus_df.time.values[j + 1]
+                        )
+                    ].index
+                )
 
-        self.tail_stimulus_df.loc[:, 'img_stacks'] = image_infos
+        self.tail_stimulus_df.loc[:, "img_stacks"] = image_infos
 
-
-    def bout_finder(self, sig = 4, interpeak_dst= 50):
+    def bout_finder(self, sig=4, interpeak_dst=50):
         from scipy.signal import find_peaks
         import scipy.ndimage
+
         # sig = sigma for gaussian filter on the tail data
         # interpeak_dst = ms, distance between bouts
-        #tail deflection sum from central axis of fish, filtered with gaussian fit
-        filtered_deflections = scipy.ndimage.gaussian_filter(self.tail_df["/'TailLoc'/'TailDeflectSum'"].values, sigma=sig)
+        # tail deflection sum from central axis of fish, filtered with gaussian fit
+        filtered_deflections = scipy.ndimage.gaussian_filter(
+            self.tail_df["/'TailLoc'/'TailDeflectSum'"].values, sigma=sig
+        )
 
-        peak_deflection, peaks = scipy.signal.find_peaks(abs(filtered_deflections), height=[20,120],
-                                                         threshold=None, prominence=1, width=[0, 750]
-                                                         )
+        peak_deflection, peaks = scipy.signal.find_peaks(
+            abs(filtered_deflections),
+            height=[20, 120],
+            threshold=None,
+            prominence=1,
+            width=[0, 750],
+        )
         # get bout peaks
-        leftofPeak = peaks['left_ips']
-        rightofPeak = peaks['right_ips']
-        peak_pts = np.stack([leftofPeak,rightofPeak], axis=1)
-        bout_start=[]
-        bout_end=[]
-        n=0
-        while n < len(peak_pts)-2:
+        leftofPeak = peaks["left_ips"]
+        rightofPeak = peaks["right_ips"]
+        peak_pts = np.stack([leftofPeak, rightofPeak], axis=1)
+        bout_start = []
+        bout_end = []
+        n = 0
+        while n < len(peak_pts) - 2:
             # if current right + minimum is less than the next left its good
-            if peak_pts[n][1] + interpeak_dst <= peak_pts[n+1][0]:
+            if peak_pts[n][1] + interpeak_dst <= peak_pts[n + 1][0]:
                 bout_end.append(int(peak_pts[n][1]))
                 bout_start.append(int(peak_pts[n][0]))
-                n+=1
+                n += 1
             # otherwise increase the index until thats the case
             else:
-                while n < len(peak_pts)-2:
-                    n+=1
-                    if peak_pts[n][1] + interpeak_dst <= peak_pts[n+1][0]:
+                while n < len(peak_pts) - 2:
+                    n += 1
+                    if peak_pts[n][1] + interpeak_dst <= peak_pts[n + 1][0]:
                         bout_end.append(int(peak_pts[n][1]))
                         bout_start.append(int(peak_pts[n][0]))
-                        n+=1
+                        n += 1
                         break
 
         # accounts for interbout distance, left and right of each peak in filtered tail deflection data ("/'TailLoc'/'TailDeflectSum'")
-        new_peak_pts = np.stack([bout_start,bout_end], axis=1) # all peaks in tail data
+        new_peak_pts = np.stack(
+            [bout_start, bout_end], axis=1
+        )  # all peaks in tail data
         tail_ind_start = self.tail_stimulus_df.iloc[0].tail_index.values[0]
         tail_ind_stop = self.tail_stimulus_df.iloc[-2].tail_index.values[-1]
 
-        ind_0 = np.where(new_peak_pts[:,0]>=tail_ind_start)[0][0]
-        ind_1 = np.where(new_peak_pts[:,1]<=tail_ind_stop)[0][-1]
-        relevant_pts = new_peak_pts[ind_0:ind_1] # peaks only within the stimuli presentation
+        ind_0 = np.where(new_peak_pts[:, 0] >= tail_ind_start)[0][0]
+        ind_1 = np.where(new_peak_pts[:, 1] <= tail_ind_stop)[0][-1]
+        relevant_pts = new_peak_pts[
+            ind_0:ind_1
+        ]  # peaks only within the stimuli presentation
 
         dict_info = {}
         for bout_ind in range(len(relevant_pts)):
             if bout_ind not in dict_info.keys():
                 dict_info[bout_ind] = {}
-            bout_angle = np.sum(self.tail_df.iloc[:,4].values[relevant_pts[bout_ind][0]:relevant_pts[bout_ind][1]]) # total bout angle
-            dict_info[bout_ind]['bout_angle'] = bout_angle
+            bout_angle = np.sum(
+                self.tail_df.iloc[:, 4].values[
+                    relevant_pts[bout_ind][0] : relevant_pts[bout_ind][1]
+                ]
+            )  # total bout angle
+            dict_info[bout_ind]["bout_angle"] = bout_angle
 
-            frame_start = self.tail_df.iloc[:,-1].values[relevant_pts[bout_ind][0]]
-            frame_end = self.tail_df.iloc[:,-1].values[relevant_pts[bout_ind][1]]
-            dict_info[bout_ind]['image_frames'] = frame_start, frame_end
+            frame_start = self.tail_df.iloc[:, -1].values[relevant_pts[bout_ind][0]]
+            frame_end = self.tail_df.iloc[:, -1].values[relevant_pts[bout_ind][1]]
+            dict_info[bout_ind]["image_frames"] = frame_start, frame_end
 
-        self.tail_bouts_df = pd.DataFrame.from_dict(dict_info, 'index')
-        self.tail_bouts_df.loc[:, 'bout_dir'] = np.zeros(self.tail_bouts_df.shape[0])
-        self.tail_bouts_df['bout_dir'][self.tail_bouts_df['bout_angle'] > 0] = 'left'
-        self.tail_bouts_df['bout_dir'][self.tail_bouts_df['bout_angle'] < 0] = 'right'
-        #tail_bouts_df has bout indices, frames from image frametimes, and bout direction
+        self.tail_bouts_df = pd.DataFrame.from_dict(dict_info, "index")
+        self.tail_bouts_df.loc[:, "bout_dir"] = np.zeros(self.tail_bouts_df.shape[0])
+        self.tail_bouts_df["bout_dir"][self.tail_bouts_df["bout_angle"] > 0] = "left"
+        self.tail_bouts_df["bout_dir"][self.tail_bouts_df["bout_angle"] < 0] = "right"
+        # tail_bouts_df has bout indices, frames from image frametimes, and bout direction
 
-    def bout_responsive_neurons (self, offset = 2, thresh = 0.2):
+    def bout_responsive_neurons(self, offset=2, thresh=0.2):
         nrns = []
         vals = []
         bouts = []
@@ -412,30 +474,34 @@ class TailTrackedFish(VizStimFish):
         self.norm_cells = arrutils.norm_fdff(self.f_cells)
         for q in range(self.norm_cells.shape[0]):
             for bout in range(len(self.tail_bouts_df)):
-                s = self.tail_bouts_df.iloc[:,1].values[bout][0] - offset
-                if s<= 0:
-                    s=0
-                e = self.tail_bouts_df.iloc[:,1].values[bout][1] + offset
+                s = self.tail_bouts_df.iloc[:, 1].values[bout][0] - offset
+                if s <= 0:
+                    s = 0
+                e = self.tail_bouts_df.iloc[:, 1].values[bout][1] + offset
                 if e >= self.norm_cells.shape[1]:
                     e = self.norm_cells.shape[1]
-                nrns.append(q) # all the neurons
-                bouts.append(bout) # all the bouts
-                vals.append(np.median(self.norm_cells[q][int(s):int(e)])) # median response to a bout
+                nrns.append(q)  # all the neurons
+                bouts.append(bout)  # all the bouts
+                vals.append(
+                    np.median(self.norm_cells[q][int(s) : int(e)])
+                )  # median response to a bout
 
-        neurbout_df = pd.DataFrame({'neur' : nrns, 'bout':bouts, 'fluor':vals})
+        neurbout_df = pd.DataFrame({"neur": nrns, "bout": bouts, "fluor": vals})
 
-        self.neurbout_dict = {} # to make a dict with each neuron as key and item as bouts
+        self.neurbout_dict = (
+            {}
+        )  # to make a dict with each neuron as key and item as bouts
         for n in neurbout_df.neur.unique():
             if n not in self.neurbout_dict.keys():
                 self.neurbout_dict[n] = {}
-            oneneur = neurbout_df[neurbout_df["neur"]==n]
+            oneneur = neurbout_df[neurbout_df["neur"] == n]
             responsive = []
             for b in oneneur.bout.unique():
-                if np.median(oneneur[oneneur.bout==b]['fluor'].values) >= thresh:
+                if np.median(oneneur[oneneur.bout == b]["fluor"].values) >= thresh:
                     responsive.append(b)
                 self.neurbout_dict[n] = responsive
 
-        _resp_cells = [] # list of only the responsive neuron id's
+        _resp_cells = []  # list of only the responsive neuron id's
         for key, value in self.neurbout_dict.items():
             for n in value:
                 _resp_cells.append(key)
@@ -495,9 +561,10 @@ class WorkingFish(VizStimFish):
                     ]
                 )
 
-    def build_booldf(self, stim_arr=None, zero_arr=True):
-        if not hasattr(self, "stim_dict"):
-            self.build_stimdicts()
+    def build_booldf(self, stim_arr=None, zero_arr=True, force=False):
+        if hasattr(self, "booldf"):
+            if not force:
+                return
 
         if not stim_arr:
             provided = False
