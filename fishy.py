@@ -215,11 +215,11 @@ class VizStimFish(BaseFish):
 
         diff_imgs = {}
         # for stimulus_name in constants.monocular_dict.keys():
-        for (
-            stimulus_name
-        ) in (
-            self.stimulus_df.stim_name.values.unique()
-        ):  # KF edit, only have relevant stims
+        for stimulus_name in [
+            i
+            for i in self.stimulus_df.stim_name.values.unique()
+            if i in constants.monocular_dict.keys()
+        ]:  # KF edit, only have relevant stims
             stim_occurences = self.stimulus_df[
                 self.stimulus_df.stim_name == stimulus_name
             ].frame.values
