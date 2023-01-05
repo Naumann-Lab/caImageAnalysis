@@ -3,7 +3,26 @@ import os
 import numpy as np
 
 
-def run_movement_correction(base_fish, caiman_ops=None, keep_mmaps=False, force=False):
+def run_image_rotation(base_fish, angle=0):
+    if angle is 0:
+        return
+
+    from scipy.ndimage import rotate
+    from tifffile import imread, imwrite
+
+    image = imread(base_fish.data_paths["image"])
+    rotated_image = [rotate(img, angle=angle) for img in image]
+    imwrite(
+        base_fish.folder_path.joinpath("img_rotated.tif"), rotated_image, bigtiff=True
+    )
+
+
+def run_movement_correction(
+    base_fish,
+    caiman_ops=None,
+    keep_mmaps=False,
+    force=False,
+):
     import caiman as cm
     from tifffile import imsave
 
@@ -14,7 +33,10 @@ def run_movement_correction(base_fish, caiman_ops=None, keep_mmaps=False, force=
             print("movecorrect seems already done and not forced")
             return
 
-    original_image_path = base_fish.data_paths["image"]
+    if "rotated_image" in base_fish.data_paths.keys():
+        original_image_path = base_fish.data_paths["rotated_image"]
+    else:
+        original_image_path = base_fish.data_paths["image"]
 
     if not caiman_ops:
         caiman_ops = {
@@ -67,7 +89,6 @@ def run_movement_correction(base_fish, caiman_ops=None, keep_mmaps=False, force=
 
     new_path = base_fish.folder_path.joinpath("movement_corr_img.tif")
     imsave(new_path, output)
-    return
 
 
 def run_suite2p(base_fish, input_tau=1.5, s2p_ops=None, force=False):
@@ -109,4 +130,3 @@ def run_suite2p(base_fish, input_tau=1.5, s2p_ops=None, force=False):
         ops[item] = s2p_ops[item]
 
     output_ops = run_s2p(ops=ops, db=db)
-    return

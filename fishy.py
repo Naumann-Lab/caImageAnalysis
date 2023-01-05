@@ -40,6 +40,8 @@ class BaseFish:
                 if entry.name.endswith(".tif"):
                     if "movement_corr" in entry.name:
                         self.data_paths["move_corrected_image"] = Path(entry.path)
+                    elif "rotated" in entry.name:
+                        self.data_paths["rotated_image"] = Path(entry.path)
                     else:
                         self.data_paths["image"] = Path(entry.path)
                 elif entry.name.endswith(".txt") and "log" in entry.name:
@@ -673,6 +675,41 @@ class WorkingFish(VizStimFish):
         valid_y = [i for n, i in enumerate(ypos) if n in valid_inds]
         valid_colors = [i for n, i in enumerate(colors) if n in valid_inds]
         return valid_x, valid_y, valid_colors, valid_cells
+
+    def return_degree_vectors(self, neurons):
+        import angles
+
+        if not hasattr(self, "booldf"):
+            self.build_booldf()
+
+        bool_monoc = self.booldf[constants.monocular_dict.keys()]
+        monoc_bool_neurons = bool_monoc.loc[bool_monoc.sum(axis=1) > 0].index.values
+        valid_neurons = [i for i in monoc_bool_neurons if i in neurons]
+
+        thetas = []
+        thetavals = []
+        for n in valid_neurons:
+            neuron_response_dict = self.neuron_dict[n]
+            monoc_neuron_response_dict = {
+                k: v
+                for k, v in neuron_response_dict.items()
+                if k in constants.monocular_dict.keys()
+            }
+
+            degree_ids = [
+                constants.deg_dict[i] for i in monoc_neuron_response_dict.keys()
+            ]
+            degree_responses = [
+                np.clip(i, a_min=0, a_max=999)
+                for i in monoc_neuron_response_dict.values()
+            ]
+
+            theta = angles.weighted_mean_angle(degree_ids, degree_responses)
+            thetaval = np.nanmean(degree_responses)
+
+            thetas.append(theta)
+            thetavals.append(thetaval)
+        return thetas, thetavals
 
 
 class VolumeFish:
