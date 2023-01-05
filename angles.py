@@ -36,3 +36,62 @@ def calc_dsi(neuron_dict):
     inverse_stim = constants.nulldict[max_stim]
     inverse_val = monoc_neuron[inverse_stim]
     return np.clip((max_val - inverse_val) / max_val, a_min=0, a_max=1)
+
+
+def weighted_mean_angle(degs, weights):
+
+    from cmath import rect, phase
+    from math import radians, degrees
+
+    _sums = []
+    for d in range(len(degs)):
+        _sums.append(weights[d] * rect(1, radians(degs[d])))
+    return degrees(phase(sum(_sums) / np.sum(weights)))
+
+
+def color_returner(val, theta, threshold=0.5):
+
+    if theta < 0:
+        theta += 360
+
+    if val >= threshold:
+        # Forward
+        if theta >= 337.5 or theta <= 22.5:
+            outputColor = [0, 1, 0]
+
+        # Forward Right
+        elif 22.5 < theta <= 67.5:
+            outputColor = [0.75, 1, 0]
+
+        # Right
+        elif 67.5 < theta <= 112.5:
+            outputColor = [1, 0.25, 0]
+
+        # Backward Right
+        elif 112.5 < theta <= 157.5:
+            outputColor = [1, 0, 0.25]
+
+        # Backward
+        elif 157.5 < theta <= 202.5:
+            outputColor = [1, 0, 1]
+
+        # Backward Left
+        elif 202.5 < theta <= 247.5:
+            outputColor = [0.25, 0, 1]
+
+        # Left
+        elif 247.5 < theta <= 292.5:
+            outputColor = [0, 0.25, 1]
+
+        # Forward Left
+        elif 292.5 < theta <= 337.5:
+            outputColor = [0, 0.75, 1]
+
+        # if somehow we make it to here just make it gray
+        else:
+            outputColor = [0.66, 0.66, 0.66]
+
+    else:
+        # if not above some minimum lets make it gray
+        outputColor = [0.66, 0.66, 0.66]
+    return outputColor
