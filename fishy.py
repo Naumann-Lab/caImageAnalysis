@@ -274,7 +274,14 @@ class VizStimFish(BaseFish):
 
 class TailTrackedFish(VizStimFish):
     def __init__(
-        self, tail_key="tail", tail_fxn=None, tail_fxn_args=None, *args, **kwargs
+        self,
+        tail_key="tail",
+        tail_fxn=None,
+        tail_fxn_args=None,
+        bout_sig=4,
+        bout_interpeak_dst=50,
+        *args,
+        **kwargs,
     ):
         super().__init__(*args, **kwargs)
         # need to have 'tail' in the tail output file
@@ -285,7 +292,7 @@ class TailTrackedFish(VizStimFish):
         self.tail_fxn_args = tail_fxn_args
         self.add_tail(tail_key, tail_fxn)
         self.stim_tail_frame_alignment()
-        self.bout_finder(sig=4, interpeak_dst=50)
+        self.bout_finder(sig=bout_sig, interpeak_dst=bout_interpeak_dst)
         self.bout_responsive_neurons()
 
     def add_tail(self, tail_key, tail_fxn):
