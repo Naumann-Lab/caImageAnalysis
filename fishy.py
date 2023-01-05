@@ -276,7 +276,7 @@ class TailTrackedFish(VizStimFish):
         self.tail_fxn_args = tail_fxn_args
         self.add_tail(tail_key, tail_fxn)
         self.stim_tail_frame_alignment()
-        self.bout_finder(sig = 4, interpeak_dst= 50)
+        self.bout_finder(sig = 4, interpeak_dst= 50, height=None, width=None, prominence=1)
         self.bout_responsive_neurons()
 
     def add_tail(self, tail_key, tail_fxn):
