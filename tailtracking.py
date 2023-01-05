@@ -43,5 +43,3 @@ def tail_reader(tail_path): #reads in the tail data into a df
 
     return tail_df
 
-
-
