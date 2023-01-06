@@ -12,7 +12,7 @@ def run_image_rotation(base_fish, angle=0, crop=0.075):
 
     image = imread(base_fish.data_paths["image"])
 
-    image = image[:, :, int(image.shape[2] * crop):]
+    image = image[:, :, int(image.shape[2] * crop) :]
 
     rotated_image = [rotate(img, angle=angle) for img in image]
     imwrite(
