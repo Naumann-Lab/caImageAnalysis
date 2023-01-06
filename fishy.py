@@ -177,7 +177,7 @@ class PurgeFish(BaseFish):
         except:
             pass
         self.process_filestructure()
-        
+
 
 class VizStimFish(BaseFish):
     def __init__(

@@ -3,7 +3,7 @@ import os
 import numpy as np
 
 
-def run_image_rotation(base_fish, angle=0):
+def run_image_rotation(base_fish, angle=0, crop=0.075):
     if angle is 0:
         return
 
@@ -11,6 +11,9 @@ def run_image_rotation(base_fish, angle=0):
     from tifffile import imread, imwrite
 
     image = imread(base_fish.data_paths["image"])
+
+    image = image[:, :, int(image.shape[2] * crop):]
+
     rotated_image = [rotate(img, angle=angle) for img in image]
     imwrite(
         base_fish.folder_path.joinpath("img_rotated.tif"), rotated_image, bigtiff=True
