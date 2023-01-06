@@ -159,6 +159,26 @@ class BaseFish:
         return image
 
 
+class PurgeFish(BaseFish):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        self.purge()
+
+    def purge(self):
+        import shutil
+
+        try:
+            os.remove(self.folder_path.joinpath("suite2p"))
+        except:
+            pass
+        try:
+            shutil.rmtree(self.folder_path.joinpath("suite2p"))
+        except:
+            pass
+        self.process_filestructure()
+        
+
 class VizStimFish(BaseFish):
     def __init__(
         self,
