@@ -1,7 +1,9 @@
 import pandas as pd
+from numpy import nan
+import numpy as np
 
 
-def pandastim_to_df(pstimpath, minimode=True):
+def pandastim_to_df(pstimpath, minimode=False, addvelocity=True):
     with open(pstimpath) as file:
         contents = file.read()
 
@@ -21,8 +23,13 @@ def pandastim_to_df(pstimpath, minimode=True):
 
     mini_stim = stimulus_df[["stim_name", "time"]]
     mini_stim.stim_name = pd.Series(mini_stim.stim_name, dtype="category")
+
+    mini_stim_vel = stimulus_df[["stim_name", "velocity", "time"]]
+    mini_stim_vel.stim_name = pd.Series(mini_stim.stim_name, dtype="category")
     if minimode:
         return mini_stim
+    elif addvelocity:
+        return mini_stim_vel
     else:
         return stimulus_df
 
