@@ -731,10 +731,10 @@ class WorkingFish(VizStimFish):
             thetavals.append(thetaval)
         return thetas, thetavals
 
-    def draw_roi(self):
+    def draw_roi(self, title="blank", overwrite=False):
         import cv2
 
-        img = self.ops['refImg'].copy()
+        img = self.ops["refImg"].copy()
 
         img_arr = np.zeros((max(img.shape), max(img.shape)))
 
@@ -743,26 +743,71 @@ class WorkingFish(VizStimFish):
                 img_arr[x, y] = img[x, y]
 
         self.ptlist = []
-        def roigrabber(event, x, y, flags, params):
-            if event == 1: # left click
-                if len(self.ptlist) == 0:
-                    cv2.line(img, pt1=(x, y), pt2=(x, y), color=(255,255), thickness=3)
-                else:
-                    cv2.line(img, pt1=(x, y), pt2=self.ptlist[-1], color=(255,255), thickness=3)
 
-                self.ptlist.append((x,y))
-            if event == 2: # right click
+        def roigrabber(event, x, y, flags, params):
+            if event == 1:  # left click
+                if len(self.ptlist) == 0:
+                    cv2.line(img, pt1=(x, y), pt2=(x, y), color=(255, 255), thickness=3)
+                else:
+                    cv2.line(
+                        img,
+                        pt1=(x, y),
+                        pt2=self.ptlist[-1],
+                        color=(255, 255),
+                        thickness=3,
+                    )
+
+                self.ptlist.append((x, y))
+            if event == 2:  # right click
                 cv2.destroyAllWindows()
 
-        cv2.namedWindow('roiFinder')
+        cv2.namedWindow("roiFinder")
 
-        cv2.setMouseCallback('roiFinder', roigrabber)
+        cv2.setMouseCallback("roiFinder", roigrabber)
 
-        cv2.imshow('roiFinder', np.array(img, 'uint8'))
+        cv2.imshow("roiFinder", np.array(img, "uint8"))
 
         cv2.waitKey(0)
         cv2.destroyAllWindows()
+        self.save_roi(title, overwrite)
 
+    def save_roi(self, save_name, overwrite):
+
+        savePathFolder = self.folder_path.joinpath("rois")
+        if not os.path.exists(savePathFolder):
+            os.mkdir(savePathFolder)
+
+        savePath = savePathFolder.joinpath(f"{save_name}.npy")
+        if not overwrite and os.path.exists(savePath) and save_name != "blank":
+            raise OSError  # not overwriting prior data
+        else:
+            np.save(savePath, self.ptlist)
+
+    def load_saved_rois(self):
+        self.roi_dict = {}
+        with os.scandir(self.folder_path.joinpath("rois")) as entries:
+            for entry in entries:
+                self.roi_dict[Path(entry.path).stem] = entry.path
+
+    def return_cells_by_saved_roi(self, roi_name):
+        self.load_saved_rois()
+        if roi_name not in self.roi_dict:
+            print("roi not found, please select")
+            self.draw_roi(title=roi_name)
+            self.load_saved_rois()
+
+        roi_points = np.load(self.roi_dict[roi_name])
+        import matplotlib.path as mpltPath
+
+        path = mpltPath.Path(roi_points)
+
+        all_cells = self.return_cells_by_location()
+        all_rois = self.return_cell_rois(all_cells)
+
+        cell_in_roi = path.contains_points(all_rois)
+
+        selected_cells = all_cells[cell_in_roi]
+        return selected_cells
 
 
 class VolumeFish:
