@@ -175,6 +175,26 @@ class BaseFish:
             for entry in entries:
                 self.roi_dict[Path(entry.path).stem] = entry.path
 
+    def return_cells_by_saved_roi(self, roi_name):
+        self.load_saved_rois()
+        if roi_name not in self.roi_dict:
+            print("roi not found, please select")
+            self.draw_roi(title=roi_name)
+            self.load_saved_rois()
+
+        roi_points = np.load(self.roi_dict[roi_name])
+        import matplotlib.path as mpltPath
+
+        path = mpltPath.Path(roi_points)
+
+        all_cells = self.return_cells_by_location()
+        all_rois = self.return_cell_rois(all_cells)
+
+        cell_in_roi = path.contains_points(all_rois)
+
+        selected_cells = all_cells[cell_in_roi]
+        return selected_cells
+
     def load_image(self):
         if "move_corrected_image" in self.data_paths.keys():
             image = imread(self.data_paths["move_corrected_image"])
@@ -788,26 +808,6 @@ class WorkingFish(VizStimFish):
             thetas.append(theta)
             thetavals.append(thetaval)
         return thetas, thetavals
-
-    def return_cells_by_saved_roi(self, roi_name):
-        self.load_saved_rois()
-        if roi_name not in self.roi_dict:
-            print("roi not found, please select")
-            self.draw_roi(title=roi_name)
-            self.load_saved_rois()
-
-        roi_points = np.load(self.roi_dict[roi_name])
-        import matplotlib.path as mpltPath
-
-        path = mpltPath.Path(roi_points)
-
-        all_cells = self.return_cells_by_location()
-        all_rois = self.return_cell_rois(all_cells)
-
-        cell_in_roi = path.contains_points(all_rois)
-
-        selected_cells = all_cells[cell_in_roi]
-        return selected_cells
 
 
 class VolumeFish:
