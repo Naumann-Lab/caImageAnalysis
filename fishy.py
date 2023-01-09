@@ -143,7 +143,7 @@ class BaseFish:
                         thickness=3,
                     )
 
-                self.ptlist.append((x, y))
+                self.ptlist.append((y, x))
             if event == 2:  # right click
                 cv2.destroyAllWindows()
 
@@ -168,6 +168,7 @@ class BaseFish:
             raise OSError  # not overwriting prior data
         else:
             np.save(savePath, self.ptlist)
+            print(f'saved {save_name}')
 
     def load_saved_rois(self):
         self.roi_dict = {}
