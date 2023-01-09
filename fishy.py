@@ -731,6 +731,39 @@ class WorkingFish(VizStimFish):
             thetavals.append(thetaval)
         return thetas, thetavals
 
+    def draw_roi(self):
+        import cv2
+
+        img = self.ops['refImg'].copy()
+
+        img_arr = np.zeros((max(img.shape), max(img.shape)))
+
+        for x in np.arange(img.shape[0]):
+            for y in np.arange(img.shape[1]):
+                img_arr[x, y] = img[x, y]
+
+        self.ptlist = []
+        def roigrabber(event, x, y, flags, params):
+            if event == 1: # left click
+                if len(self.ptlist) == 0:
+                    cv2.line(img, pt1=(x, y), pt2=(x, y), color=(255,255), thickness=3)
+                else:
+                    cv2.line(img, pt1=(x, y), pt2=self.ptlist[-1], color=(255,255), thickness=3)
+
+                self.ptlist.append((x,y))
+            if event == 2: # right click
+                cv2.destroyAllWindows()
+
+        cv2.namedWindow('roiFinder')
+
+        cv2.setMouseCallback('roiFinder', roigrabber)
+
+        cv2.imshow('roiFinder', np.array(img, 'uint8'))
+
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
+
+
 
 class VolumeFish:
     def __init__(self):
