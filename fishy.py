@@ -147,14 +147,17 @@ class BaseFish:
             if event == 2:  # right click
                 cv2.destroyAllWindows()
 
-        cv2.namedWindow("roiFinder")
+        cv2.namedWindow(f"roiFinder_{title}")
 
-        cv2.setMouseCallback("roiFinder", roigrabber)
+        cv2.setMouseCallback(f"roiFinder_{title}", roigrabber)
 
-        cv2.imshow("roiFinder", np.array(img, "uint8"))
+        cv2.imshow(f"roiFinder_{title}", np.array(img, "uint8"))
+        try:
+            cv2.waitKey(0)
+            cv2.destroyAllWindows()
+        except:
+            cv2.destroyAllWindows()
 
-        cv2.waitKey(0)
-        cv2.destroyAllWindows()
         self.save_roi(title, overwrite)
 
     def save_roi(self, save_name, overwrite):
@@ -177,7 +180,11 @@ class BaseFish:
                 self.roi_dict[Path(entry.path).stem] = entry.path
 
     def return_cells_by_saved_roi(self, roi_name):
-        self.load_saved_rois()
+        try:
+            self.load_saved_rois()
+        except FileNotFoundError:
+            pass
+
         if roi_name not in self.roi_dict:
             print("roi not found, please select")
             self.draw_roi(title=roi_name)
@@ -196,6 +203,12 @@ class BaseFish:
         selected_cells = all_cells[cell_in_roi]
         return selected_cells
 
+    def clear_saved_roi(self, roi_name):
+        self.load_saved_rois()
+        try:
+            os.remove(self.roi_dict[roi_name])
+        except:
+            pass
     def load_image(self):
         if "move_corrected_image" in self.data_paths.keys():
             image = imread(self.data_paths["move_corrected_image"])
@@ -775,6 +788,17 @@ class WorkingFish(VizStimFish):
         valid_colors = [i for n, i in enumerate(colors) if n in valid_inds]
         return valid_x, valid_y, valid_colors, valid_cells
 
+    def make_computed_image_data_by_roi(self, roi_name, *args, **kwargs):
+        xpos, ypos, colors, neurons = self.make_computed_image_data(*args, **kwargs)
+        selected_cells = self.return_cells_by_saved_roi(roi_name)
+
+        valid_cells = [i for i in neurons if i in selected_cells]
+        valid_inds = [neurons.index(i) for i in valid_cells]
+        valid_x = [i for n, i in enumerate(xpos) if n in valid_inds]
+        valid_y = [i for n, i in enumerate(ypos) if n in valid_inds]
+        valid_colors = [i for n, i in enumerate(colors) if n in valid_inds]
+        return valid_x, valid_y, valid_colors, valid_cells
+
     def return_degree_vectors(self, neurons):
         import angles
 
@@ -881,6 +905,22 @@ class VizStimVolume(VolumeFish):
         all_neurons = []
         for v in self:
             xpos, ypos, colors, neurons = v.make_computed_image_data_by_loc(
+                *args, **kwargs
+            )
+
+            all_x += xpos
+            all_y += ypos
+            all_colors += colors
+            all_neurons += neurons
+        return all_x, all_y, all_colors, all_neurons
+
+    def volume_computed_image_from_roi(self, *args, **kwargs):
+        all_x = []
+        all_y = []
+        all_colors = []
+        all_neurons = []
+        for v in self:
+            xpos, ypos, colors, neurons = v.make_computed_image_data_by_roi(
                 *args, **kwargs
             )
 
