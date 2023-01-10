@@ -30,7 +30,10 @@ class BaseFish:
         self.invert = invert
 
         self.process_filestructure()  # generates self.data_paths
-        self.raw_text_frametimes_to_df()  # generates self.frametimes_df
+        try:
+            self.raw_text_frametimes_to_df()  # generates self.frametimes_df
+        except:
+            print('failed to process frametimes from text')
         # self.load_suite2p() # loads in suite2p paths
 
     def process_filestructure(self):
@@ -48,6 +51,10 @@ class BaseFish:
                     self.data_paths["log"] = Path(entry.path)
                 elif entry.name.endswith(".txt") and self.frametimes_key in entry.name:
                     self.data_paths["frametimes"] = Path(entry.path)
+
+                if entry.name == "frametimes.h5":
+                    self.frametimes_df = pd.read_hdf(entry.path)
+                    print('found and loaded frametimes h5')
 
                 if os.path.isdir(entry.path):
                     if entry.name == "suite2p":
@@ -70,6 +77,8 @@ class BaseFish:
                     print("failed to move original image out of folder")
 
     def raw_text_frametimes_to_df(self):
+        if hasattr(self, "frametimes_df"):
+            return
         with open(self.data_paths["frametimes"]) as file:
             contents = file.read()
         parsed = contents.split("\n")

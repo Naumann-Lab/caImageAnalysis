@@ -4,8 +4,6 @@ import numpy as np
 
 
 def run_image_rotation(base_fish, angle=0, crop=0.075):
-    if angle is 0:
-        return
 
     from scipy.ndimage import rotate
     from tifffile import imread, imwrite
