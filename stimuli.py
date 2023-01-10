@@ -34,6 +34,17 @@ def pandastim_to_df(pstimpath, minimode=False, addvelocity=True):
         return stimulus_df
 
 
+def legacy_struct_pandastim_to_df(folderPath, stimkey, *args, **kwargs):
+    import os
+    with os.scandir(folderPath.parents[0]) as entries:
+        for entry in entries:
+            if stimkey in entry.name:
+                stimPath = entry.path
+
+    if stimPath:
+        df = pandastim_to_df(stimPath, *args, **kwargs)
+        return df
+
 def stim_shader(some_fish_class):
     """
     Shades a plot with the stim overlays using class info

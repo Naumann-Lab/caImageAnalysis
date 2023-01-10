@@ -55,6 +55,8 @@ class BaseFish:
                 if entry.name == "frametimes.h5":
                     self.frametimes_df = pd.read_hdf(entry.path)
                     print('found and loaded frametimes h5')
+                    if (np.diff(self.frametimes_df.index) > 1).any():
+                        self.frametimes_df.reset_index(inplace=True)
 
                 if os.path.isdir(entry.path):
                     if entry.name == "suite2p":
@@ -286,6 +288,7 @@ class VizStimFish(BaseFish):
         stim_key="stims",
         stim_fxn=None,
         stim_fxn_args=None,
+        legacy=False,
         stim_offset=5,
         used_offsets=(-10, 14),
         *args,
@@ -300,10 +303,10 @@ class VizStimFish(BaseFish):
         """
         super().__init__(*args, **kwargs)
         if stim_fxn_args is None:
-            stim_fxn_args = []
+            stim_fxn_args = {}
 
         self.stim_fxn_args = stim_fxn_args
-        self.add_stims(stim_key, stim_fxn)
+        self.add_stims(stim_key, stim_fxn, legacy)
 
         if self.invert:
             self.stimulus_df.loc[:, "stim_name"] = self.stimulus_df.stim_name.map(
@@ -312,23 +315,29 @@ class VizStimFish(BaseFish):
         self.stim_offset = stim_offset
         self.offsets = used_offsets
 
-    def add_stims(self, stim_key, stim_fxn):
+    def add_stims(self, stim_key, stim_fxn, legacy):
         with os.scandir(self.folder_path) as entries:
             for entry in entries:
                 if stim_key in entry.name:
                     self.data_paths["stimuli"] = Path(entry.path)
-
-        try:
-            _ = self.data_paths["stimuli"]
-        except KeyError:
-            print("failed to find stimuli")
-            return
+        if not legacy:
+            try:
+                _ = self.data_paths["stimuli"]
+            except KeyError:
+                print("failed to find stimuli")
+                return
 
         if stim_fxn:
             if self.stim_fxn_args:
-                self.stimulus_df = stim_fxn(
-                    self.data_paths["stimuli"], **self.stim_fxn_args
-                )
+                try:
+                    self.stimulus_df = stim_fxn(
+                        self.data_paths["stimuli"], **self.stim_fxn_args
+                    )
+                except:
+                    try:
+                        self.stimulus_df = stim_fxn(self.folder_path, **self.stim_fxn_args)
+                    except:
+                        print('failed to generate stimulus df')
             else:
                 self.stimulus_df = stim_fxn(self.data_paths["stimuli"])
 
