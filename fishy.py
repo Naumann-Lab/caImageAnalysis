@@ -437,7 +437,11 @@ class TailTrackedFish(VizStimFish):
         self.stim_tail_frame_alignment()
 
         self.bout_finder(sig=4, interpeak_dst=50, height=None, width=None, prominence=1)
-        self.bout_responsive_neurons()
+
+        if hasattr(self, "f_cells"):
+            self.bout_responsive_neurons()
+        else:
+            pass
 
     def add_tail(self, tail_key, tail_fxn):
         with os.scandir(self.folder_path) as entries:
