@@ -89,8 +89,9 @@ def trim_image(image):
 
 def estimate_transform_itk(moving, fixed, tx):
     from SimpleITK import GetImageFromArray
-    moving_ = GetImageFromArray(moving.astype('float32'))
-    fixed_ = GetImageFromArray(fixed.astype('float32'))
+
+    moving_ = GetImageFromArray(moving.astype("float32"))
+    fixed_ = GetImageFromArray(fixed.astype("float32"))
     return tx.Execute(moving_, fixed_)
 
 
@@ -162,15 +163,15 @@ def register_image(image_reference, image_target, savepath=None):
     elastixImageFilter.SetFixedImage(reference_image)
     elastixImageFilter.SetMovingImage(align_image)
 
-    pmap = sitk.GetDefaultParameterMap('rigid')
-    pmap['MaximumNumberOfIterations'] = ['4096']
+    pmap = sitk.GetDefaultParameterMap("rigid")
+    pmap["MaximumNumberOfIterations"] = ["4096"]
     elastixImageFilter.SetParameterMap(pmap)
     # elastixImageFilter.AddParameterMap(pmap)
 
     pmap = sitk.GetDefaultParameterMap("bspline")
-    pmap['MaximumNumberOfIterations'] = ['4096']
-    pmap['Metric0Weight'] = ['0.1']
-    pmap['Metric1Weight'] = ['10']
+    pmap["MaximumNumberOfIterations"] = ["4096"]
+    pmap["Metric0Weight"] = ["0.1"]
+    pmap["Metric1Weight"] = ["10"]
     elastixImageFilter.AddParameterMap(pmap)
 
     elastixImageFilter.LogToConsoleOn()
@@ -183,7 +184,9 @@ def register_image(image_reference, image_target, savepath=None):
         pmaps = elastixImageFilter.GetTransformParameterMap()
 
         for n, pmap in enumerate(pmaps):
-            sitk.WriteParameterFile(pmap, Path(savepath).joinpath(f'transform_pmap_{n}.txt'))
+            sitk.WriteParameterFile(
+                pmap, Path(savepath).joinpath(f"transform_pmap_{n}.txt")
+            )
 
     return sitk.GetArrayFromImage(res)
 

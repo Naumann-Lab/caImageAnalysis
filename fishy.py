@@ -33,7 +33,7 @@ class BaseFish:
         try:
             self.raw_text_frametimes_to_df()  # generates self.frametimes_df
         except:
-            print('failed to process frametimes from text')
+            print("failed to process frametimes from text")
         # self.load_suite2p() # loads in suite2p paths
 
     def process_filestructure(self):
@@ -54,7 +54,7 @@ class BaseFish:
 
                 if entry.name == "frametimes.h5":
                     self.frametimes_df = pd.read_hdf(entry.path)
-                    print('found and loaded frametimes h5')
+                    print("found and loaded frametimes h5")
                     if (np.diff(self.frametimes_df.index) > 1).any():
                         self.frametimes_df.reset_index(inplace=True)
 
@@ -182,7 +182,7 @@ class BaseFish:
             raise OSError  # not overwriting prior data
         else:
             np.save(savePath, self.ptlist)
-            print(f'saved {save_name}')
+            print(f"saved {save_name}")
 
     def load_saved_rois(self):
         self.roi_dict = {}
@@ -220,6 +220,7 @@ class BaseFish:
             os.remove(self.roi_dict[roi_name])
         except:
             pass
+
     def load_image(self):
         if "move_corrected_image" in self.data_paths.keys():
             image = imread(self.data_paths["move_corrected_image"])
@@ -238,8 +239,8 @@ class BaseFish:
         test1 = increment
         while True:
             testerBool = (
-                    frametimes.loc[:, "time"].values[test0].minute
-                    == frametimes.loc[:, "time"].values[test1].minute
+                frametimes.loc[:, "time"].values[test0].minute
+                == frametimes.loc[:, "time"].values[test1].minute
             )
             if testerBool:
                 break
@@ -335,9 +336,11 @@ class VizStimFish(BaseFish):
                     )
                 except:
                     try:
-                        self.stimulus_df = stim_fxn(self.folder_path, **self.stim_fxn_args)
+                        self.stimulus_df = stim_fxn(
+                            self.folder_path, **self.stim_fxn_args
+                        )
                     except:
-                        print('failed to generate stimulus df')
+                        print("failed to generate stimulus df")
             else:
                 self.stimulus_df = stim_fxn(self.data_paths["stimuli"])
 

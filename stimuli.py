@@ -36,6 +36,7 @@ def pandastim_to_df(pstimpath, minimode=False, addvelocity=True):
 
 def legacy_struct_pandastim_to_df(folderPath, stimkey, *args, **kwargs):
     import os
+
     with os.scandir(folderPath.parents[0]) as entries:
         for entry in entries:
             if stimkey in entry.name:
@@ -44,6 +45,7 @@ def legacy_struct_pandastim_to_df(folderPath, stimkey, *args, **kwargs):
     if stimPath:
         df = pandastim_to_df(stimPath, *args, **kwargs)
         return df
+
 
 def stim_shader(some_fish_class):
     """
