@@ -1,6 +1,8 @@
 import SimpleITK as sitk
 import numpy as np
 
+import os
+
 
 def load_image(image_path):
     """
@@ -138,7 +140,14 @@ def calculate_match_value(image_reference, image_target):
     return r.GetMetricValue()
 
 
-def register_image(image_reference, image_target):
+def register_image(image_reference, image_target, savepath=None):
+    """
+
+    :param image_reference:
+    :param image_target:
+    :param savepath: directory
+    :return:
+    """
 
     def_size = 1024
     while max(max(image_reference.shape, image_target.shape)) >= def_size:
@@ -161,12 +170,46 @@ def register_image(image_reference, image_target):
     pmap = sitk.GetDefaultParameterMap("bspline")
     pmap['MaximumNumberOfIterations'] = ['4096']
     pmap['Metric0Weight'] = ['0.1']
-    pmap['Metric1Weight'] = ['50']
+    pmap['Metric1Weight'] = ['10']
     elastixImageFilter.AddParameterMap(pmap)
 
     elastixImageFilter.LogToConsoleOn()
     elastixImageFilter.Execute()
     res = elastixImageFilter.GetResultImage()
+
+    if savepath:
+        from pathlib import Path
+
+        pmaps = elastixImageFilter.GetTransformParameterMap()
+
+        for n, pmap in enumerate(pmaps):
+            sitk.WriteParameterFile(pmap, Path(savepath).joinpath(f'transform_pmap_{n}.txt'))
+
+    return sitk.GetArrayFromImage(res)
+
+
+def transform_image_from_saved(image, savepath):
+    align_image = sitk.GetImageFromArray(image)
+
+    pmap_files = []
+    with os.scandir(savepath) as entries:
+        for entry in entries:
+            if "transform_pmap" in entry.name:
+                pmap_files.append(entry.path)
+
+    pmap0 = sitk.ReadParameterFile(pmap_files[0])
+
+    transformixImageFilter = sitk.TransformixImageFilter()
+    transformixImageFilter.SetTransformParameterMap(pmap0)
+
+    for pmap_file in pmap_files[1:]:
+        pmap = sitk.ReadParameterFile(pmap_file)
+        transformixImageFilter.AddTransformParameterMap(pmap)
+
+    transformixImageFilter.SetMovingImage(align_image)
+    transformixImageFilter.Execute()
+    res = transformixImageFilter.GetResultImage()
+
     return sitk.GetArrayFromImage(res)
 
 
@@ -178,3 +221,4 @@ def find_best_z_match(stack_reference, image_target, rigorous=False):
     :param rigorous: if you have an abundance of time this can be true
     :return: Z index of reference stack and results dict
     """
+    return
