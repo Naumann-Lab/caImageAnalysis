@@ -454,8 +454,9 @@ def find_best_z_match(
         maxkey = {v: k for k, v in results_dictionary.items()}[maxval]
         return maxkey, results_dictionary
 
+
 def find_best_z_match2(
-        stack_reference, image_target, rigorous=False, l=None, r=None, check_distance=3
+    stack_reference, image_target, rigorous=False, l=None, r=None, check_distance=3
 ):
     """
     :param stack_reference: 3d image stack to align image target to
