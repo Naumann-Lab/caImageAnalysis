@@ -257,6 +257,28 @@ def register_image2(
     return sitk.GetArrayFromImage(res)
 
 
+def calculate_match_value2(image_reference, image_target):
+    def_size = 1024
+    while max(max(image_reference.shape, image_target.shape)) >= def_size:
+        def_size *= 2
+    image_target = embed_image(image_target, def_size)
+    image_reference = embed_image(image_reference, def_size)
+
+    res = register_image2(image_target, image_reference, iterations=(50, 100))
+    r = sitk.ImageRegistrationMethod()
+    r.SetMetricAsMattesMutualInformation(numberOfHistogramBins=32)
+    r.SetOptimizerAsLBFGSB(maximumNumberOfCorrections=3, numberOfIterations=100)
+    r.SetMetricSamplingStrategy(r.RANDOM)
+    r.SetMetricSamplingPercentage(0.5)
+    tx = sitk.TranslationTransform(2)
+    r.SetInitialTransform(tx)
+    r.SetShrinkFactorsPerLevel(shrinkFactors=[4, 2])
+    r.SetSmoothingSigmasPerLevel(smoothingSigmas=[3, 1])
+    # res_img = sitk.GetArrayFromImage(res)
+    tx = estimate_transform_itk(image_reference, res, r)
+    return r.GetMetricValue()
+
+
 def transform_points(folderpath: str, points: list, cleanup: bool = True) -> list:
     """
     transforms a list of points
@@ -359,9 +381,6 @@ def find_best_z_match(
     :return: Z index of reference stack and results dict
     """
 
-    current_left_val = None
-    current_right_val = None
-
     results_dictionary = {}
 
     if not l:
@@ -430,6 +449,91 @@ def find_best_z_match(
         for i in np.arange(l, r):
             results_dictionary[i] = abs(
                 calculate_match_value(stack_reference[i], image_target)
+            )
+        maxval = max(results_dictionary.values())
+        maxkey = {v: k for k, v in results_dictionary.items()}[maxval]
+        return maxkey, results_dictionary
+
+def find_best_z_match2(
+        stack_reference, image_target, rigorous=False, l=None, r=None, check_distance=3
+):
+    """
+    :param stack_reference: 3d image stack to align image target to
+    :param image_target: target image array (2d)
+    :param rigorous: if you have an abundance of time this can be true
+    :param l:
+    :param r:
+    :return: Z index of reference stack and results dict
+    """
+
+    results_dictionary = {}
+
+    if not l:
+        l = 0
+    if not r:
+        r = len(stack_reference) - 1
+
+    if not rigorous:
+        while r - l > 1:
+
+            if l not in results_dictionary.keys():
+                try:
+                    results_dictionary[l] = abs(
+                        calculate_match_value2(stack_reference[l], image_target)
+                    )
+                except:
+                    results_dictionary[l] = 0
+
+            if r not in results_dictionary.keys():
+                try:
+                    results_dictionary[r] = abs(
+                        calculate_match_value2(stack_reference[r], image_target)
+                    )
+                except:
+                    results_dictionary[r] = 0
+
+            midpt = ((r - l) // 2) + l
+
+            while midpt in results_dictionary.keys():
+                midpt += 1
+
+                if midpt >= r:
+                    break
+
+            try:
+                results_dictionary[midpt] = abs(
+                    calculate_match_value2(stack_reference[midpt], image_target)
+                )
+            except:
+                results_dictionary[midpt] = 0
+
+            if results_dictionary[r] > results_dictionary[l]:
+                if results_dictionary[midpt] >= results_dictionary[l]:
+                    l = midpt
+                else:
+                    break
+            elif results_dictionary[l] >= results_dictionary[r]:
+                if results_dictionary[midpt] >= results_dictionary[r]:
+                    r = midpt
+                else:
+                    break
+
+            print(l, r)
+
+        maxval = max(results_dictionary.values())
+        maxkey = {v: k for k, v in results_dictionary.items()}[maxval]
+        for ind in np.arange(maxkey - check_distance, maxkey + check_distance):
+            if ind not in results_dictionary.keys():
+                results_dictionary[ind] = abs(
+                    calculate_match_value2(stack_reference[ind], image_target)
+                )
+        maxval = max(results_dictionary.values())
+        maxkey = {v: k for k, v in results_dictionary.items()}[maxval]
+        return maxkey, results_dictionary
+    else:
+        for i in np.arange(l, r):
+            results_dictionary[i] = abs(
+                calculate_match_value2(stack_reference[i], image_target)
             )
         maxval = max(results_dictionary.values())
         maxkey = {v: k for k, v in results_dictionary.items()}[maxval]
