@@ -3,6 +3,11 @@ import numpy as np
 
 import os
 
+try:
+    import cv2
+except:
+    print('cv2 not available')
+
 
 def load_image(image_path):
     """
@@ -53,19 +58,20 @@ def embed_image(image, default_size=1024):
     return new_image
 
 
-def trim_image(image):
+def trim_image(image, fixMax=False, ind=0):
     """
     uses opencv to get a point list and delete data outside roi
 
     :param image: as array
     :return: trimmed image array
     """
-    import cv2
-
     if image.ndim == 3:
-        image_slice = image[image.shape[0] // 4].copy()
+        image_slice = image[ind].copy()
     else:
         image_slice = image.copy()
+
+    if fixMax:
+        image_slice = image_slice / 2**12
 
     list_of_points = []
 
@@ -341,6 +347,23 @@ def transform_points(folderpath: str, points: list, cleanup: bool = True) -> lis
             coord = (x, y)
             coords.append(coord)
     return coords
+
+
+def return_conv_pt(_y, _x, xform_path, size1=1024, size2=1024):
+    test_image = np.zeros([size1, size2])
+
+    circ_img = cv2.circle(test_image, (_x, _y), 15, 255, -1)
+    xform_img = transform_image_from_saved(circ_img, xform_path, )
+
+    xval = np.nanmean(np.where(xform_img == 255)[0], axis=0)
+    yval = np.nanmean(np.where(xform_img == 255)[1], axis=0)
+    return xval, yval
+
+
+def embed_pt(pt, ydim, xdim, refdim):
+    y = pt[0]
+    x = pt[1]
+    return y - ydim//2 + refdim//2, x - xdim//2 + refdim//2
 
 
 def transform_image_from_saved(image, savepath):
