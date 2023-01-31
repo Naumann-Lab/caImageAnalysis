@@ -11,7 +11,11 @@ from sitkalignment import register_image2, return_conv_pt
 
 
 class ConductorAlignment:
-    def __init__(self, savepath=None, inputPort=5592, outputPort=5593):
+    def __init__(self,
+                 savepath=None,
+                 defaultSize=512,
+                 inputPort=5592,
+                 outputPort=5593):
 
         self.savepath = savepath
         self.zmq_input_port = str(inputPort)
@@ -19,6 +23,8 @@ class ConductorAlignment:
 
         self.zmq_output_port = str(outputPort)
         self.zmq_output = Publisher(self.zmq_output_port)
+
+        self.default_size = (defaultSize, defaultSize)
 
         self.images = {}
         self.receiving_thread = tr.Thread(target=self.labViewImgReceiver)
@@ -46,6 +52,9 @@ class ConductorAlignment:
                         :, 32:
                         ]
                 self.images['reference'] = array
+                self.default_size = (self.images['reference'].shape[0],
+                                     self.images['reference'].shape[1])
+
             elif tag == "run_alignment":
                 print('attempting alignment')
                 if not "reference" in self.images.keys() and not "target" in self.images.keys():
@@ -56,7 +65,10 @@ class ConductorAlignment:
             elif tag == "points":
                 print('pointing')
                 self.points = msg_parts[0].split(':')
+                print(self.points)
                 self.alignPoints()
+            elif tag == "sizeChange":
+                self.default_size = msg_parts[0].split(':')
             else:
                 print(f'{tag} not understood')
 
@@ -67,16 +79,21 @@ class ConductorAlignment:
                         iterations=(1500, 1500))
 
     def alignPoints(self):
-        self.imgSize = self.images['reference'].shape
         self.conv_points = []
         for point in self.points:
-            x, y = return_conv_pt(point[1],
-                           point[0],
-                           self.savepath,
-                           size1=self.imgSize[0],
-                           size2=self.imgSize[1])
-            self.conv_points.append((x,y))
+
+            x, y = return_conv_pt(
+                point[1],
+                point[0],
+                self.savepath,
+                size1=self.default_size[0],
+                size2=self.default_size[1]
+            )
+            print(f"{point} to {(x,y)}")
+            self.conv_points.append((x, y))
+
         self.zmq_output.socket.send([f'{pt};' for pt in self.conv_points])
+
 
 class Subscriber:
     """
