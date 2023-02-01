@@ -6,7 +6,7 @@ import os
 try:
     import cv2
 except:
-    print('cv2 not available')
+    print("cv2 not available")
 
 
 def load_image(image_path):
@@ -253,6 +253,9 @@ def register_image2(
     if savepath:
         from pathlib import Path
 
+        if not os.path.exists(savepath):
+            os.mkdir(savepath)
+
         pmaps = elastixImageFilter.GetTransformParameterMap()
 
         for n, pmap in enumerate(pmaps):
@@ -331,7 +334,7 @@ def transform_points(folderpath: str, points: list, cleanup: bool = True) -> lis
         transformixImageFilter.AddTransformParameterMap(pmap)
 
     transformixImageFilter.SetFixedPointSetFileName(point_path.as_posix())
-    transformixImageFilter.SetOutputDirectory(folderpath)
+    transformixImageFilter.SetOutputDirectory(folderpath.as_posix())
     transformixImageFilter.Execute()
 
     output_pts_path = Path(folderpath).joinpath("outputpoints.txt")
@@ -353,7 +356,10 @@ def return_conv_pt(_y, _x, xform_path, size1=1024, size2=1024):
     test_image = np.zeros([size1, size2])
 
     circ_img = cv2.circle(test_image, (_x, _y), 15, 255, -1)
-    xform_img = transform_image_from_saved(circ_img, xform_path, )
+    xform_img = transform_image_from_saved(
+        circ_img,
+        xform_path,
+    )
 
     xval = np.nanmean(np.where(xform_img == 255)[0], axis=0)
     yval = np.nanmean(np.where(xform_img == 255)[1], axis=0)
@@ -363,7 +369,7 @@ def return_conv_pt(_y, _x, xform_path, size1=1024, size2=1024):
 def embed_pt(pt, ydim, xdim, refdim):
     y = pt[0]
     x = pt[1]
-    return y - ydim//2 + refdim//2, x - xdim//2 + refdim//2
+    return y - ydim // 2 + refdim // 2, x - xdim // 2 + refdim // 2
 
 
 def transform_image_from_saved(image, savepath):

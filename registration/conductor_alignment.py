@@ -7,15 +7,18 @@ import numpy as np
 from datetime import datetime as dt
 
 ## local imports
-from sitkalignment import register_image2, return_conv_pt
+try:
+    from registration import register_image2, transform_points
+except:
+    pass
+try:
+    from registration.sitkalignment import register_image2, transform_points
+except:
+    pass
 
 
 class ConductorAlignment:
-    def __init__(self,
-                 savepath=None,
-                 defaultSize=512,
-                 inputPort=5592,
-                 outputPort=5593):
+    def __init__(self, savepath=None, defaultSize=512, inputPort=5592, outputPort=5593):
 
         self.savepath = savepath
         self.zmq_input_port = str(inputPort)
@@ -26,73 +29,76 @@ class ConductorAlignment:
 
         self.default_size = (defaultSize, defaultSize)
 
+        self.running = True
         self.images = {}
         self.receiving_thread = tr.Thread(target=self.labViewImgReceiver)
         self.receiving_thread.start()
-        self.running = True
 
     def labViewImgReceiver(self):
         while self.running:
             data = self.zmq_input.socket.recv()
-            msg_parts = [part.strip() for part in data.split(b": ", 1)]
-            tag = msg_parts[0].split(b' ')[0]
+            print(data)
+            msg_parts = data.decode("utf-8").split(";")
+            tag = msg_parts[0]
             if tag == "target_img":
-                print('loading target image')
+                print("loading target image")
                 dateString = str(msg_parts[0]).split(" ")[2]
                 timestamp = dt.strptime(dateString, "%H:%M:%S.%f").time()
-                array = np.array(json.loads(msg_parts[1]))[
-                        :, 32:
-                        ]
-                self.images['target'] = array
+                array = np.array(json.loads(msg_parts[1]))[:, 32:]
+                self.images["target"] = array
             elif tag == "reference_img":
-                print('loading reference image')
+                print("loading reference image")
                 dateString = str(msg_parts[0]).split(" ")[2]
                 timestamp = dt.strptime(dateString, "%H:%M:%S.%f").time()
-                array = np.array(json.loads(msg_parts[1]))[
-                        :, 32:
-                        ]
-                self.images['reference'] = array
-                self.default_size = (self.images['reference'].shape[0],
-                                     self.images['reference'].shape[1])
+                array = np.array(json.loads(msg_parts[1]))[:, 32:]
+                self.images["reference"] = array
+                self.default_size = (
+                    self.images["reference"].shape[0],
+                    self.images["reference"].shape[1],
+                )
 
             elif tag == "run_alignment":
-                print('attempting alignment')
-                if not "reference" in self.images.keys() and not "target" in self.images.keys():
+                print("attempting alignment")
+                if (
+                    not "reference" in self.images.keys()
+                    and not "target" in self.images.keys()
+                ):
                     self.zmq_output.socket.send(f"ERROR: failed to load both images")
                     print(f"ERROR: failed to load both images")
                 else:
                     self.runAlignment()
             elif tag == "points":
-                print('pointing')
-                self.points = msg_parts[0].split(':')
+                print("pointing")
+                self._points = msg_parts[1].split(":")
+
+                self.points = []
+                for pt in self._points:
+                    x, y = [float(i) for i in pt.split(",")]
+                    self.points.append((x, y))
+
                 print(self.points)
                 self.alignPoints()
             elif tag == "sizeChange":
-                self.default_size = msg_parts[0].split(':')
+                self.default_size = msg_parts[0].split(":")
             else:
-                print(f'{tag} not understood')
+                print(f"{tag} not understood")
 
     def runAlignment(self):
-        register_image2(self.images['reference'],
-                        self.images['target'],
-                        savepath=self.savepath,
-                        iterations=(1500, 1500))
+        register_image2(
+            self.images["reference"],
+            self.images["target"],
+            savepath=self.savepath,
+            iterations=(1500, 1500),
+        )
 
     def alignPoints(self):
-        self.conv_points = []
-        for point in self.points:
 
-            x, y = return_conv_pt(
-                point[1],
-                point[0],
-                self.savepath,
-                size1=self.default_size[0],
-                size2=self.default_size[1]
-            )
-            print(f"{point} to {(x,y)}")
-            self.conv_points.append((x, y))
-
-        self.zmq_output.socket.send([f'{pt};' for pt in self.conv_points])
+        self.conv_points = transform_points(self.savepath, self.points)
+        print([f"{pt};" for pt in self.conv_points])
+        outputStr = ""
+        for point in self.conv_points:
+            outputStr += str(point[0]) + "," + str(point[1]) + ":"
+        self.zmq_output.socket.send(outputStr.encode())
 
 
 class Subscriber:

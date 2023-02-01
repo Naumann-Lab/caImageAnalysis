@@ -52,13 +52,13 @@ class BaseFish:
                 elif entry.name.endswith(".txt") and self.frametimes_key in entry.name:
                     self.data_paths["frametimes"] = Path(entry.path)
 
-                if entry.name == "frametimes.h5":
+                elif entry.name == "frametimes.h5":
                     self.frametimes_df = pd.read_hdf(entry.path)
                     print("found and loaded frametimes h5")
                     if (np.diff(self.frametimes_df.index) > 1).any():
                         self.frametimes_df.reset_index(inplace=True)
 
-                if os.path.isdir(entry.path):
+                elif os.path.isdir(entry.path):
                     if entry.name == "suite2p":
                         self.data_paths["suite2p"] = Path(entry.path).joinpath("plane0")
 
@@ -67,6 +67,15 @@ class BaseFish:
                             for poss_img in imgdiver:
                                 if poss_img.name.endswith(".tif"):
                                     self.data_paths["image"] = Path(poss_img.path)
+
+                elif entry.name.endswith(".npy"):
+                    # these are mislabeled so just flip here
+                    if "xpts" in entry.name:
+                        with open(entry.path, "rb") as f:
+                            self.y_pts = np.load(f)
+                    elif "ypts" in entry.name:
+                        with open(entry.path, "rb") as f:
+                            self.x_pts = np.load(f)
 
         if "image" in self.data_paths and "move_corrected_image" in self.data_paths:
             if (
@@ -683,12 +692,15 @@ class WorkingFish(VizStimFish):
     the classic: the every-man's briefcase wielding workhorse
     """
 
-    def __init__(self, corr_threshold=0.65, *args, **kwargs):
+    def __init__(self, corr_threshold=0.65, ref_image=None, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
         if "move_corrected_image" not in self.data_paths:
             raise TankError
         self.corr_threshold = corr_threshold
+
+        if ref_image is not None:
+            self.reference_image = ref_image
 
         self.diff_image = self.make_difference_image()
 
@@ -764,7 +776,7 @@ class WorkingFish(VizStimFish):
 
         self.booldf = self.booldf.loc[self.booldf.sum(axis=1) > 0]
 
-    def make_computed_image_data(self, colorsumthresh=1):
+    def make_computed_image_data(self, colorsumthresh=1, booltrim=False):
         if not hasattr(self, "neuron_dict"):
             self.build_stimdicts()
         xpos = []
@@ -773,6 +785,11 @@ class WorkingFish(VizStimFish):
         neurons = []
 
         for neuron in self.neuron_dict.keys():
+            if booltrim:
+                if not hasattr(self, "booldf"):
+                    self.build_booldf()
+                if neuron not in self.booldf.index:
+                    continue
             myneuron = self.neuron_dict[neuron]
             clr_longform = [
                 stimval * np.clip(i, a_min=0, a_max=99)
@@ -791,6 +808,50 @@ class WorkingFish(VizStimFish):
             fullcolor = np.clip(fullcolor, a_min=0, a_max=1.0)
             if np.sum(fullcolor) > colorsumthresh:
                 yloc, xloc = self.return_cell_rois(neuron)[0]
+
+                xpos.append(xloc)
+                ypos.append(yloc)
+                colors.append(fullcolor)
+                neurons.append(neuron)
+        return xpos, ypos, colors, neurons
+
+    def make_computed_image_data_ref(self, colorsumthresh=1, booltrim=False):
+        if not hasattr(self, "neuron_dict"):
+            self.build_stimdicts()
+        if not hasattr(self, "x_pts"):
+            raise (TankError, "need processed x_pts present")
+
+        xpos = []
+        ypos = []
+        colors = []
+        neurons = []
+
+        for neuron in self.neuron_dict.keys():
+            if booltrim:
+                if not hasattr(self, "booldf"):
+                    self.build_booldf()
+                if neuron not in self.booldf.index:
+                    continue
+            myneuron = self.neuron_dict[neuron]
+            clr_longform = [
+                stimval * np.clip(i, a_min=0, a_max=99)
+                for stimname, stimval in zip(myneuron.keys(), myneuron.values())
+                if stimname in constants.monocular_dict.keys()
+                for i in constants.monocular_dict[stimname]
+            ]
+            reds = clr_longform[::3]
+            greens = clr_longform[1::3]
+            blues = clr_longform[2::3]
+
+            fullcolor = np.sum([reds, greens, blues], axis=1)
+
+            if max(fullcolor) > 1.0:
+                fullcolor /= max(fullcolor)
+            fullcolor = np.clip(fullcolor, a_min=0, a_max=1.0)
+            if np.sum(fullcolor) > colorsumthresh:
+                yloc = self.y_pts[neuron]
+                xloc = self.x_pts[neuron]
+                # yloc, xloc = self.return_cell_rois(neuron)[0]
 
                 xpos.append(xloc)
                 ypos.append(yloc)
