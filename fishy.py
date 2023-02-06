@@ -764,8 +764,9 @@ class WorkingFish(VizStimFish):
                 if not provided:
                     stim_arr = np.zeros(len(cell_array))
                     stim_arr[
-                        -self.offsets[0] + 2 : -self.offsets[0] + self.stim_offset - 2
-                    ] = 1.5
+                        -self.offsets[0] + 1 : -self.offsets[0] + self.stim_offset - 2
+                    ] = 3
+
                     stim_arr = arrutils.pretty(stim_arr, 3)
                 corrVal = round(np.corrcoef(stim_arr, cell_array)[0][1], 3)
 
