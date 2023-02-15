@@ -324,6 +324,7 @@ class VizStimFish(BaseFish):
             )
         self.stim_offset = stim_offset
         self.offsets = used_offsets
+        self.diff_image = self.make_difference_image()
 
     def add_stims(self, stim_key, stim_fxn, legacy):
         with os.scandir(self.folder_path) as entries:
@@ -702,10 +703,40 @@ class WorkingFish(VizStimFish):
         if ref_image is not None:
             self.reference_image = ref_image
 
-        self.diff_image = self.make_difference_image()
+        # self.diff_image = self.make_difference_image()
 
         self.load_suite2p()
         self.build_stimdicts()
+
+    def build_stimdicts_extended(self):
+        self.build_booldf()
+        self.extended_responses = {i: {} for i in self.stimulus_df.stim_name.unique()}
+        for stim in self.stimulus_df.stim_name.unique():
+            arrs = arrutils.subsection_arrays(
+                self.stimulus_df[self.stimulus_df.stim_name == stim].frame.values,
+                self.offsets,
+            )
+
+            for n, nrn in enumerate(self.zdiff_cells):
+                resp_arrs = []
+                for arr in arrs:
+                    resp_arrs.append(arrutils.pretty(nrn[arr], 2))
+                self.extended_responses[stim][n] = resp_arrs
+
+    def build_stimdicts_extended2(self):
+        self.build_booldf()
+        self.extended_responses2 = {i: {} for i in self.stimulus_df.stim_name.unique()}
+        for stim in self.stimulus_df.stim_name.unique():
+            arrs = arrutils.subsection_arrays(
+                self.stimulus_df[self.stimulus_df.stim_name == stim].frame.values,
+                self.offsets,
+            )
+            normcells = arrutils.norm_fdff(self.f_cells)
+            for n, nrn in enumerate(normcells):
+                resp_arrs = []
+                for arr in arrs:
+                    resp_arrs.append(arrutils.pretty(nrn[arr], 2))
+                self.extended_responses2[stim][n] = resp_arrs
 
     def build_stimdicts(self):
         self.stim_dict = {i: {} for i in self.stimulus_df.stim_name.unique()}
@@ -722,6 +753,7 @@ class WorkingFish(VizStimFish):
                 resp_arrs = []
                 for arr in arrs:
                     resp_arrs.append(nrn[arr])
+
                 self.stim_dict[stim][n] = np.nanmean(resp_arrs, axis=0)
                 self.err_dict[stim][n] = np.nanstd(resp_arrs, axis=0) / np.sqrt(
                     len(resp_arrs)
