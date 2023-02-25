@@ -18,14 +18,22 @@ except:
 
 
 class ConductorAlignment:
-    def __init__(self, savepath=None, defaultSize=512, inputPort=5592, outputPort=5593):
+    def __init__(self, comms, savepath=None, defaultSize=400):
+        """
 
+        :param comms: dictionary:
+                                 {
+                                 ip_address
+                                 port_sub
+                                 port_push
+                                 }
+        :param savepath:
+        :param defaultSize:
+        """
         self.savepath = savepath
-        self.zmq_input_port = str(inputPort)
-        self.zmq_input = Subscriber(self.zmq_input_port)
 
-        self.zmq_output_port = str(outputPort)
-        self.zmq_output = Publisher(self.zmq_output_port)
+        self.zmq_input = Subscriber(ip=comms["ip"], port=comms["port_sub"])
+        self.zmq_output = Pusher(ip=comms["ip"], port=comms["port_push"])
 
         self.default_size = (defaultSize, defaultSize)
 
@@ -123,16 +131,20 @@ class Subscriber:
         self.context.term()
 
 
-class Publisher:
+class Pusher:
     """
-    Publisher wrapper class for zmq.
+    Subscriber wrapper class for zmq.
+    Default topic is every topic ("").
     """
 
-    def __init__(self, port="1234"):
+    def __init__(self, port="1234", ip=None):
         self.port = port
         self.context = zmq.Context()
-        self.socket = self.context.socket(zmq.PUB)
-        self.socket.bind("tcp://*:" + self.port)
+        self.socket = self.context.socket(zmq.PUSH)
+        if ip is not None:
+            self.socket.connect(ip + str(self.port))
+        else:
+            self.socket.connect("tcp://localhost:" + str(self.port))
 
     def kill(self):
         self.socket.close()
