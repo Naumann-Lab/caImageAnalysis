@@ -11,8 +11,6 @@ import numpy as np
 from pathlib import Path
 from tifffile import imread, imsave
 
-# r'D:\Data\alignment_sample
-
 
 class OnlineAlign:
     def __init__(self, communications_dict, data_path, compname="regComp"):
@@ -39,17 +37,20 @@ class OnlineAlign:
             ip=communications_dict["ip"], port=communications_dict["port_sub"]
         )
         self.zmq_output = zmqutils.Pusher(
-            ip=communications_dict["ip"], port=communications_dict["port_sub"]
+            ip=communications_dict["ip"], port=communications_dict["port_push"]
         )
 
         self.running = True
 
-        self.message_reception_tr = tr.Thread(target=self.messaging_reception)
+        self.message_reception_tr = tr.Thread(
+            target=self.messaging_reception,
+            args=(self.zmq_input.socket, self.zmq_output.socket),
+        )
         self.message_reception_tr.start()
 
-    def messaging_reception(self):
+    def messaging_reception(self, input_sock, output_sock):
         while self.running:
-            data = self.zmq_input.socket.recv_multipart()
+            data = input_sock.recv_multipart()
             data_msg = self.msg_unpacker(data)
             print(data_msg)
 
@@ -57,102 +58,208 @@ class OnlineAlign:
             msg_src = data_msg["source"]
             msg_id = data_msg["id"]
 
-            if cmd == "images_ref":
-                array = np.array(json.loads(data_msg["images"]))
-                if data_msg["size"][0] == 1:
-                    array = array[0]
-                self.reference_img = array
-                imsave(self.data_path.joinpath(r"ref_img.tif"), self.reference_img)
-                self.output(msg_src, msg_id, cmd, "ref updated", "complete")
+            if cmd == '"set ref images"':
+                self.output(
+                    output_sock, msg_src, msg_id, cmd, f"processing {cmd}", "pending"
+                )
+                try:
+                    array = np.array(json.loads(data_msg["images"]))
+                    if data_msg["size"][0] == 1:
+                        array = array[0]
+                    self.reference_img = array
+                    imsave(self.data_path.joinpath(r"ref_img.tif"), self.reference_img)
+                    self.output(
+                        output_sock, msg_src, msg_id, cmd, "ref updated", "complete"
+                    )
+                except Exception as e:
+                    print(f"failed {cmd} because {e}")
+                    self.output(output_sock, msg_src, msg_id, cmd, f"{e}", "error")
 
-            elif cmd == "images_target":
-                array = np.array(json.loads(data_msg["images"]))
-                if data_msg["size"][0] == 1:
-                    array = array[0]
-                self.target_img = array
-                imsave(self.data_path.joinpath(r"target_img.tif"), self.target_img)
-                self.output(msg_src, msg_id, cmd, "target updated", "complete")
+            elif cmd == '"set target images"':
+                self.output(
+                    output_sock, msg_src, msg_id, cmd, f"processing {cmd}", "pending"
+                )
+                try:
+                    array = np.array(json.loads(data_msg["images"]))
+                    if data_msg["size"][0] == 1:
+                        array = array[0]
+                    self.target_img = array
+                    imsave(self.data_path.joinpath(r"target_img.tif"), self.target_img)
+                    self.output(
+                        output_sock, msg_src, msg_id, cmd, "target updated", "complete"
+                    )
+                except Exception as e:
+                    print(f"failed {cmd} because {e}")
+                    self.output(output_sock, msg_src, msg_id, cmd, f"{e}", "error")
 
-            elif cmd == "register":
-                self.output(msg_src, msg_id, cmd, "processing registration", "pending")
-                registered_img = register_image2(
-                    self.reference_img,
-                    self.target_img,
-                    savepath=self.data_path,
-                    scalePenalty=self.scale_penalty,
-                    iterations=(self.affine_iterations, self.bspline_iterations),
+            elif cmd == '"register"':
+                self.output(
+                    output_sock, msg_src, msg_id, cmd, f"processing {cmd}", "pending"
                 )
-                self.aligned_img = registered_img
-                imsave(self.data_path.joinpath(r"aligned_img.tif"), registered_img)
-                self.output(msg_src, msg_id, cmd, "registration processed", "complete")
+                try:
+                    registered_img = register_image2(
+                        self.reference_img,
+                        self.target_img,
+                        savepath=self.data_path,
+                        scalePenalty=self.scale_penalty,
+                        iterations=(self.affine_iterations, self.bspline_iterations),
+                    )
+                    self.aligned_img = registered_img
+                    imsave(self.data_path.joinpath(r"aligned_img.tif"), registered_img)
+                    self.output(
+                        output_sock,
+                        msg_src,
+                        msg_id,
+                        cmd,
+                        "registration processed",
+                        "complete",
+                    )
+                except Exception as e:
+                    print(f"failed {cmd} because {e}")
+                    self.output(output_sock, msg_src, msg_id, cmd, f"{e}", "error")
 
-            elif cmd == "register inverse":
+            elif cmd == '"register inverse"':
                 self.output(
-                    msg_src, msg_id, cmd, "processing inverse registration", "pending"
+                    output_sock, msg_src, msg_id, cmd, f"processing {cmd}", "pending"
                 )
-                registered_img = register_image2(
-                    self.target_img,
-                    self.reference_img,
-                    savepath=self.data_path,
-                    scalePenalty=self.scale_penalty,
-                    iterations=(self.affine_iterations, self.bspline_iterations),
-                )
-                self.aligned_img_INV = registered_img
-                imsave(self.data_path.joinpath(r"aligned_img_INV.tif"), registered_img)
-                self.output(
-                    msg_src, msg_id, cmd, "inverse registration processed", "complete"
-                )
+                try:
+                    registered_img = register_image2(
+                        self.target_img,
+                        self.reference_img,
+                        savepath=self.data_path,
+                        scalePenalty=self.scale_penalty,
+                        iterations=(self.affine_iterations, self.bspline_iterations),
+                    )
+                    self.aligned_img_INV = registered_img
+                    imsave(
+                        self.data_path.joinpath(r"aligned_img_INV.tif"), registered_img
+                    )
+                    self.output(
+                        output_sock,
+                        msg_src,
+                        msg_id,
+                        cmd,
+                        "inverse registration processed",
+                        "complete",
+                    )
+                except Exception as e:
+                    print(f"failed {cmd} because {e}")
+                    self.output(output_sock, msg_src, msg_id, cmd, f"{e}", "error")
 
-            elif cmd == "image transform":
+            elif cmd == '"get transformed image"':
                 self.output(
-                    msg_src,
-                    msg_id,
-                    cmd,
-                    json.dumps(self.aligned_img.tolist()),
-                    "complete",
+                    output_sock, msg_src, msg_id, cmd, f"processing {cmd}", "pending"
                 )
+                if hasattr(self, "aligned_img"):
+                    self.output(
+                        output_sock,
+                        msg_src,
+                        msg_id,
+                        cmd,
+                        json.dumps(self.aligned_img.tolist()),
+                        "complete",
+                    )
+                else:
+                    self.output(
+                        output_sock,
+                        msg_src,
+                        msg_id,
+                        cmd,
+                        "please run alignment first",
+                        "error",
+                    )
 
-            elif cmd == "image inverse transform":
+            elif cmd == '"get inverse transformed image"':
                 self.output(
-                    msg_src,
-                    msg_id,
-                    cmd,
-                    json.dumps(self.aligned_img_INV.tolist()),
-                    "complete",
+                    output_sock, msg_src, msg_id, cmd, f"processing {cmd}", "pending"
                 )
+                if hasattr(self, "aligned_img_INV"):
+                    self.output(
+                        output_sock,
+                        msg_src,
+                        msg_id,
+                        cmd,
+                        json.dumps(self.aligned_img_INV.tolist()),
+                        "complete",
+                    )
+                else:
+                    self.output(
+                        output_sock,
+                        msg_src,
+                        msg_id,
+                        cmd,
+                        "please run inverse alignment first",
+                        "error",
+                    )
 
-            elif cmd == "points transform":
+            elif cmd == '"points transform"':
                 self.output(
-                    msg_src, msg_id, cmd, "processing points transform", "pending"
+                    output_sock, msg_src, msg_id, cmd, f"processing {cmd}", "pending"
                 )
-                coords = data_msg["coords"]
-                xcoords = [float(i) for i in coords[0]]
-                ycoords = [float(i) for i in coords[1]]
-                new_coords = [(x, y) for x, y in zip(xcoords, ycoords)]
-                transformed_coords = self.transform_points(new_coords)
+                try:
+                    coords = eval(data_msg["pnts"])
+                    xcoords = [float(i[0]) for i in coords]
+                    ycoords = [float(i[1]) for i in coords]
+                    new_coords = [(x, y) for x, y in zip(xcoords, ycoords)]
+                    transformed_coords = self.transform_points(new_coords)
+                    self.output(
+                        output_sock,
+                        msg_src,
+                        msg_id,
+                        cmd,
+                        json.dumps(transformed_coords),
+                        "complete",
+                    )
+                except Exception as e:
+                    print(f"failed {cmd} because {e}")
+                    self.output(output_sock, msg_src, msg_id, cmd, f"{e}", "error")
+            elif cmd == '"points inverse transform"':
                 self.output(
-                    msg_src, msg_id, cmd, json.dumps(transformed_coords), "complete"
+                    output_sock, msg_src, msg_id, cmd, f"processing {cmd}", "pending"
                 )
+                try:
+                    coords = data_msg["pnts"]
+                    xcoords = [float(i) for i in coords[0]]
+                    ycoords = [float(i) for i in coords[1]]
+                    new_coords = [(x, y) for x, y in zip(xcoords, ycoords)]
+                    transformed_coords = self.transform_points(new_coords)
+                    self.output(
+                        output_sock,
+                        msg_src,
+                        msg_id,
+                        cmd,
+                        json.dumps(transformed_coords),
+                        "complete",
+                    )
+                except Exception as e:
+                    print(f"failed {cmd} because {e}")
+                    self.output(output_sock, msg_src, msg_id, cmd, f"{e}", "error")
 
-            elif cmd == "points inverse transform":
-                self.output(
-                    msg_src,
-                    msg_id,
-                    cmd,
-                    "processing inverse points transform",
-                    "pending",
+            elif cmd == '"spawn new ip"':
+
+                new_ip = data_msg["ip"]
+                new_sub_port = data_msg["output"]
+                new_push_port = data_msg["input"]
+
+                zmq_input = zmqutils.Subscriber(ip=new_ip, port=new_sub_port)
+                zmq_output = zmqutils.Pusher(ip=new_ip, port=new_push_port)
+
+                self.new_msg_tr = tr.Thread(
+                    target=self.messaging_reception,
+                    args=(zmq_input.socket, zmq_output.socket),
                 )
-                coords = data_msg["coords"]
-                xcoords = [float(i) for i in coords[0]]
-                ycoords = [float(i) for i in coords[1]]
-                new_coords = [(x, y) for x, y in zip(xcoords, ycoords)]
-                transformed_coords = self.transform_points(new_coords)
-                self.output(
-                    msg_src, msg_id, cmd, json.dumps(transformed_coords), "complete"
-                )
+                self.new_msg_tr.start()
 
             else:
                 print(f"{cmd} not understood")
+                self.output(
+                    output_sock,
+                    msg_src,
+                    msg_id,
+                    cmd,
+                    "cmd not understood",
+                    "error",
+                )
 
     def transform_points(self, points):
         transformed_points = transform_points(self.transform_path, points)
@@ -184,8 +291,16 @@ class OnlineAlign:
         if not os.path.exists(self.transform_path_INV):
             os.mkdir(self.transform_path_INV)
 
-    def output(self, msg_src, msg_id, msg_type, msg_data, process_status="complete"):
-        self.zmq_output.socket.send_multipart(
+    def output(
+        self,
+        output_sock,
+        msg_src,
+        msg_id,
+        msg_type,
+        msg_data,
+        process_status="complete",
+    ):
+        output_sock.send_multipart(
             [
                 "dest".encode(),
                 msg_src.encode(),
@@ -227,3 +342,10 @@ class OnlineAlign:
         for k, v in zip(keys, vals):
             msg_dict[k.decode()] = v.decode()
         return msg_dict
+
+
+if __name__ == "__main__":
+    used_comms = {"ip": "tcp://10.196.159.84:", "port_sub": "5555", "port_push": "5556"}
+    OA = OnlineAlign(
+        communications_dict=used_comms, data_path=r"D:\Data\alignment_sample"
+    )
