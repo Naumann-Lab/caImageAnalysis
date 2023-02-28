@@ -713,6 +713,7 @@ class WorkingFish(TailTrackedFish):
         self.build_stimdicts()
 
     def build_stimdicts_extended(self):
+        # makes an array of z-scored calcium responses for each stim (not median)
         self.build_booldf()
         self.extended_responses = {i: {} for i in self.stimulus_df.stim_name.unique()}
         for stim in self.stimulus_df.stim_name.unique():
@@ -728,6 +729,7 @@ class WorkingFish(TailTrackedFish):
                 self.extended_responses[stim][n] = resp_arrs
 
     def build_stimdicts_extended2(self):
+        # makes an array of normalized calcium responses for each stim (not median)
         self.build_booldf()
         self.extended_responses2 = {i: {} for i in self.stimulus_df.stim_name.unique()}
         for stim in self.stimulus_df.stim_name.unique():
@@ -743,6 +745,7 @@ class WorkingFish(TailTrackedFish):
                 self.extended_responses2[stim][n] = resp_arrs
 
     def build_stimdicts(self):
+        # makes an median value of z-scored calcium response for each neuron for each stim
         self.stim_dict = {i: {} for i in self.stimulus_df.stim_name.unique()}
         self.err_dict = {i: {} for i in self.stimulus_df.stim_name.unique()}
         self.zdiff_cells = [arrutils.zdiffcell(i) for i in self.f_cells]
