@@ -15,6 +15,7 @@ from tqdm.auto import tqdm
 # local imports
 import constants
 from utilities import pathutils, arrutils
+import stimuli
 
 
 class BaseFish:
@@ -687,8 +688,10 @@ class TailTrackedFish(VizStimFish):
         self.resp_cells = list(output)
         self.resp_cells.sort()
 
+        return self.resp_cells
 
-class WorkingFish(VizStimFish):
+
+class WorkingFish(TailTrackedFish):
     """
     the classic: the every-man's briefcase wielding workhorse
     """
@@ -706,6 +709,7 @@ class WorkingFish(VizStimFish):
         # self.diff_image = self.make_difference_image()
 
         self.load_suite2p()
+        self.stimulus_df = stimuli.validate_stims(self.stimulus_df, self.f_cells)
         self.build_stimdicts()
 
     def build_stimdicts_extended(self):
