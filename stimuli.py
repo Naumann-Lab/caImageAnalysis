@@ -210,8 +210,9 @@ def validate_stims(stim_df, f_cells):
     img_len = f_cells.shape[1]
 
     if img_len < stim_frames[-1]:
-        frame_len = stim_frames[stim_frames <= img_len]
+        frame_len = stim_frames[stim_frames < img_len]
         stim_df = stim_df.loc[: stim_df.loc[stim_df['frame'] == frame_len[-1]].index[0]]
+        stim_df = stim_df.iloc[:-1]
     else:
         pass
 

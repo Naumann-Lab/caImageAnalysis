@@ -302,6 +302,7 @@ class VizStimFish(BaseFish):
         legacy=False,
         stim_offset=5,
         used_offsets=(-10, 14),
+        r_type="median", # response type - can be median, mean, peak of the stimulus response, default is median
         *args,
         **kwargs,
     ):
@@ -318,6 +319,8 @@ class VizStimFish(BaseFish):
 
         self.stim_fxn_args = stim_fxn_args
         self.add_stims(stim_key, stim_fxn, legacy)
+
+        self.r_type = r_type
 
         if self.invert:
             self.stimulus_df.loc[:, "stim_name"] = self.stimulus_df.stim_name.map(
@@ -438,7 +441,7 @@ class TailTrackedFish(VizStimFish):
         sig=4,
         interpeak_dst=50,
         tail_offset=2,
-        thresh=0.2,
+        thresh=0.7,
         *args,
         **kwargs,
     ):
@@ -645,7 +648,7 @@ class TailTrackedFish(VizStimFish):
         # tail_bouts_df has bout indices, frames from image frametimes, and bout direction
         return self.tail_bouts_df
 
-    def bout_responsive_neurons(self, tail_offset=2, thresh=0.2):
+    def bout_responsive_neurons(self, tail_offset=2, thresh=0.7):
         nrns = []
         vals = []
         bouts = []
@@ -691,7 +694,7 @@ class TailTrackedFish(VizStimFish):
         return self.resp_cells
 
 
-class WorkingFish(TailTrackedFish):
+class WorkingFish(VizStimFish):
     """
     the classic: the every-man's briefcase wielding workhorse
     """
@@ -745,7 +748,8 @@ class WorkingFish(TailTrackedFish):
                 self.extended_responses2[stim][n] = resp_arrs
 
     def build_stimdicts(self):
-        # makes an median value of z-scored calcium response for each neuron for each stim
+        # makes an median value (can change what response type) of z-scored calcium response for each neuron for each stim
+        self.stimulus_df = stimuli.validate_stims(self.stimulus_df, self.f_cells)
         self.stim_dict = {i: {} for i in self.stimulus_df.stim_name.unique()}
         self.err_dict = {i: {} for i in self.stimulus_df.stim_name.unique()}
         self.zdiff_cells = [arrutils.zdiffcell(i) for i in self.f_cells]
@@ -774,11 +778,31 @@ class WorkingFish(TailTrackedFish):
                 self.neuron_dict[neuron] = {}
 
             for stim in self.stimulus_df.stim_name.unique():
-                self.neuron_dict[neuron][stim] = np.nanmedian(
-                    self.stim_dict[stim][neuron][
+                if self.r_type == "median":
+                    self.neuron_dict[neuron][stim] = np.nanmedian(
+                        self.stim_dict[stim][neuron][
+                            -self.offsets[0] : -self.offsets[0] + self.stim_offset
+                        ]
+                    )
+                elif self.r_type == "peak":
+                    self.neuron_dict[neuron][stim] = np.nanmax(
+                        self.stim_dict[stim][neuron][
                         -self.offsets[0] : -self.offsets[0] + self.stim_offset
-                    ]
-                )
+                        ]
+                    )
+                elif self.r_type == "mean":
+                    self.neuron_dict[neuron][stim] = np.nanmean(
+                        self.stim_dict[stim][neuron][
+                        -self.offsets[0] : -self.offsets[0] + self.stim_offset
+                        ]
+                    )
+                else:
+                    self.neuron_dict[neuron][stim] = np.nanmedian(
+                        self.stim_dict[stim][neuron][
+                        -self.offsets[0] : -self.offsets[0] + self.stim_offset
+                        ]
+                    )
+
 
     def build_booldf(self, stim_arr=None, zero_arr=True, force=False):
         if hasattr(self, "booldf"):
