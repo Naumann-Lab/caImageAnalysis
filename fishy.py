@@ -15,6 +15,7 @@ from tqdm.auto import tqdm
 # local imports
 import constants
 from utilities import pathutils, arrutils
+import stimuli
 
 
 class BaseFish:
@@ -431,28 +432,28 @@ class VizStimFish(BaseFish):
 class TailTrackedFish(VizStimFish):
     def __init__(
         self,
-        tail_key="tail",
-        tail_fxn=None,
+        tail_key="tail",  # need to have 'tail' in the tail output file
+        tail_fxn=None,  # tail_fxn is a variable for a fxn that is in the tailtracking.py
         tail_fxn_args=None,
-        bout_sig=4,
-        bout_interpeak_dst=50,
+        sig=4,
+        interpeak_dst=50,
+        tail_offset=2,
+        thresh=0.2,
         *args,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
-        # need to have 'tail' in the tail output file
-        # tail_fxn is a variable for a fxn that is in the tailtracking.py
 
         if tail_fxn_args is None:
             tail_fxn_args = []
         self.tail_fxn_args = tail_fxn_args
         self.add_tail(tail_key, tail_fxn)
         self.stim_tail_frame_alignment()
-
-        self.bout_finder(sig=4, interpeak_dst=50, height=None, width=None, prominence=1)
+        self.bout_finder(sig, interpeak_dst)
+        # self.bout_finder(sig=4, interpeak_dst=50, height=None, width=None, prominence=1)
 
         if hasattr(self, "f_cells"):
-            self.bout_responsive_neurons()
+            self.bout_responsive_neurons(tail_offset, thresh)
         else:
             pass
 
@@ -644,7 +645,7 @@ class TailTrackedFish(VizStimFish):
         # tail_bouts_df has bout indices, frames from image frametimes, and bout direction
         return self.tail_bouts_df
 
-    def bout_responsive_neurons(self, offset=2, thresh=0.2):
+    def bout_responsive_neurons(self, tail_offset=2, thresh=0.2):
         nrns = []
         vals = []
         bouts = []
@@ -652,10 +653,10 @@ class TailTrackedFish(VizStimFish):
         self.norm_cells = arrutils.norm_fdff(self.f_cells)
         for q in range(self.norm_cells.shape[0]):
             for bout in range(len(self.tail_bouts_df)):
-                s = self.tail_bouts_df.iloc[:, 1].values[bout][0] - offset
+                s = self.tail_bouts_df.iloc[:, 1].values[bout][0] - tail_offset
                 if s <= 0:
                     s = 0
-                e = self.tail_bouts_df.iloc[:, 1].values[bout][1] + offset
+                e = self.tail_bouts_df.iloc[:, 1].values[bout][1] + tail_offset
                 if e >= self.norm_cells.shape[1]:
                     e = self.norm_cells.shape[1]
                 nrns.append(q)  # all the neurons
@@ -687,8 +688,10 @@ class TailTrackedFish(VizStimFish):
         self.resp_cells = list(output)
         self.resp_cells.sort()
 
+        return self.resp_cells
 
-class WorkingFish(VizStimFish):
+
+class WorkingFish(TailTrackedFish):
     """
     the classic: the every-man's briefcase wielding workhorse
     """
@@ -706,9 +709,11 @@ class WorkingFish(VizStimFish):
         # self.diff_image = self.make_difference_image()
 
         self.load_suite2p()
+        self.stimulus_df = stimuli.validate_stims(self.stimulus_df, self.f_cells)
         self.build_stimdicts()
 
     def build_stimdicts_extended(self):
+        # makes an array of z-scored calcium responses for each stim (not median)
         self.build_booldf()
         self.extended_responses = {i: {} for i in self.stimulus_df.stim_name.unique()}
         for stim in self.stimulus_df.stim_name.unique():
@@ -724,6 +729,7 @@ class WorkingFish(VizStimFish):
                 self.extended_responses[stim][n] = resp_arrs
 
     def build_stimdicts_extended2(self):
+        # makes an array of normalized calcium responses for each stim (not median)
         self.build_booldf()
         self.extended_responses2 = {i: {} for i in self.stimulus_df.stim_name.unique()}
         for stim in self.stimulus_df.stim_name.unique():
@@ -739,6 +745,7 @@ class WorkingFish(VizStimFish):
                 self.extended_responses2[stim][n] = resp_arrs
 
     def build_stimdicts(self):
+        # makes an median value of z-scored calcium response for each neuron for each stim
         self.stim_dict = {i: {} for i in self.stimulus_df.stim_name.unique()}
         self.err_dict = {i: {} for i in self.stimulus_df.stim_name.unique()}
         self.zdiff_cells = [arrutils.zdiffcell(i) for i in self.f_cells]

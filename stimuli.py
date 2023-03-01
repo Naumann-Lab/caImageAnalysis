@@ -203,3 +203,16 @@ def kaitlyn_pandastim_to_df(
     mini_stim = mini_stim[["stim_name", "time"]]
 
     return mini_stim
+
+
+def validate_stims(stim_df, f_cells):
+    stim_frames = stim_df.frame.values
+    img_len = f_cells.shape[1]
+
+    if img_len < stim_frames[-1]:
+        frame_len = stim_frames[stim_frames <= img_len]
+        stim_df = stim_df.loc[: stim_df.loc[stim_df['frame'] == frame_len[-1]].index[0]]
+    else:
+        pass
+
+    return stim_df
