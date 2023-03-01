@@ -288,7 +288,9 @@ def calculate_match_value2(image_reference, image_target):
     return r.GetMetricValue()
 
 
-def transform_points(folderpath: str, points: list, cleanup: bool = True) -> list:
+def transform_points(
+    folderpath: str, points: list, cleanup: bool = True, floating=False
+) -> list:
     """
     transforms a list of points
 
@@ -343,12 +345,24 @@ def transform_points(folderpath: str, points: list, cleanup: bool = True) -> lis
         contents = file.read()
     lines = contents.split("\n")
     coords = []
-    for line in lines:
-        if line != "":
-            x = int(line.split(";")[3].split("[ ")[1].split(" ]")[0].split(" ")[0])
-            y = int(line.split(";")[3].split("[ ")[1].split(" ]")[0].split(" ")[1])
-            coord = (x, y)
-            coords.append(coord)
+    if not floating:
+        for line in lines:
+            if line != "":
+                x = int(line.split(";")[3].split("[ ")[1].split(" ]")[0].split(" ")[0])
+                y = int(line.split(";")[3].split("[ ")[1].split(" ]")[0].split(" ")[1])
+                coord = (x, y)
+                coords.append(coord)
+    else:
+        for line in lines:
+            if line != "":
+                x = float(
+                    line.split(";")[3].split("[ ")[1].split(" ]")[0].split(" ")[0]
+                )
+                y = float(
+                    line.split(";")[3].split("[ ")[1].split(" ]")[0].split(" ")[1]
+                )
+                coord = (x, y)
+                coords.append(coord)
     return coords
 
 

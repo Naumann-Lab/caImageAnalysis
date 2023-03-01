@@ -236,19 +236,33 @@ class OnlineAlign:
                     self.output(output_sock, msg_src, msg_id, cmd, f"{e}", "error")
 
             elif cmd == '"spawn new ip"':
-
-                new_ip = data_msg["ip"]
-                new_sub_port = data_msg["output"]
-                new_push_port = data_msg["input"]
-
-                zmq_input = zmqutils.Subscriber(ip=new_ip, port=new_sub_port)
-                zmq_output = zmqutils.Pusher(ip=new_ip, port=new_push_port)
-
-                self.new_msg_tr = tr.Thread(
-                    target=self.messaging_reception,
-                    args=(zmq_input.socket, zmq_output.socket),
+                self.output(
+                    output_sock, msg_src, msg_id, cmd, f"processing {cmd}", "pending"
                 )
-                self.new_msg_tr.start()
+                try:
+                    new_ip = data_msg["ip"]
+                    new_sub_port = data_msg["output"]
+                    new_push_port = data_msg["input"]
+
+                    zmq_input = zmqutils.Subscriber(ip=new_ip, port=new_sub_port)
+                    zmq_output = zmqutils.Pusher(ip=new_ip, port=new_push_port)
+
+                    self.new_msg_tr = tr.Thread(
+                        target=self.messaging_reception,
+                        args=(zmq_input.socket, zmq_output.socket),
+                    )
+                    self.new_msg_tr.start()
+                    self.output(
+                        output_sock,
+                        msg_src,
+                        msg_id,
+                        cmd,
+                        f"new {cmd} created",
+                        "complete",
+                    )
+                except Exception as e:
+                    print(f"failed {cmd} because {e}")
+                    self.output(output_sock, msg_src, msg_id, cmd, f"{e}", "error")
 
             else:
                 print(f"{cmd} not understood")
@@ -262,11 +276,15 @@ class OnlineAlign:
                 )
 
     def transform_points(self, points):
-        transformed_points = transform_points(self.transform_path, points)
+        transformed_points = transform_points(
+            self.transform_path, points, floating=True
+        )
         return transformed_points
 
     def transform_points_INV(self, points):
-        transformed_points = transform_points(self.transform_path_INV, points)
+        transformed_points = transform_points(
+            self.transform_path_INV, points, floating=True
+        )
         return transformed_points
 
     def initialize_from_saved(self):
