@@ -452,11 +452,15 @@ class TailTrackedFish(VizStimFish):
         self.tail_fxn_args = tail_fxn_args
         self.add_tail(tail_key, tail_fxn)
 
-        if "tail_stimulus_df" not in self.data_paths:
-            self.tail_stimulus_df = self.stim_tail_frame_alignment()
+        if "tail_df" not in self.data_paths:
+            self.tail_df, self.tail_stimulus_df = self.stim_tail_frame_alignment()
         else:
+            self.tail_df = pd.read_feather(self.data_paths["tail_df"])
+            self.tail_df.set_index(self.tail_df.iloc[:,0].values, inplace = True)
+            self.tail_df.drop(columns='index', inplace = True)
+
             self.tail_stimulus_df = pd.read_feather(self.data_paths["tail_stimulus_df"])
-            print("found tail stimulus df")
+            print("found tail df and tail stimulus df")
 
         self.bout_finder(sig, interpeak_dst)
 
@@ -470,6 +474,8 @@ class TailTrackedFish(VizStimFish):
             for entry in entries:
                 if tail_key in entry.name:
                     self.data_paths["tail"] = Path(entry.path)
+                elif entry.name == "tail_df.ftr":
+                    self.data_paths["tail_df"] = Path(entry.path)
                 elif entry.name == "tail_stimulus_df.ftr":
                     self.data_paths["tail_stimulus_df"] = Path(entry.path)
         try:
@@ -516,6 +522,10 @@ class TailTrackedFish(VizStimFish):
                     self.tail_df.loc[indices, "frame"] = frameN
             except:
                 pass
+
+        self.tail_df.reset_index(inplace = True)
+        taildf_save_path = Path(self.folder_path).joinpath("tail_df.ftr")
+        self.tail_df.to_feather(taildf_save_path)
 
         # making a stimulus df with tail index and image index values for each stim
         final_t = self.frametimes_df["time"].iloc[-1]  # last time in imaging
@@ -579,7 +589,7 @@ class TailTrackedFish(VizStimFish):
         save_path = Path(self.folder_path).joinpath("tail_stimulus_df.ftr")
         self.tail_stimulus_df.to_feather(save_path)
 
-        return self.tail_stimulus_df
+        return self.tail_df, self.tail_stimulus_df
 
     def bout_finder(
         self, sig=4, interpeak_dst=50, height=None, width=None, prominence=1
@@ -714,6 +724,33 @@ class TailTrackedFish(VizStimFish):
 
         return self.resp_cells
 
+
+    def make_heatmap_bout_count(self): # to visualize bout counts per stimulus type
+        import seaborn as sns
+        import matplotlib.pyplot as plt
+        df_list = []
+        for stim in range(len(self.tail_stimulus_df)):
+            a = self.tail_stimulus_df.iloc[stim]
+            q = a.img_ind_start
+            d = a.img_ind_end
+            no_bouts = np.array((list(zip(*self.tail_bouts_df.image_frames.values))[0] >= q) & (list(zip(*self.tail_bouts_df.image_frames.values))[1] <= d))
+            bout_count = np.where(no_bouts == True)[0].shape[0]
+            df = pd.DataFrame({'stim_name' : [a.stim_name], 'bout_count':[bout_count]})
+            if a.velocity:
+                v = a.velocity
+                df['velocity'] = v
+                df_list.append(df)
+        all_dfs = pd.concat(df_list).reset_index(drop=True)
+        df1 = all_dfs.groupby(['stim_name', 'velocity'],sort=False).agg(['sum'])
+        df1.columns=df1.columns.droplevel(0)
+        df1.reset_index(inplace=True)
+
+        heatmap_data = pd.pivot_table(df1, values='sum', index=['stim_name'], columns='velocity')
+        sns.heatmap(heatmap_data, cmap=sns.color_palette("Blues", as_cmap=True))
+        plt.xlabel("Velocity (m/s)", size=14)
+        plt.ylabel("Motion Direction", size=14)
+        plt.title(" Bout Count/Stim", size=14)
+        plt.tight_layout()
 
 class WorkingFish(TailTrackedFish):
     """
