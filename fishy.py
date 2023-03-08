@@ -618,7 +618,7 @@ class TailTrackedFish(VizStimFish):
             width=width,
         )
         # get bout peaks
-        leftofPeak = peaks["left_ips"]
+        leftofPeak = peaks["left_ips"] # Interpolated positions of a horizontal line’s left and right junction points at each evaluation height
         rightofPeak = peaks["right_ips"]
         peak_pts = np.stack([leftofPeak, rightofPeak], axis=1)
         bout_start = []
@@ -678,7 +678,7 @@ class TailTrackedFish(VizStimFish):
         # tail_bouts_df has bout indices, frames from image frametimes, and bout direction
         return self.tail_bouts_df
 
-    def bout_responsive_neurons(self, tail_offset=2, thresh=0.7):
+    def bout_responsive_neurons(self, tail_offset=(5,2), thresh=0.7):
         nrns = []
         vals = []
         bouts = []
@@ -686,10 +686,10 @@ class TailTrackedFish(VizStimFish):
         self.norm_cells = arrutils.norm_fdff(self.f_cells)
         for q in range(self.norm_cells.shape[0]):
             for bout in range(len(self.tail_bouts_df)):
-                s = self.tail_bouts_df.iloc[:, 1].values[bout][0] - tail_offset
+                s = self.tail_bouts_df.iloc[:, 1].values[bout][0] - tail_offset[0]
                 if s <= 0:
                     s = 0
-                e = self.tail_bouts_df.iloc[:, 1].values[bout][1] + tail_offset
+                e = self.tail_bouts_df.iloc[:, 1].values[bout][1] + tail_offset[1]
                 if e >= self.norm_cells.shape[1]:
                     e = self.norm_cells.shape[1]
                 nrns.append(q)  # all the neurons
@@ -770,7 +770,6 @@ class WorkingFish(TailTrackedFish):
         # self.diff_image = self.make_difference_image()
 
         self.load_suite2p()
-        self.stimulus_df = stimuli.validate_stims(self.stimulus_df, self.f_cells)
         self.build_stimdicts()
 
     def build_stimdicts_extended(self):
@@ -820,8 +819,11 @@ class WorkingFish(TailTrackedFish):
 
             for n, nrn in enumerate(self.zdiff_cells):
                 resp_arrs = []
-                for arr in arrs:
-                    resp_arrs.append(nrn[arr])
+                try:
+                    for arr in arrs:
+                        resp_arrs.append(nrn[arr])
+                except: # the indices does not work
+                   pass
 
                 self.stim_dict[stim][n] = np.nanmean(resp_arrs, axis=0)
                 self.err_dict[stim][n] = np.nanstd(resp_arrs, axis=0) / np.sqrt(
