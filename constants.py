@@ -62,3 +62,25 @@ deg_dict = {
     "backward": 180,
     "backward_right": 135,
 }
+eva_stims = [
+    "converging",
+    "diverging",
+    "left",
+    "medial_left",
+    "lateral_left",
+    "right",
+    "medial_right",
+    "lateral_right",
+    "forward",
+    "backward",
+]
+eva_typesL = {
+    "oB": [False, True, True, True, True, False, False, False, True, True],
+    "B": [False, False, True, True, True, False, False, False, True, True],
+    "iB": [True, False, True, True, True, False, False, False, True, True],
+    "ioB": [True, True, True, True, True, False, False, False, True, True],
+    "iMm": [True, False, True, True, False, False, False, False, True, True],
+    "Mm": [False, False, True, True, False, False, False, False, True, False],
+    "oMl": [False, True, True, False, True, False, False, False, True, True],
+    "S": [False, False, True, False, False, False, False, False, True, True],
+}

@@ -64,9 +64,9 @@ class OnlineAlign:
                 )
                 try:
                     array = np.array(json.loads(data_msg["images"]))
-                    if data_msg["size"][0] == 1:
-                        array = array[0]
-                    self.reference_img = array
+                    # if data_msg["size"][0] == 1:
+                    #     array = array[0]
+                    self.reference_img = array[0]
                     imsave(self.data_path.joinpath(r"ref_img.tif"), self.reference_img)
                     self.output(
                         output_sock, msg_src, msg_id, cmd, "ref updated", "complete"
@@ -81,9 +81,9 @@ class OnlineAlign:
                 )
                 try:
                     array = np.array(json.loads(data_msg["images"]))
-                    if data_msg["size"][0] == 1:
-                        array = array[0]
-                    self.target_img = array
+                    # if data_msg["size"][0] == 1:
+                    #     array = array[0]
+                    self.target_img = array[0]
                     imsave(self.data_path.joinpath(r"target_img.tif"), self.target_img)
                     self.output(
                         output_sock, msg_src, msg_id, cmd, "target updated", "complete"
@@ -97,6 +97,8 @@ class OnlineAlign:
                     output_sock, msg_src, msg_id, cmd, f"processing {cmd}", "pending"
                 )
                 try:
+                    print(self.reference_img.shape)
+                    print(self.target_img.shape)
                     registered_img = register_image2(
                         self.reference_img,
                         self.target_img,
@@ -363,7 +365,11 @@ class OnlineAlign:
 
 
 if __name__ == "__main__":
-    used_comms = {"ip": "tcp://10.196.159.84:", "port_sub": "5555", "port_push": "5556"}
+    used_comms = {
+        "ip": "tcp://10.196.144.133:",
+        "port_sub": "5555",
+        "port_push": "5556",
+    }
     OA = OnlineAlign(
         communications_dict=used_comms, data_path=r"D:\Data\alignment_sample"
     )

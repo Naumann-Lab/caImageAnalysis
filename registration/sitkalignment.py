@@ -245,8 +245,8 @@ def register_image2(
     pmap2["Metric1Weight"] = [str(scalePenalty)]
     parameterMapVector.append(pmap2)
 
+    elastixImageFilter.LogToConsoleOn()
     elastixImageFilter.SetParameterMap(parameterMapVector)
-
     elastixImageFilter.Execute()
     res = elastixImageFilter.GetResultImage()
 
