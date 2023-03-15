@@ -742,7 +742,6 @@ class WorkingFish(VizStimFish):
         # self.diff_image = self.make_difference_image()
 
         self.load_suite2p()
-        self.stimulus_df = stimuli.validate_stims(self.stimulus_df, self.f_cells)
         self.build_stimdicts()
 
     def build_stimdicts_extended(self):
