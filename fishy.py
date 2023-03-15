@@ -302,6 +302,7 @@ class VizStimFish(BaseFish):
         legacy=False,
         stim_offset=5,
         used_offsets=(-10, 14),
+        r_type="median",  # response type - can be median, mean, peak of the stimulus response, default is median
         *args,
         **kwargs,
     ):
@@ -318,6 +319,8 @@ class VizStimFish(BaseFish):
 
         self.stim_fxn_args = stim_fxn_args
         self.add_stims(stim_key, stim_fxn, legacy)
+
+        self.r_type = r_type
 
         if self.invert:
             self.stimulus_df.loc[:, "stim_name"] = self.stimulus_df.stim_name.map(
@@ -438,7 +441,7 @@ class TailTrackedFish(VizStimFish):
         sig=4,
         interpeak_dst=50,
         tail_offset=2,
-        thresh=0.2,
+        thresh=0.7,
         *args,
         **kwargs,
     ):
@@ -448,9 +451,18 @@ class TailTrackedFish(VizStimFish):
             tail_fxn_args = []
         self.tail_fxn_args = tail_fxn_args
         self.add_tail(tail_key, tail_fxn)
-        self.stim_tail_frame_alignment()
+
+        if "tail_df" not in self.data_paths:
+            self.tail_df, self.tail_stimulus_df = self.stim_tail_frame_alignment()
+        else:
+            self.tail_df = pd.read_feather(self.data_paths["tail_df"])
+            self.tail_df.set_index(self.tail_df.iloc[:, 0].values, inplace=True)
+            self.tail_df.drop(columns="index", inplace=True)
+
+            self.tail_stimulus_df = pd.read_feather(self.data_paths["tail_stimulus_df"])
+            print("found tail df and tail stimulus df")
+
         self.bout_finder(sig, interpeak_dst)
-        # self.bout_finder(sig=4, interpeak_dst=50, height=None, width=None, prominence=1)
 
         if hasattr(self, "f_cells"):
             self.bout_responsive_neurons(tail_offset, thresh)
@@ -462,18 +474,21 @@ class TailTrackedFish(VizStimFish):
             for entry in entries:
                 if tail_key in entry.name:
                     self.data_paths["tail"] = Path(entry.path)
+                elif entry.name == "tail_df.ftr":
+                    self.data_paths["tail_df"] = Path(entry.path)
+                elif entry.name == "tail_stimulus_df.ftr":
+                    self.data_paths["tail_stimulus_df"] = Path(entry.path)
         try:
             _ = self.data_paths["tail"]
         except KeyError:
             print("failed to find tail data")
             return
+
         if tail_fxn:
             if self.tail_fxn_args:
                 self.tail_df = tail_fxn(self.data_paths["tail"], **self.tail_fxn_args)
             else:
                 self.tail_df = tail_fxn(self.data_paths["tail"])
-
-        # aligning tail conv times to image frame times
 
     def stim_tail_frame_alignment(self):
         # trimming tail df to match the size of the imaging times
@@ -507,6 +522,10 @@ class TailTrackedFish(VizStimFish):
             except:
                 pass
 
+        self.tail_df.reset_index(inplace=True)
+        taildf_save_path = Path(self.folder_path).joinpath("tail_df.ftr")
+        self.tail_df.to_feather(taildf_save_path)
+
         # making a stimulus df with tail index and image index values for each stim
         final_t = self.frametimes_df["time"].iloc[-1]  # last time in imaging
         image_infos = []
@@ -531,7 +550,10 @@ class TailTrackedFish(VizStimFish):
                         )
                     ].index
                 )
-        self.tail_stimulus_df.loc[:, "tail_index"] = tail_infos
+        # self.tail_stimulus_df.loc[:, "tail_index"] = tail_infos
+        for n, tail_index in enumerate(tail_infos):
+            self.tail_stimulus_df.loc[n, "tail_ind_start"] = tail_index[0]
+            self.tail_stimulus_df.loc[n, "tail_ind_end"] = tail_index[-1]
 
         for j in range(len(self.tail_stimulus_df)):
             if j == len(self.tail_stimulus_df) - 1:
@@ -558,7 +580,15 @@ class TailTrackedFish(VizStimFish):
                     ].index
                 )
 
-        self.tail_stimulus_df.loc[:, "img_stacks"] = image_infos
+        # self.tail_stimulus_df.loc[:, "img_stacks"] = image_infos
+        for m, img_index in enumerate(image_infos):
+            self.tail_stimulus_df.loc[m, "img_ind_start"] = img_index[0]
+            self.tail_stimulus_df.loc[m, "img_ind_end"] = img_index[-1]
+
+        save_path = Path(self.folder_path).joinpath("tail_stimulus_df.ftr")
+        self.tail_stimulus_df.to_feather(save_path)
+
+        return self.tail_df, self.tail_stimulus_df
 
     def bout_finder(
         self, sig=4, interpeak_dst=50, height=None, width=None, prominence=1
@@ -587,7 +617,9 @@ class TailTrackedFish(VizStimFish):
             width=width,
         )
         # get bout peaks
-        leftofPeak = peaks["left_ips"]
+        leftofPeak = peaks[
+            "left_ips"
+        ]  # Interpolated positions of a horizontal line’s left and right junction points at each evaluation height
         rightofPeak = peaks["right_ips"]
         peak_pts = np.stack([leftofPeak, rightofPeak], axis=1)
         bout_start = []
@@ -613,8 +645,8 @@ class TailTrackedFish(VizStimFish):
         new_peak_pts = np.stack(
             [bout_start, bout_end], axis=1
         )  # all peaks in tail data
-        tail_ind_start = self.tail_stimulus_df.iloc[0].tail_index.values[0]
-        tail_ind_stop = self.tail_stimulus_df.iloc[-2].tail_index.values[-1]
+        tail_ind_start = self.tail_stimulus_df.iloc[0].tail_ind_start
+        tail_ind_stop = self.tail_stimulus_df.iloc[-2].tail_ind_end
 
         ind_0 = np.where(new_peak_pts[:, 0] >= tail_ind_start)[0][0]
         ind_1 = np.where(new_peak_pts[:, 1] <= tail_ind_stop)[0][-1]
@@ -626,13 +658,15 @@ class TailTrackedFish(VizStimFish):
         for bout_ind in range(len(relevant_pts)):
             if bout_ind not in dict_info.keys():
                 dict_info[bout_ind] = {}
-
             bout_angle = np.sum(
                 self.tail_df.iloc[:, 4].values[
                     relevant_pts[bout_ind][0] : relevant_pts[bout_ind][1]
                 ]
             )  # total bout angle
             dict_info[bout_ind]["bout_angle"] = bout_angle
+
+            # frame_start = self.tail_df.iloc[:, -1].values[relevant_pts[bout_ind][0]]
+            # frame_end = self.tail_df.iloc[:, -1].values[relevant_pts[bout_ind][1]]
 
             frame_start = self.tail_df.iloc[:, -1].values[relevant_pts[bout_ind][0]]
             frame_end = self.tail_df.iloc[:, -1].values[relevant_pts[bout_ind][1]]
@@ -645,7 +679,7 @@ class TailTrackedFish(VizStimFish):
         # tail_bouts_df has bout indices, frames from image frametimes, and bout direction
         return self.tail_bouts_df
 
-    def bout_responsive_neurons(self, tail_offset=2, thresh=0.2):
+    def bout_responsive_neurons(self, tail_offset=(5, 2), thresh=0.7):
         nrns = []
         vals = []
         bouts = []
@@ -653,17 +687,17 @@ class TailTrackedFish(VizStimFish):
         self.norm_cells = arrutils.norm_fdff(self.f_cells)
         for q in range(self.norm_cells.shape[0]):
             for bout in range(len(self.tail_bouts_df)):
-                s = self.tail_bouts_df.iloc[:, 1].values[bout][0] - tail_offset
+                s = self.tail_bouts_df.iloc[:, 1].values[bout][0] - tail_offset[0]
                 if s <= 0:
                     s = 0
-                e = self.tail_bouts_df.iloc[:, 1].values[bout][1] + tail_offset
+                e = self.tail_bouts_df.iloc[:, 1].values[bout][1] + tail_offset[1]
                 if e >= self.norm_cells.shape[1]:
                     e = self.norm_cells.shape[1]
                 nrns.append(q)  # all the neurons
                 bouts.append(bout)  # all the bouts
                 vals.append(
                     np.median(self.norm_cells[q][int(s) : int(e)])
-                )  # median response to a bout
+                )  # median responses during a bout
 
         neurbout_df = pd.DataFrame({"neur": nrns, "bout": bouts, "fluor": vals})
 
@@ -676,7 +710,10 @@ class TailTrackedFish(VizStimFish):
             oneneur = neurbout_df[neurbout_df["neur"] == n]
             responsive = []
             for b in oneneur.bout.unique():
-                if np.median(oneneur[oneneur.bout == b]["fluor"].values) >= thresh:
+                if (
+                    np.nanmax(oneneur[oneneur.bout == b]["fluor"].values) >= thresh
+                ):  # taking the peak response here
+                    # if np.median(oneneur[oneneur.bout == b]["fluor"].values) >= thresh:
                     responsive.append(b)
                 self.neurbout_dict[n] = responsive
 
@@ -692,10 +729,6 @@ class TailTrackedFish(VizStimFish):
 
 
 class WorkingFish(VizStimFish):
-    """
-    the classic: the every-man's briefcase wielding workhorse
-    """
-
     def __init__(self, corr_threshold=0.65, ref_image=None, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
@@ -709,7 +742,7 @@ class WorkingFish(VizStimFish):
         # self.diff_image = self.make_difference_image()
 
         self.load_suite2p()
-        # self.stimulus_df = stimuli.validate_stims(self.stimulus_df, self.f_cells)
+        self.stimulus_df = stimuli.validate_stims(self.stimulus_df, self.f_cells)
         self.build_stimdicts()
 
     def build_stimdicts_extended(self):
@@ -745,7 +778,8 @@ class WorkingFish(VizStimFish):
                 self.extended_responses2[stim][n] = resp_arrs
 
     def build_stimdicts(self):
-        # makes an median value of z-scored calcium response for each neuron for each stim
+        # makes an median value (can change what response type) of z-scored calcium response for each neuron for each stim
+        self.stimulus_df = stimuli.validate_stims(self.stimulus_df, self.f_cells)
         self.stim_dict = {i: {} for i in self.stimulus_df.stim_name.unique()}
         self.err_dict = {i: {} for i in self.stimulus_df.stim_name.unique()}
         self.zdiff_cells = [arrutils.zdiffcell(i) for i in self.f_cells]
@@ -758,8 +792,11 @@ class WorkingFish(VizStimFish):
 
             for n, nrn in enumerate(self.zdiff_cells):
                 resp_arrs = []
-                for arr in arrs:
-                    resp_arrs.append(nrn[arr])
+                try:
+                    for arr in arrs:
+                        resp_arrs.append(nrn[arr])
+                except:  # the indices does not work
+                    pass
 
                 self.stim_dict[stim][n] = np.nanmean(resp_arrs, axis=0)
                 self.err_dict[stim][n] = np.nanstd(resp_arrs, axis=0) / np.sqrt(
@@ -774,11 +811,30 @@ class WorkingFish(VizStimFish):
                 self.neuron_dict[neuron] = {}
 
             for stim in self.stimulus_df.stim_name.unique():
-                self.neuron_dict[neuron][stim] = np.nanmedian(
-                    self.stim_dict[stim][neuron][
-                        -self.offsets[0] : -self.offsets[0] + self.stim_offset
-                    ]
-                )
+                if self.r_type == "median":
+                    self.neuron_dict[neuron][stim] = np.nanmedian(
+                        self.stim_dict[stim][neuron][
+                            -self.offsets[0] : -self.offsets[0] + self.stim_offset
+                        ]
+                    )
+                elif self.r_type == "peak":
+                    self.neuron_dict[neuron][stim] = np.nanmax(
+                        self.stim_dict[stim][neuron][
+                            -self.offsets[0] : -self.offsets[0] + self.stim_offset
+                        ]
+                    )
+                elif self.r_type == "mean":
+                    self.neuron_dict[neuron][stim] = np.nanmean(
+                        self.stim_dict[stim][neuron][
+                            -self.offsets[0] : -self.offsets[0] + self.stim_offset
+                        ]
+                    )
+                else:
+                    self.neuron_dict[neuron][stim] = np.nanmedian(
+                        self.stim_dict[stim][neuron][
+                            -self.offsets[0] : -self.offsets[0] + self.stim_offset
+                        ]
+                    )
 
     def build_booldf(self, stim_arr=None, zero_arr=True, force=False):
         if hasattr(self, "booldf"):
@@ -961,6 +1017,61 @@ class WorkingFish(VizStimFish):
         return thetas, thetavals
 
 
+class WorkingFishKF(WorkingFish, TailTrackedFish):
+    """
+    the classic: the every-man's briefcase wielding workhorse
+    """
+
+    def __init__(self, corr_threshold=0.65, ref_image=None, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        if "move_corrected_image" not in self.data_paths:
+            raise TankError
+        self.corr_threshold = corr_threshold
+
+        if ref_image is not None:
+            self.reference_image = ref_image
+
+        # self.diff_image = self.make_difference_image()
+
+        self.load_suite2p()
+        self.stimulus_df = stimuli.validate_stims(self.stimulus_df, self.f_cells)
+        self.build_stimdicts()
+
+    def make_heatmap_bout_count(self):  # to visualize bout counts per stimulus type
+        import seaborn as sns
+        import matplotlib.pyplot as plt
+
+        df_list = []
+        for stim in range(len(self.tail_stimulus_df)):
+            a = self.tail_stimulus_df.iloc[stim]
+            q = a.img_ind_start
+            d = a.img_ind_end
+            no_bouts = np.array(
+                (list(zip(*self.tail_bouts_df.image_frames.values))[0] >= q)
+                & (list(zip(*self.tail_bouts_df.image_frames.values))[1] <= d)
+            )
+            bout_count = np.where(no_bouts == True)[0].shape[0]
+            df = pd.DataFrame({"stim_name": [a.stim_name], "bout_count": [bout_count]})
+            if a.velocity:
+                v = a.velocity
+                df["velocity"] = v
+                df_list.append(df)
+        all_dfs = pd.concat(df_list).reset_index(drop=True)
+        df1 = all_dfs.groupby(["stim_name", "velocity"], sort=False).agg(["sum"])
+        df1.columns = df1.columns.droplevel(0)
+        df1.reset_index(inplace=True)
+
+        heatmap_data = pd.pivot_table(
+            df1, values="sum", index=["stim_name"], columns="velocity"
+        )
+        sns.heatmap(heatmap_data, cmap=sns.color_palette("Blues", as_cmap=True))
+        plt.xlabel("Velocity (m/s)", size=14)
+        plt.ylabel("Motion Direction", size=14)
+        plt.title(" Bout Count/Stim", size=14)
+        plt.tight_layout()
+
+
 class VolumeFish:
     def __init__(self):
         self.volumes = {}
@@ -1064,3 +1175,6 @@ class TankError(Exception):
     """
 
     pass
+
+
+#%%
