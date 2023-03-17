@@ -34,12 +34,12 @@ def pandastim_to_df(pstimpath, minimode=False, addvelocity=True):
         return stimulus_df
 
 
-def legacy_struct_pandastim_to_df(folderPath, stimkey, *args, **kwargs):
+def legacy_struct_pandastim_to_df(folderPath, stim_key, *args, **kwargs):
     import os
 
     with os.scandir(folderPath.parents[0]) as entries:
         for entry in entries:
-            if stimkey in entry.name:
+            if stim_key in entry.name:
                 stimPath = entry.path
 
     if stimPath:

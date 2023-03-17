@@ -12,7 +12,7 @@ def dateToMillisec(datetime):
     )
 
 
-def tail_reader(tail_path):  # reads in the tail data into a df
+def tail_reader(tail_path, daylight = True):  # reads in the tail data into a df
     tail_data = TdmsFile(tail_path)
     tail_df = tail_data.as_dataframe()
     tail_df = tail_df[tail_df["/'TailLoc'/'Time'"].notna()]
@@ -48,13 +48,22 @@ def tail_reader(tail_path):  # reads in the tail data into a df
     tailTimes = tail_df["conv_t"].values
     # tail times
     # might need to change this tailTimes hour depending on when you do this expt
-    for i in range(len(tailTimes)):
-        tailTimes[i] = tailTimes[i].replace(
-            hour=tailTimes[i].hour - 5,
-            minute=tailTimes[i].minute,
-            second=tailTimes[i].second,
-            microsecond=tailTimes[i].microsecond,
-        )
+    if daylight = False:
+        for i in range(len(tailTimes)):
+            tailTimes[i] = tailTimes[i].replace(
+                hour=tailTimes[i].hour - 5,
+                minute=tailTimes[i].minute,
+                second=tailTimes[i].second,
+                microsecond=tailTimes[i].microsecond,
+            )
+    else:
+        for i in range(len(tailTimes)):
+            tailTimes[i] = tailTimes[i].replace(
+                hour=tailTimes[i].hour - 4, # need to change this number if not in daylight savings
+                minute=tailTimes[i].minute,
+                second=tailTimes[i].second,
+                microsecond=tailTimes[i].microsecond,
+            )
         tail_t.append(dateToMillisec(tailTimes[i]))
     new_tail_t = np.asarray(tail_t)
 
