@@ -4,6 +4,12 @@ import numpy as np
 
 
 def run_image_rotation(base_fish, angle=0, crop=0.075):
+    """
+    :param base_fish:
+    :param angle:
+    :param crop: percentage of image cropped on the fly back side (which is the left side with how it saves)
+    :return:
+    """
 
     from scipy.ndimage import rotate
     from tifffile import imread, imwrite
