@@ -329,7 +329,7 @@ class OnlineAlign:
                 "time".encode(),
                 str(time.time()).encode(),
                 "cmd".encode(),
-                msg_type.encode(),
+                msg_type[1:-1].encode(),
                 "data".encode(),
                 msg_data.encode(),
                 "status".encode(),
