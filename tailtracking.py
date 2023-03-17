@@ -69,6 +69,5 @@ def tail_reader(tail_path):
 
     new_tail_t = np.asarray(converted_tail_times)
     tail_df = tail_df.iloc[1:]
-
     return tail_df
 
