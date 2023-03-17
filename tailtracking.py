@@ -12,7 +12,7 @@ def dateToMillisec(datetime):
     )
 
 
-def tail_reader(tail_path, daylight = True):
+def tail_reader(tail_path):
     # reads in the tail data into a df
     tail_data = TdmsFile(tail_path)
     tail_df = tail_data.as_dataframe()
@@ -45,29 +45,30 @@ def tail_reader(tail_path, daylight = True):
         tail_ts.append(val)
     tail_df.loc[:, "conv_t"] = tail_ts
 
-    tail_t = []
-    tailTimes = tail_df["conv_t"].values
-    # tail times
-    # might need to change this tailTimes hour depending on when you do this expt
-    if daylight = False:
-        for i in range(len(tailTimes)):
-            tailTimes[i] = tailTimes[i].replace(
-                hour=tailTimes[i].hour - 5,
-                minute=tailTimes[i].minute,
-                second=tailTimes[i].second,
-                microsecond=tailTimes[i].microsecond,
-            )
-    else:
-        for i in range(len(tailTimes)):
-            tailTimes[i] = tailTimes[i].replace(
-                hour=tailTimes[i].hour - 4, # need to change this number if not in daylight savings
-                minute=tailTimes[i].minute,
-                second=tailTimes[i].second,
-                microsecond=tailTimes[i].microsecond,
-            )
-        tail_t.append(dateToMillisec(tailTimes[i]))
-    new_tail_t = np.asarray(tail_t)
+    converted_tail_times = []
+    tail_times = tail_df["conv_t"].values
 
+    # converted time needs to be changed by this hour value given by lab view data
+    add_hour = (
+        str(tail_df["/'TailLoc'/'Time'"].iloc[0])
+        .split(" ")[1]
+        .split("-")[1]
+        .split(":")[0]
+    )
+
+    for i in range(len(tail_times)):
+        tail_times[i] = tail_times[i].replace(
+            hour=tail_times[i].hour - int(add_hour),
+            minute=tail_times[i].minute,
+            second=tail_times[i].second,
+            microsecond=tail_times[i].microsecond,
+        )
+    converted_tail_times.append(
+            dateToMillisec(tail_times[i])
+        )  # convert to milliseconds
+
+    new_tail_t = np.asarray(converted_tail_times)
     tail_df = tail_df.iloc[1:]
 
     return tail_df
+
