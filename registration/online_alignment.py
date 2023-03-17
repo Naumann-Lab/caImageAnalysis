@@ -266,6 +266,12 @@ class OnlineAlign:
                     print(f"failed {cmd} because {e}")
                     self.output(output_sock, msg_src, msg_id, cmd, f"{e}", "error")
 
+            elif cmd == "T_volts-to-pxls":
+                pass
+
+            elif cmd == "T_pxls-to-volts":
+                pass
+
             else:
                 print(f"{cmd} not understood")
                 self.output(
