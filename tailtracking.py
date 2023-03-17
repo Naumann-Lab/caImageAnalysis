@@ -12,7 +12,8 @@ def dateToMillisec(datetime):
     )
 
 
-def tail_reader(tail_path, daylight = True):  # reads in the tail data into a df
+def tail_reader(tail_path, daylight = True):
+    # reads in the tail data into a df
     tail_data = TdmsFile(tail_path)
     tail_df = tail_data.as_dataframe()
     tail_df = tail_df[tail_df["/'TailLoc'/'Time'"].notna()]
