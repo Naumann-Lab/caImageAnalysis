@@ -1068,7 +1068,7 @@ class WorkingFish_Tail(WorkingFish, TailTrackedFish):
                 df["velocity"] = v
                 df_list.append(df)
         all_dfs = pd.concat(df_list).reset_index(drop=True)
-        df1 = all_dfs.groupby(["stim_name", "velocity"], sort=False).agg(["mean"])
+        df1 = all_dfs.groupby(["git stim_name", "velocity"], sort=False).agg(["mean"])
         df1.columns = df1.columns.droplevel(0)
         df1.reset_index(inplace=True)
 
