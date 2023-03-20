@@ -106,7 +106,7 @@ class OnlineAlign:
                     registered_img = register_image2(
                         self.reference_img,
                         self.target_img,
-                        savepath=self.data_path,
+                        savepath=self.transform_path,
                         scalePenalty=self.scale_penalty,
                         iterations=(self.affine_iterations, self.bspline_iterations),
                     )
@@ -167,7 +167,7 @@ class OnlineAlign:
                     registered_img = register_image2(
                         self.target_img,
                         self.reference_img,
-                        savepath=self.data_path,
+                        savepath=self.transform_path_INV,
                         scalePenalty=self.scale_penalty,
                         iterations=(self.affine_iterations, self.bspline_iterations),
                     )
@@ -289,6 +289,7 @@ class OnlineAlign:
                 except Exception as e:
                     print(f"failed {cmd} because {e}")
                     self.output(output_sock, msg_src, msg_id, cmd, f"{e}", "error")
+
             elif cmd == '"points inverse transform"':
                 self.output(
                     output_sock, msg_src, msg_id, cmd, f"processing {cmd}", "pending"
@@ -298,7 +299,7 @@ class OnlineAlign:
                     xcoords = [float(xy[0]) for xy in coords]
                     ycoords = [float(xy[1]) for xy in coords]
                     new_coords = [(x, y) for x, y in zip(xcoords, ycoords)]
-                    transformed_coords = self.transform_points(new_coords)
+                    transformed_coords = self.transform_points_INV(new_coords)
                     self.output(
                         output_sock,
                         msg_src,
