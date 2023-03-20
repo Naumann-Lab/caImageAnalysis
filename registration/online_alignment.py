@@ -294,7 +294,7 @@ class OnlineAlign:
                     output_sock, msg_src, msg_id, cmd, f"processing {cmd}", "pending"
                 )
                 try:
-                    coords = data_msg["pnts"]
+                    coords = eval(data_msg["pnts"])
                     xcoords = [float(i) for i in coords[0]]
                     ycoords = [float(i) for i in coords[1]]
                     new_coords = [(x, y) for x, y in zip(xcoords, ycoords)]
