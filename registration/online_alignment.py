@@ -130,8 +130,8 @@ class OnlineAlign:
                             f"processing Pixel/Volt",
                             "pending",
                         )
-                        p2v_data = data["T_pxls-to-volts"]
-                        v2p_data = data["T_pxls-to-volts"]
+                        p2v_data = data_msg["T_pxls-to-volts"]
+                        v2p_data = data_msg["T_pxls-to-volts"]
 
                         if os.path.exists(self.v2p_path):
                             os.remove(self.v2p_path)
@@ -193,8 +193,8 @@ class OnlineAlign:
                             f"processing Pixel/Volt",
                             "pending",
                         )
-                        p2v_data = data["T_pxls-to-volts"]
-                        v2p_data = data["T_pxls-to-volts"]
+                        p2v_data = data_msg["T_pxls-to-volts"]
+                        v2p_data = data_msg["T_pxls-to-volts"]
 
                         if os.path.exists(self.v2p_path):
                             os.remove(self.v2p_path)
