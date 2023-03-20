@@ -446,13 +446,16 @@ class OnlineAlign:
         try:
             self.target_img = imread(self.data_path.joinpath(r"target_img.tif"))
         except:
-            pass
+            print("no target found")
+
         try:
             self.reference_img = imread(self.data_path.joinpath(r"ref_img.tif"))
         except:
-            pass
+            print("no ref found")
+
         self.transform_path = self.data_path.joinpath("transform")
         self.transform_path_INV = self.data_path.joinpath("transform_INV")
+
         try:
             self.aligned_img_INV = imread(
                 self.data_path.joinpath(r"aligned_img_INV.tif")
