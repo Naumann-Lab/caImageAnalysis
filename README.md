@@ -16,7 +16,7 @@ This assumes you are using Anaconda and Python 3:
 1. Install [Mambaforge](https://github.com/conda-forge/miniforge#mambaforge)
 
 
-2. Create a new environment and install [Caiman](https://caiman.readthedocs.io/en/master/Installation.html#installing-caiman)
+2. Create a new environment and install [Caiman](https://caiman.readthedocs.io/en/master/Installation.html#installing-caiman). Note: helpful information on caiman can be found [here](https://github.com/EricThomson/CCN_caiman_mesmerize_workshop_2023)
     
     `mamba create -n caiman -c conda-forge caiman`
 
@@ -40,10 +40,13 @@ This assumes you are using Anaconda and Python 3:
 
 6. Install more packages
 
-   ` python -m pip install tables nptdms`
+   ` python -m pip install tables nptdms pyarrow`
 
 
-Helpful information on caiman can be found [here](https://github.com/EricThomson/CCN_caiman_mesmerize_workshop_2023)
+7. Optional: Download [mimic_alpha](https://github.com/montefra/mimic_alpha) into your new caiman envs - this package converts a list of RGB color that mimic a RGBA on a given background. This is useful for plotting.
+
+
+
 
 <br>
 
