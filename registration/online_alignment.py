@@ -25,7 +25,7 @@ class OnlineAlign:
         :param savepath: homebase for alignments and such
         :param defaultSize: default image size
         """
-        self.data_path = Path(data_path)
+        self.data_path = data_path
 
         self.v2p_path = self.data_path.joinpath(r"volts2pix.txt")
         self.p2v_path = self.data_path.joinpath(r"pix2volts.txt")
@@ -527,11 +527,30 @@ class OnlineAlign:
 
 
 if __name__ == "__main__":
+    # used_comms = {
+    #     "ip": "tcp://10.196.144.133:",
+    #     "port_sub": "5555",
+    #     "port_push": "5556",
+    # }
+    # input_path = r"D:\Data\alignment_sample"
+    '''
+    python -m registration.online_alignment --filename="D:/Data/alignment_sample" --ip="tcp://10.196.144.133:" --port_sub="5555" --port_push="5556"
+    '''
+    import argparse
+
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument("--filename")
+    parser.add_argument("--ip")
+    parser.add_argument("--port_sub")
+    parser.add_argument("--port_push")
+
+    args = parser.parse_args()
+    input_path = Path(args.filename)
+
     used_comms = {
-        "ip": "tcp://10.196.144.133:",
-        "port_sub": "5555",
-        "port_push": "5556",
+        "ip": args.ip,
+        "port_sub": args.port_sub,
+        "port_push": args.port_push,
     }
-    OA = OnlineAlign(
-        communications_dict=used_comms, data_path=r"D:\Data\alignment_sample"
-    )
+    OA = OnlineAlign(communications_dict=used_comms, data_path=input_path)
