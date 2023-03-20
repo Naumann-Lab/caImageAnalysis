@@ -461,10 +461,10 @@ class TailTrackedFish(VizStimFish):
             self.tail_df, self.tail_stimulus_df = self.stim_tail_frame_alignment()
         else:
             self.tail_df = pd.read_hdf(self.data_paths["tail_df"])
-            self.tail_df.set_index(self.tail_df.iloc[:, 0].values, inplace=True)
-            self.tail_df.drop(columns="index", inplace=True)
+            # self.tail_df.set_index(self.tail_df.iloc[:, 0].values, inplace=True)
+            # self.tail_df.drop(columns="index", inplace=True)
 
-            self.tail_stimulus_df = pd.read_hdf(self.data_paths["tail_stimulus_df"])
+            self.tail_stimulus_df = pd.read_feather(self.data_paths["tail_stimulus_df"])
             print("found tail df and tail stimulus df")
 
         self.bout_finder(sig, interpeak_dst)
@@ -479,7 +479,7 @@ class TailTrackedFish(VizStimFish):
             for entry in entries:
                 if tail_key in entry.name:
                     self.data_paths["tail"] = Path(entry.path)
-                elif entry.name == "tail_df.ftr":
+                elif entry.name == "tail_df.h5":
                     self.data_paths["tail_df"] = Path(entry.path)
                 elif entry.name == "tail_stimulus_df.ftr":
                     self.data_paths["tail_stimulus_df"] = Path(entry.path)
@@ -524,8 +524,9 @@ class TailTrackedFish(VizStimFish):
             print('failed to align frame times with tail data')
 
         self.tail_df.reset_index(inplace=True)
+        self.tail_df.drop(columns="index", inplace=True)
         taildf_save_path = Path(self.folder_path).joinpath("tail_df.h5")
-        self.tail_df.to_hdf(taildf_save_path)
+        self.tail_df.to_hdf(taildf_save_path, key = 't')
         print('saved tail_df')
 
         # making a stimulus df with tail index and image index values for each stim
@@ -594,8 +595,8 @@ class TailTrackedFish(VizStimFish):
         else:
             pass
 
-        save_path = Path(self.folder_path).joinpath("tail_stimulus_df.h5")
-        self.tail_stimulus_df.to_hdf(save_path)
+        save_path = Path(self.folder_path).joinpath("tail_stimulus_df.ftr")
+        self.tail_stimulus_df.to_feather(save_path)
         print('saved tail_stimulus_df')
 
         return self.tail_df, self.tail_stimulus_df
@@ -1067,12 +1068,12 @@ class WorkingFish_Tail(WorkingFish, TailTrackedFish):
                 df["velocity"] = v
                 df_list.append(df)
         all_dfs = pd.concat(df_list).reset_index(drop=True)
-        df1 = all_dfs.groupby(["stim_name", "velocity"], sort=False).agg(["sum"])
+        df1 = all_dfs.groupby(["stim_name", "velocity"], sort=False).agg(["mean"])
         df1.columns = df1.columns.droplevel(0)
         df1.reset_index(inplace=True)
 
         heatmap_data = pd.pivot_table(
-            df1, values="sum", index=["stim_name"], columns="velocity"
+            df1, values="mean", index=["stim_name"], columns="velocity"
         )
         sns.heatmap(heatmap_data, cmap=sns.color_palette("Blues", as_cmap=True))
         plt.xlabel("Velocity (m/s)", size=14)
