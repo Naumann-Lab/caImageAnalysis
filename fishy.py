@@ -307,12 +307,17 @@ class VizStimFish(BaseFish):
         **kwargs,
     ):
         """
-
         :param stim_key: filename key to find stims in folder
         :param stim_fxn: processes stimuli of interest: returns df with minimum "stim_name" and "time" columns
+        :param stim_fxn_args:
+        :param legacy:
+        :param stim_offset:
+        :param used_offsets:
+        :param r_type:
         :param args:
         :param kwargs:
         """
+
         super().__init__(*args, **kwargs)
         if stim_fxn_args is None:
             stim_fxn_args = {}
@@ -455,11 +460,11 @@ class TailTrackedFish(VizStimFish):
         if "tail_df" not in self.data_paths:
             self.tail_df, self.tail_stimulus_df = self.stim_tail_frame_alignment()
         else:
-            self.tail_df = pd.read_feather(self.data_paths["tail_df"])
+            self.tail_df = pd.read_hdf(self.data_paths["tail_df"])
             self.tail_df.set_index(self.tail_df.iloc[:, 0].values, inplace=True)
             self.tail_df.drop(columns="index", inplace=True)
 
-            self.tail_stimulus_df = pd.read_feather(self.data_paths["tail_stimulus_df"])
+            self.tail_stimulus_df = pd.read_hdf(self.data_paths["tail_stimulus_df"])
             print("found tail df and tail stimulus df")
 
         self.bout_finder(sig, interpeak_dst)
@@ -492,39 +497,36 @@ class TailTrackedFish(VizStimFish):
 
     def stim_tail_frame_alignment(self):
         # trimming tail df to match the size of the imaging times
-        if (
-            "frame" not in self.tail_df.columns
-        ):  # do not have to run this again if already has it
-            try:
-                self.tail_df = self.tail_df[
-                    (self.tail_df.conv_t >= self.frametimes_df.values[0][0])
-                    & (self.tail_df.conv_t <= self.frametimes_df.values[-1][0])
-                ]
+        try:
+            self.tail_df = self.tail_df[
+                (
+                    self.tail_df.conv_t >= self.frametimes_df.values[0][0]
+                )  # this frametimes needs to be original data
+                & (self.tail_df.conv_t <= self.frametimes_df.values[-1][0])
+            ]
 
-                for frameN in tqdm(
-                    range(len(self.frametimes_df.values)),
-                    "aligning frametimes to tail data",
-                ):
-                    try:
-                        indices = self.tail_df[
-                            (
-                                self.tail_df.conv_t
-                                >= self.frametimes_df.values[frameN][0]
-                            )
-                            & (
-                                self.tail_df.conv_t
-                                <= self.frametimes_df.values[frameN + 1][0]
-                            )
-                        ].index
-                    except IndexError:
-                        pass
-                    self.tail_df.loc[indices, "frame"] = frameN
-            except:
-                pass
+            for frameN in tqdm(
+                range(len(self.frametimes_df.values)),
+                "aligning frametimes to tail data",
+            ):
+                try:
+                    indices = self.tail_df[
+                        (self.tail_df.conv_t >= self.frametimes_df.values[frameN][0])
+                        & (
+                            self.tail_df.conv_t
+                            <= self.frametimes_df.values[frameN + 1][0]
+                        )
+                    ].index
+                except IndexError:
+                    pass
+                self.tail_df.loc[indices, "frame"] = frameN
+        except:
+            print('failed to align frame times with tail data')
 
         self.tail_df.reset_index(inplace=True)
-        taildf_save_path = Path(self.folder_path).joinpath("tail_df.ftr")
-        self.tail_df.to_feather(taildf_save_path)
+        taildf_save_path = Path(self.folder_path).joinpath("tail_df.h5")
+        self.tail_df.to_hdf(taildf_save_path)
+        print('saved tail_df')
 
         # making a stimulus df with tail index and image index values for each stim
         final_t = self.frametimes_df["time"].iloc[-1]  # last time in imaging
@@ -585,8 +587,16 @@ class TailTrackedFish(VizStimFish):
             self.tail_stimulus_df.loc[m, "img_ind_start"] = img_index[0]
             self.tail_stimulus_df.loc[m, "img_ind_end"] = img_index[-1]
 
-        save_path = Path(self.folder_path).joinpath("tail_stimulus_df.ftr")
-        self.tail_stimulus_df.to_feather(save_path)
+        if (
+            self.tail_stimulus_df.velocity.dtype == 'O'
+        ):  # don't need velocity here for analysis
+            self.tail_stimulus_df.drop(['velocity'], axis=1, inplace=True)
+        else:
+            pass
+
+        save_path = Path(self.folder_path).joinpath("tail_stimulus_df.h5")
+        self.tail_stimulus_df.to_hdf(save_path)
+        print('saved tail_stimulus_df')
 
         return self.tail_df, self.tail_stimulus_df
 
@@ -1016,9 +1026,9 @@ class WorkingFish(VizStimFish):
         return thetas, thetavals
 
 
-class WorkingFishKF(WorkingFish, TailTrackedFish):
+class WorkingFish_Tail(WorkingFish, TailTrackedFish):
     """
-    the classic: the every-man's briefcase wielding workhorse
+    utilizes tail tracked fish data with visual stimuli
     """
 
     def __init__(self, corr_threshold=0.65, ref_image=None, *args, **kwargs):
@@ -1037,7 +1047,7 @@ class WorkingFishKF(WorkingFish, TailTrackedFish):
         self.stimulus_df = stimuli.validate_stims(self.stimulus_df, self.f_cells)
         self.build_stimdicts()
 
-    def make_heatmap_bout_count(self):  # to visualize bout counts per stimulus type
+    def make_heatmap_bout_count(self):  # to visualize bout counts per stimulus type if have different velocities
         import seaborn as sns
         import matplotlib.pyplot as plt
 
