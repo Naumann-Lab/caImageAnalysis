@@ -9,7 +9,7 @@ import threading as tr
 import numpy as np
 
 from pathlib import Path
-from tifffile import imread, imsave
+from tifffile import imread, imwrite
 
 
 class OnlineAlign:
@@ -71,7 +71,7 @@ class OnlineAlign:
                     # if data_msg["size"][0] == 1:
                     #     array = array[0]
                     self.reference_img = array[0]
-                    imsave(self.data_path.joinpath(r"ref_img.tif"), self.reference_img)
+                    imwrite(self.data_path.joinpath(r"ref_img.tif"), self.reference_img)
                     self.output(
                         output_sock, msg_src, msg_id, cmd, "ref updated", "complete"
                     )
@@ -88,7 +88,7 @@ class OnlineAlign:
                     # if data_msg["size"][0] == 1:
                     #     array = array[0]
                     self.target_img = array[0]
-                    imsave(self.data_path.joinpath(r"target_img.tif"), self.target_img)
+                    imwrite(self.data_path.joinpath(r"target_img.tif"), self.target_img)
                     self.output(
                         output_sock, msg_src, msg_id, cmd, "target updated", "complete"
                     )
@@ -111,7 +111,7 @@ class OnlineAlign:
                         iterations=(self.affine_iterations, self.bspline_iterations),
                     )
                     self.aligned_img = registered_img
-                    imsave(self.data_path.joinpath(r"aligned_img.tif"), registered_img)
+                    imwrite(self.data_path.joinpath(r"aligned_img.tif"), registered_img)
                     self.output(
                         output_sock,
                         msg_src,
@@ -172,7 +172,7 @@ class OnlineAlign:
                         iterations=(self.affine_iterations, self.bspline_iterations),
                     )
                     self.aligned_img_INV = registered_img
-                    imsave(
+                    imwrite(
                         self.data_path.joinpath(r"aligned_img_INV.tif"), registered_img
                     )
 
@@ -274,8 +274,8 @@ class OnlineAlign:
                 )
                 try:
                     coords = eval(data_msg["pnts"])
-                    xcoords = [float(i[0]) for i in coords]
-                    ycoords = [float(i[1]) for i in coords]
+                    xcoords = [float(xy[0]) for xy in coords]
+                    ycoords = [float(xy[1]) for xy in coords]
                     new_coords = [(x, y) for x, y in zip(xcoords, ycoords)]
                     transformed_coords = self.transform_points(new_coords)
                     self.output(
@@ -295,8 +295,8 @@ class OnlineAlign:
                 )
                 try:
                     coords = eval(data_msg["pnts"])
-                    xcoords = [float(i) for i in coords[0]]
-                    ycoords = [float(i) for i in coords[1]]
+                    xcoords = [float(xy[0]) for xy in coords]
+                    ycoords = [float(xy[1]) for xy in coords]
                     new_coords = [(x, y) for x, y in zip(xcoords, ycoords)]
                     transformed_coords = self.transform_points(new_coords)
                     self.output(
@@ -557,9 +557,10 @@ if __name__ == "__main__":
     except TypeError:
         # if user doesnt put stuff in
         used_comms = {
-            "ip": "tcp://10.196.144.133:",
+            "ip": "tcp://localhost:",
+            # "ip": "tcp://10.196.144.133:",
             "port_sub": "5555",
             "port_push": "5556",
         }
-        input_path = Path(r"D:\Data\alignment_sample")
+        input_path = Path(os.path.expanduser(r'~\Documents\registration'))
     OA = OnlineAlign(communications_dict=used_comms, data_path=input_path)
