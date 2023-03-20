@@ -64,11 +64,10 @@ def tail_reader(tail_path):
             microsecond=tail_times[i].microsecond,
         )
     converted_tail_times.append(
-            dateToMillisec(tail_times[i])
-        )  # convert to milliseconds
+        dateToMillisec(tail_times[i])
+    )  # convert to milliseconds
 
     new_tail_t = np.asarray(converted_tail_times)
     tail_df = tail_df.iloc[1:]
 
     return tail_df
-

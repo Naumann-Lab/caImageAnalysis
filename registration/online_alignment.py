@@ -26,6 +26,10 @@ class OnlineAlign:
         :param defaultSize: default image size
         """
         self.data_path = Path(data_path)
+
+        self.v2p_path = self.data_path.joinpath(r"volts2pix.txt")
+        self.p2v_path = self.data_path.joinpath(r"pix2volts.txt")
+
         self.initialize_from_saved()
         self.comp_id = compname
 
@@ -266,12 +270,85 @@ class OnlineAlign:
                     print(f"failed {cmd} because {e}")
                     self.output(output_sock, msg_src, msg_id, cmd, f"{e}", "error")
 
-            elif cmd == "T_volts-to-pxls":
-                pass
+            elif cmd == "get T_volts-to-pxls":
+                self.output(
+                    output_sock, msg_src, msg_id, cmd, f"processing {cmd}", "pending"
+                )
+                try:
+                    with open(self.v2p_path) as file:
+                        data = file.read()
+                    self.output(
+                        output_sock,
+                        msg_src,
+                        msg_id,
+                        cmd,
+                        data,
+                        "complete",
+                    )
+                except Exception as e:
+                    self.output(output_sock, msg_src, msg_id, cmd, f"{e}", "error")
 
-            elif cmd == "T_pxls-to-volts":
-                pass
+            elif cmd == "set T_volts-to-pxls":
+                self.output(
+                    output_sock, msg_src, msg_id, cmd, f"processing {cmd}", "pending"
+                )
+                try:
+                    if os.path.exists(self.v2p_path):
+                        os.remove(self.v2p_path)
 
+                    with open(self.v2p_path) as file:
+                        file.write(data_msg["data"])
+                        file.flush()
+                    self.output(
+                        output_sock,
+                        msg_src,
+                        msg_id,
+                        cmd,
+                        data,
+                        "complete",
+                    )
+                except Exception as e:
+                    self.output(output_sock, msg_src, msg_id, cmd, f"{e}", "error")
+
+            elif cmd == "get T_pxls-to-volts":
+                self.output(
+                    output_sock, msg_src, msg_id, cmd, f"processing {cmd}", "pending"
+                )
+                try:
+                    with open(self.p2v_path) as file:
+                        data = file.read()
+                    self.output(
+                        output_sock,
+                        msg_src,
+                        msg_id,
+                        cmd,
+                        data,
+                        "complete",
+                    )
+                except Exception as e:
+                    self.output(output_sock, msg_src, msg_id, cmd, f"{e}", "error")
+
+            elif cmd == "set T_pxls-to-volts":
+                self.output(
+                    output_sock, msg_src, msg_id, cmd, f"processing {cmd}", "pending"
+                )
+                try:
+                    if os.path.exists(self.p2v_path):
+                        os.remove(self.p2v_path)
+
+                    with open(self.p2v_path) as file:
+                        file.write(data_msg["data"])
+                        file.flush()
+                    self.output(
+                        output_sock,
+                        msg_src,
+                        msg_id,
+                        cmd,
+                        data,
+                        "complete",
+                    )
+                except Exception as e:
+                    self.output(output_sock, msg_src, msg_id, cmd, f"{e}", "error")
             else:
                 print(f"{cmd} not understood")
                 self.output(
