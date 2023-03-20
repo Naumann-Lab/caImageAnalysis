@@ -546,11 +546,20 @@ if __name__ == "__main__":
     parser.add_argument("--port_push")
 
     args = parser.parse_args()
-    input_path = Path(args.filename)
+    try:
+        input_path = Path(args.filename)
 
-    used_comms = {
-        "ip": args.ip,
-        "port_sub": args.port_sub,
-        "port_push": args.port_push,
-    }
+        used_comms = {
+            "ip": args.ip,
+            "port_sub": args.port_sub,
+            "port_push": args.port_push,
+        }
+    except TypeError:
+        # if user doesnt put stuff in
+        used_comms = {
+            "ip": "tcp://10.196.144.133:",
+            "port_sub": "5555",
+            "port_push": "5556",
+        }
+        input_path = Path(r"D:\Data\alignment_sample")
     OA = OnlineAlign(communications_dict=used_comms, data_path=input_path)
