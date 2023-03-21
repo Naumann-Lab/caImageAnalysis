@@ -1,5 +1,6 @@
 from registration.sitkalignment import register_image2, transform_points
 from utilities import zmqutils
+import traceback
 
 import json
 import os
@@ -77,7 +78,10 @@ class OnlineAlign:
                     )
                 except Exception as e:
                     print(f"failed {cmd} because {e}")
-                    self.output(output_sock, msg_src, msg_id, cmd, f"{e}", "error")
+                    self.output(output_sock, msg_src, msg_id, cmd, f"{e}", "error", e)
+
+                self.save_pixel_voltage_transform(output_sock, msg_src, msg_id, cmd, data_msg, f"T_pxls-to-volts")
+                self.save_pixel_voltage_transform(output_sock, msg_src, msg_id, cmd, data_msg, f"T_volts-to-pxls")
 
             elif cmd == '"set target images"':
                 self.output(
@@ -94,7 +98,10 @@ class OnlineAlign:
                     )
                 except Exception as e:
                     print(f"failed {cmd} because {e}")
-                    self.output(output_sock, msg_src, msg_id, cmd, f"{e}", "error")
+                    self.output(output_sock, msg_src, msg_id, cmd, f"{e}", "error", e)
+
+                self.save_pixel_voltage_transform(output_sock, msg_src, msg_id, cmd, data_msg, f"T_pxls-to-volts")
+                self.save_pixel_voltage_transform(output_sock, msg_src, msg_id, cmd, data_msg, f"T_volts-to-pxls")
 
             elif cmd == '"register"':
                 self.output(
@@ -121,43 +128,9 @@ class OnlineAlign:
                         "complete",
                     )
 
-                    try:
-                        self.output(
-                            output_sock,
-                            msg_src,
-                            msg_id,
-                            cmd,
-                            f"processing Pixel/Volt",
-                            "pending",
-                        )
-                        p2v_data = data_msg["T_pxls-to-volts"]
-                        v2p_data = data_msg["T_pxls-to-volts"]
-
-                        if os.path.exists(self.v2p_path):
-                            os.remove(self.v2p_path)
-                        if os.path.exists(self.p2v_path):
-                            os.remove(self.p2v_path)
-
-                        with open(self.p2v_path) as file:
-                            file.write(p2v_data)
-                            file.flush()
-                        with open(self.v2p_path) as file:
-                            file.write(v2p_data)
-                            file.flush()
-                        self.output(
-                            output_sock,
-                            msg_src,
-                            msg_id,
-                            cmd,
-                            f"completed Pixel/Volt",
-                            "complete",
-                        )
-                    except Exception as e:
-                        self.output(output_sock, msg_src, msg_id, cmd, f"{e}", "error")
-
                 except Exception as e:
                     print(f"failed {cmd} because {e}")
-                    self.output(output_sock, msg_src, msg_id, cmd, f"{e}", "error")
+                    self.output(output_sock, msg_src, msg_id, cmd, f"{e}", "error", e)
 
             elif cmd == '"register inverse"':
                 self.output(
@@ -184,43 +157,10 @@ class OnlineAlign:
                         "inverse registration processed",
                         "complete",
                     )
-                    try:
-                        self.output(
-                            output_sock,
-                            msg_src,
-                            msg_id,
-                            cmd,
-                            f"processing Pixel/Volt",
-                            "pending",
-                        )
-                        p2v_data = data_msg["T_pxls-to-volts"]
-                        v2p_data = data_msg["T_pxls-to-volts"]
-
-                        if os.path.exists(self.v2p_path):
-                            os.remove(self.v2p_path)
-                        if os.path.exists(self.p2v_path):
-                            os.remove(self.p2v_path)
-
-                        with open(self.p2v_path) as file:
-                            file.write(p2v_data)
-                            file.flush()
-                        with open(self.v2p_path) as file:
-                            file.write(v2p_data)
-                            file.flush()
-                        self.output(
-                            output_sock,
-                            msg_src,
-                            msg_id,
-                            cmd,
-                            f"completed Pixel/Volt",
-                            "complete",
-                        )
-                    except Exception as e:
-                        self.output(output_sock, msg_src, msg_id, cmd, f"{e}", "error")
 
                 except Exception as e:
                     print(f"failed {cmd} because {e}")
-                    self.output(output_sock, msg_src, msg_id, cmd, f"{e}", "error")
+                    self.output(output_sock, msg_src, msg_id, cmd, f"{e}", "error", e)
 
             elif cmd == '"get transformed image"':
                 self.output(
@@ -243,6 +183,7 @@ class OnlineAlign:
                         cmd,
                         "please run alignment first",
                         "error",
+                        e
                     )
 
             elif cmd == '"get inverse transformed image"':
@@ -266,6 +207,7 @@ class OnlineAlign:
                         cmd,
                         "please run inverse alignment first",
                         "error",
+                        e
                     )
 
             elif cmd == '"points transform"':
@@ -288,7 +230,7 @@ class OnlineAlign:
                     )
                 except Exception as e:
                     print(f"failed {cmd} because {e}")
-                    self.output(output_sock, msg_src, msg_id, cmd, f"{e}", "error")
+                    self.output(output_sock, msg_src, msg_id, cmd, f"{e}", "error", e)
 
             elif cmd == '"points inverse transform"':
                 self.output(
@@ -310,7 +252,7 @@ class OnlineAlign:
                     )
                 except Exception as e:
                     print(f"failed {cmd} because {e}")
-                    self.output(output_sock, msg_src, msg_id, cmd, f"{e}", "error")
+                    self.output(output_sock, msg_src, msg_id, cmd, f"{e}", "error", e)
 
             elif cmd == '"spawn new ip"':
                 self.output(
@@ -339,7 +281,7 @@ class OnlineAlign:
                     )
                 except Exception as e:
                     print(f"failed {cmd} because {e}")
-                    self.output(output_sock, msg_src, msg_id, cmd, f"{e}", "error")
+                    self.output(output_sock, msg_src, msg_id, cmd, f"{e}", "error", e)
 
             elif cmd == "get T_volts-to-pxls":
                 self.output(
@@ -357,29 +299,7 @@ class OnlineAlign:
                         "complete",
                     )
                 except Exception as e:
-                    self.output(output_sock, msg_src, msg_id, cmd, f"{e}", "error")
-
-            # elif cmd == "set T_volts-to-pxls":
-            #     self.output(
-            #         output_sock, msg_src, msg_id, cmd, f"processing {cmd}", "pending"
-            #     )
-            #     try:
-            #         if os.path.exists(self.v2p_path):
-            #             os.remove(self.v2p_path)
-            #
-            #         with open(self.v2p_path) as file:
-            #             file.write(data_msg["data"])
-            #             file.flush()
-            #         self.output(
-            #             output_sock,
-            #             msg_src,
-            #             msg_id,
-            #             cmd,
-            #             data,
-            #             "complete",
-            #         )
-            #     except Exception as e:
-            #         self.output(output_sock, msg_src, msg_id, cmd, f"{e}", "error")
+                    self.output(output_sock, msg_src, msg_id, cmd, f"{e}", "error", e)
 
             elif cmd == "get T_pxls-to-volts":
                 self.output(
@@ -397,29 +317,8 @@ class OnlineAlign:
                         "complete",
                     )
                 except Exception as e:
-                    self.output(output_sock, msg_src, msg_id, cmd, f"{e}", "error")
+                    self.output(output_sock, msg_src, msg_id, cmd, f"{e}", "error", e)
 
-            # elif cmd == "set T_pxls-to-volts":
-            #     self.output(
-            #         output_sock, msg_src, msg_id, cmd, f"processing {cmd}", "pending"
-            #     )
-            #     try:
-            #         if os.path.exists(self.p2v_path):
-            #             os.remove(self.p2v_path)
-            #
-            #         with open(self.p2v_path) as file:
-            #             file.write(data_msg["data"])
-            #             file.flush()
-            #         self.output(
-            #             output_sock,
-            #             msg_src,
-            #             msg_id,
-            #             cmd,
-            #             data,
-            #             "complete",
-            #         )
-            #     except Exception as e:
-            #         self.output(output_sock, msg_src, msg_id, cmd, f"{e}", "error")
             else:
                 print(f"{cmd} not understood")
                 self.output(
@@ -429,7 +328,25 @@ class OnlineAlign:
                     cmd,
                     "cmd not understood",
                     "error",
+                    e
                 )
+
+    def save_pixel_voltage_transform(self, output_sock, msg_src, msg_id, cmd, data_msg, transform_str):
+        try:
+            transform_data = data_msg[transform_str]
+            transform_path = self.v2p_path if transform_str == f"T_volts-to-pxls" else self.p2v_path
+            self.output(output_sock, msg_src, msg_id, cmd, f"processing " + transform_str, "pending")
+            try:
+                if os.path.exists(transform_path):
+                    os.remove(transform_path)
+                with open(transform_path, 'w') as file:
+                    file.write(transform_data)
+                    file.flush()
+                self.output(output_sock, msg_src, msg_id, cmd, f"processing " + transform_str, "complete")
+            except Exception as e:
+                self.output(output_sock, msg_src, msg_id, cmd, f"{e}", "error", e)
+        except Exception as e:
+            pass
 
     def transform_points(self, points):
         transformed_points = transform_points(
@@ -482,6 +399,7 @@ class OnlineAlign:
         msg_type,
         msg_data,
         process_status="complete",
+        err=None
     ):
         output_sock.send_multipart(
             [
@@ -515,6 +433,8 @@ class OnlineAlign:
                 msg_data,
             ]
         )
+        if err:
+            traceback.print_exception(err)
 
     @staticmethod
     def msg_unpacker(msg):
