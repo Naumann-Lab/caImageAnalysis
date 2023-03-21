@@ -60,8 +60,8 @@ class OnlineAlign:
             print(data_msg)
 
             cmd = data_msg["cmd"].strip('"')
-            msg_src = data_msg["source"]
-            msg_id = data_msg["id"]
+            msg_src = data_msg["source"].strip('"')
+            msg_id = data_msg["id"].strip('"')
 
             if cmd == 'set ref images':
                 self.output(
@@ -319,6 +319,20 @@ class OnlineAlign:
                 except Exception as e:
                     self.output(output_sock, msg_src, msg_id, cmd, f"{e}", "error", e)
 
+            elif cmd == 'get T_pxls-volts':
+                self.output(
+                    output_sock, msg_src, msg_id, cmd, f"processing {cmd}", "pending"
+                )
+                try:
+                    with open(self.p2v_path) as file:
+                        data_p2v = file.read()
+                    with open(self.v2p_path) as file:
+                        data_v2p = file.read()
+                    self.output(output_sock, msg_src, msg_id, 'get T_pxls-to-volts', data_p2v, "complete")
+                    self.output(output_sock, msg_src, '', 'get T_volts-to-pxls', data_v2p, "complete")
+                except Exception as e:
+                    self.output(output_sock, msg_src, msg_id, cmd, f"{e}", "error", e)
+
             else:
                 print(f"{cmd} not understood")
                 self.output(
@@ -409,7 +423,7 @@ class OnlineAlign:
                 "time".encode(),
                 str(time.time()).encode(),
                 "cmd".encode(),
-                msg_type[1:-1].encode(),
+                msg_type.encode(),
                 "data".encode(),
                 msg_data.encode(),
                 "status".encode(),
