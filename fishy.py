@@ -521,13 +521,13 @@ class TailTrackedFish(VizStimFish):
                     pass
                 self.tail_df.loc[indices, "frame"] = frameN
         except:
-            print("failed to align frame times with tail data")
+            print('failed to align frame times with tail data')
 
         self.tail_df.reset_index(inplace=True)
         self.tail_df.drop(columns="index", inplace=True)
         taildf_save_path = Path(self.folder_path).joinpath("tail_df.h5")
-        self.tail_df.to_hdf(taildf_save_path, key="t")
-        print("saved tail_df")
+        self.tail_df.to_hdf(taildf_save_path, key = 't')
+        print('saved tail_df')
 
         # making a stimulus df with tail index and image index values for each stim
         final_t = self.frametimes_df["time"].iloc[-1]  # last time in imaging
@@ -589,15 +589,15 @@ class TailTrackedFish(VizStimFish):
             self.tail_stimulus_df.loc[m, "img_ind_end"] = img_index[-1]
 
         if (
-            self.tail_stimulus_df.velocity.dtype == "O"
+            self.tail_stimulus_df.velocity.dtype == 'O'
         ):  # don't need velocity here for analysis
-            self.tail_stimulus_df.drop(["velocity"], axis=1, inplace=True)
+            self.tail_stimulus_df.drop(['velocity'], axis=1, inplace=True)
         else:
             pass
 
         save_path = Path(self.folder_path).joinpath("tail_stimulus_df.ftr")
         self.tail_stimulus_df.to_feather(save_path)
-        print("saved tail_stimulus_df")
+        print('saved tail_stimulus_df')
 
         return self.tail_df, self.tail_stimulus_df
 
@@ -1048,9 +1048,7 @@ class WorkingFish_Tail(WorkingFish, TailTrackedFish):
         self.stimulus_df = stimuli.validate_stims(self.stimulus_df, self.f_cells)
         self.build_stimdicts()
 
-    def make_heatmap_bout_count(
-        self,
-    ):  # to visualize bout counts per stimulus type if have different velocities
+    def make_heatmap_bout_count(self):  # to visualize bout counts per stimulus type if have different velocities
         import seaborn as sns
         import matplotlib.pyplot as plt
 
