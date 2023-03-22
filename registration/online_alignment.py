@@ -358,6 +358,39 @@ class OnlineAlign:
                 except Exception as e:
                     self.output(output_sock, msg_src, msg_id, cmd, f"{e}", "error", e)
 
+            elif cmd == "get registration options":
+                self.output(
+                    output_sock, msg_src, msg_id, cmd, f"processing {cmd}", "pending"
+                )
+                self.output(
+                    output_sock,
+                    msg_src,
+                    msg_id,
+                    cmd,
+                    json.dumps(
+                        {
+                            "embed_image": self.embed_image,
+                            "scale_penalty": self.scale_penalty,
+                            "affine_iterations": self.affine_iterations,
+                            "bspline_iterations": self.bspline_iterations,
+                        }
+                    ),
+                    "complete",
+                )
+
+            elif cmd == "set registration options":
+                self.output(
+                    output_sock, msg_src, msg_id, cmd, f"processing {cmd}", "pending"
+                )
+                try:
+                    new_opts = json.loads(data_msg["options"])
+                    for opt in new_opts.keys():
+                        if hasattr(self, opt):
+                            setattr(self, opt, new_opts[opt])
+
+                except Exception as e:
+                    self.output(output_sock, msg_src, msg_id, cmd, f"{e}", "error", e)
+
             else:
                 print(f"{cmd} not understood")
                 self.output(
