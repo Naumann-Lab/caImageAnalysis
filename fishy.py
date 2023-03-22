@@ -1151,8 +1151,6 @@ class WorkingFish_Tail(WorkingFish, TailTrackedFish):
 
         return total_bout_df
 
-
-
 class VolumeFish:
     def __init__(self):
         self.volumes = {}
