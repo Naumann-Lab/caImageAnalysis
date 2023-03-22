@@ -328,10 +328,10 @@ class OnlineAlign:
                         data_p2v = file.read()
                     with open(self.v2p_path) as file:
                         data_v2p = file.read()
-<<<<<<< HEAD
+
                     self.output(output_sock, msg_src, msg_id, 'get T_pxls-to-volts', data_p2v, "complete")
                     self.output(output_sock, msg_src, '', 'get T_volts-to-pxls', data_v2p, "complete")
-=======
+
                     self.output(
                         output_sock,
                         msg_src,
@@ -348,7 +348,7 @@ class OnlineAlign:
                         data_v2p,
                         "complete",
                     )
->>>>>>> parent of e21d21b (add setter and getter for opts)
+
                 except Exception as e:
                     self.output(output_sock, msg_src, msg_id, cmd, f"{e}", "error", e)
 
