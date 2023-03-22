@@ -1102,7 +1102,6 @@ class WorkingFish_Tail(WorkingFish, TailTrackedFish):
 
         return bout_zdiff_dict
 
-
     def single_bout_avg_neurresp(self, bout_zdiff_dict, thresh_resp = 2, num_resp_neurons = 15):
         # make df and adding average and peak responses to dictionary with arrays of each neuron response with bout
         self.bout_zdiff_df = pd.DataFrame(bout_zdiff_dict)
