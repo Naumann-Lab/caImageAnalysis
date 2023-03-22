@@ -1137,7 +1137,7 @@ class WorkingFish_Tail(WorkingFish, TailTrackedFish):
                 self.most_resp_bout_avg[b] = one_bout_avg
 
         return self.most_resp_bout_zdiff_df, self.most_resp_bout_avg
-
+    
     def avg_bout_avg_neurresp(self, before_bout_avg_dict, after_bout_avg_dict):
         total_bout_dict = {}
         for bout_no in self.most_resp_bout_avg.keys():
