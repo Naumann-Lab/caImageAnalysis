@@ -54,6 +54,7 @@ class OnlineAlign:
         self.message_reception_tr.start()
 
     def messaging_reception(self, input_sock, output_sock):
+        print('Ready. Waiting for messages.')
         while self.running:
             data = input_sock.recv_multipart()
             data_msg = self.msg_unpacker(data)
@@ -385,9 +386,14 @@ class OnlineAlign:
                     cmd,
                     json.dumps(
                         {
+                            # boolean (default: False) -- embed the images in a smallest larger image
+                            # which encloses them
                             "embed_image": self.embed_image,
+                            # float: 0-inf (default: 100) -- penalty on stretching
                             "scale_penalty": self.scale_penalty,
+                            # int -- default 500
                             "affine_iterations": self.affine_iterations,
+                            # int -- default 500
                             "bspline_iterations": self.bspline_iterations,
                         }
                     ),
