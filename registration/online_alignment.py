@@ -37,7 +37,6 @@ class OnlineAlign:
         self.affine_iterations = 1000
         self.bspline_iterations = 1000
         self.scale_penalty = 100
-        self.embed_image = False
 
         self.zmq_input = zmqutils.Subscriber(
             ip=communications_dict["ip"], port=communications_dict["port_sub"]
@@ -126,7 +125,6 @@ class OnlineAlign:
                         savepath=self.transform_path,
                         scalePenalty=self.scale_penalty,
                         iterations=(self.affine_iterations, self.bspline_iterations),
-                        embed=self.embed_image,
                     )
                     self.aligned_img = registered_img
                     imwrite(self.data_path.joinpath(r"aligned_img.tif"), registered_img)
@@ -154,7 +152,6 @@ class OnlineAlign:
                         savepath=self.transform_path_INV,
                         scalePenalty=self.scale_penalty,
                         iterations=(self.affine_iterations, self.bspline_iterations),
-                        embed=self.embed_image,
                     )
                     self.aligned_img_INV = registered_img
                     imwrite(
@@ -340,6 +337,7 @@ class OnlineAlign:
                         data_p2v = file.read()
                     with open(self.v2p_path) as file:
                         data_v2p = file.read()
+
                     self.output(
                         output_sock,
                         msg_src,
@@ -356,6 +354,24 @@ class OnlineAlign:
                         data_v2p,
                         "complete",
                     )
+
+                    self.output(
+                        output_sock,
+                        msg_src,
+                        msg_id,
+                        "get T_pxls-to-volts",
+                        data_p2v,
+                        "complete",
+                    )
+                    self.output(
+                        output_sock,
+                        msg_src,
+                        "",
+                        "get T_volts-to-pxls",
+                        data_v2p,
+                        "complete",
+                    )
+
                 except Exception as e:
                     self.output(output_sock, msg_src, msg_id, cmd, f"{e}", "error", e)
 

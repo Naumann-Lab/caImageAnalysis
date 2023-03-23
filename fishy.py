@@ -1083,6 +1083,74 @@ class WorkingFish_Tail(WorkingFish, TailTrackedFish):
         plt.title(" Bout Count/Stim", size=14)
         plt.tight_layout()
 
+    def bout_locked_dict(self, offset_range = 3, timing = 'start'):
+        # making a dictionary with each bout and array of zscored cells in a time window locked to either start or end of bout
+        self.zdiff_cells = [arrutils.zdiffcell(i) for i in self.f_cells]
+        bout_zdiff_dict = {i: {} for i in range(len(self.tail_bouts_df))}
+
+        for bout in range(len(self.tail_bouts_df)):
+            if timing == 'start':
+                arrs = arrutils.subsection_arrays(np.array([self.tail_bouts_df.image_frames[bout][0]], dtype=int), offsets=(-offset_range, 0)) #  before the bout
+            elif timing == 'end':
+                arrs = arrutils.subsection_arrays(np.array([self.tail_bouts_df.image_frames[bout][1]], dtype=int), offsets=(0,offset_range)) #  after the bout
+            else:
+                arrs = arrutils.subsection_arrays(np.array([self.tail_bouts_df.image_frames[bout][0]], dtype=int), offsets=(-offset_range, 0)) #  before the bout
+                print('using start frame of bout')
+            for n, nrn in enumerate(self.zdiff_cells):
+                resp_arrs = []
+                for arr in arrs:
+                    resp_arrs.append(arrutils.pretty(nrn[arr], 2))
+                bout_zdiff_dict[bout][n] = resp_arrs
+
+        return bout_zdiff_dict
+
+    def single_bout_avg_neurresp(self, bout_zdiff_dict, thresh_resp = 2, num_resp_neurons = 15):
+        # make df and adding average and peak responses to dictionary with arrays of each neuron response with bout
+        self.bout_zdiff_df = pd.DataFrame(bout_zdiff_dict)
+        means = []
+        peaks = []
+
+        for i in range(len(self.bout_zdiff_df)):
+            if i == range(len(self.bout_zdiff_df))[-1]:
+                means.append(np.nanmean([item for sublist in self.bout_zdiff_df.iloc[-1:].values for item in sublist]))
+                peaks.append(np.nanmax([item for sublist in self.bout_zdiff_df.iloc[-1:].values for item in sublist]))
+            else:
+                means.append(np.nanmean([item for sublist in self.bout_zdiff_df.iloc[i:i+1].values for item in sublist]))
+                peaks.append(np.nanmax([item for sublist in self.bout_zdiff_df.iloc[i:i+1].values for item in sublist]))
+
+        self.bout_zdiff_df['overall_avg_resp'] = means
+        self.bout_zdiff_df['overall_peak_resp'] = peaks
+
+        # self.most_resp_bout_zdiff_df = self.bout_zdiff_df[self.bout_zdiff_df.overall_peak_resp > thresh_resp] # taking top neurons based on threshold
+        self.most_resp_bout_zdiff_df = self.bout_zdiff_df.sort_values(['overall_peak_resp'], ascending= False)[0:num_resp_neurons] #taking top 15 resp neurons
+
+        self.most_resp_bout_avg = {}
+        if 'overall_avg_resp' in self.most_resp_bout_zdiff_df.columns:
+            sub_bout_zdiff_df = self.most_resp_bout_zdiff_df.drop(columns = ['overall_avg_resp', 'overall_peak_resp'])
+            for b in sub_bout_zdiff_df:
+                if b not in self.most_resp_bout_avg.keys():
+                    self.most_resp_bout_avg[b] = {}
+                    one_bout = sub_bout_zdiff_df[b]
+                    one_bout_arrs = []
+                    for x in one_bout:
+                        one_bout_arrs.append(x[0])
+                        one_bout_list = [l.tolist() for l in one_bout_arrs]
+                        one_bout_avg = np.mean(np.array(one_bout_list), axis=0)
+                self.most_resp_bout_avg[b] = one_bout_avg
+
+        return self.most_resp_bout_zdiff_df, self.most_resp_bout_avg
+    
+    def avg_bout_avg_neurresp(self, before_bout_avg_dict, after_bout_avg_dict):
+        total_bout_dict = {}
+        for bout_no in self.most_resp_bout_avg.keys():
+            if bout_no not in total_bout_dict.keys():
+                total_bout_dict[bout_no] = {}
+            total_bout_arr = np.concatenate((before_bout_avg_dict[bout_no], after_bout_avg_dict[bout_no]))
+            total_bout_dict[bout_no] = total_bout_arr
+        total_bout_df = pd.DataFrame(total_bout_dict)
+        total_bout_df['mean'] = total_bout_df.mean(axis=1)
+
+        return total_bout_df, total_bout_dict
 
 class VolumeFish:
     def __init__(self):
