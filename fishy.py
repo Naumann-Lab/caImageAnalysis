@@ -1150,7 +1150,7 @@ class WorkingFish_Tail(WorkingFish, TailTrackedFish):
         total_bout_df = pd.DataFrame(total_bout_dict)
         total_bout_df['mean'] = total_bout_df.mean(axis=1)
 
-        return total_bout_df
+        return total_bout_df, total_bout_dict
 
 class VolumeFish:
     def __init__(self):
