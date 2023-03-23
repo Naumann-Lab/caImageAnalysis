@@ -408,6 +408,7 @@ class OnlineAlign:
                     self.output(output_sock, msg_src, msg_id, cmd, f"{e}", "error", e)
 
             else:
+                print("meow")
                 print(f"{cmd} not understood")
                 self.output(
                     output_sock,
