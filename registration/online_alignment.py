@@ -395,6 +395,7 @@ class OnlineAlign:
                 )
 
             elif cmd == "set registration options":
+                print("oik")
                 self.output(
                     output_sock, msg_src, msg_id, cmd, f"processing {cmd}", "pending"
                 )
