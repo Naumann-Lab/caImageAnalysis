@@ -1032,8 +1032,10 @@ class WorkingFish_Tail(WorkingFish, TailTrackedFish):
     utilizes tail tracked fish data with visual stimuli
     """
 
-    def __init__(self, corr_threshold=0.65, ref_image=None, *args, **kwargs):
+    def __init__(self, corr_threshold=0.65, bout_window = (-10, 10), bout_offset = 3, ref_image=None, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.bout_window = bout_window
+        self.bout_offset = bout_offset
 
         if "move_corrected_image" not in self.data_paths:
             raise TankError
@@ -1083,50 +1085,67 @@ class WorkingFish_Tail(WorkingFish, TailTrackedFish):
         plt.title(" Bout Count/Stim", size=14)
         plt.tight_layout()
 
-    def bout_locked_dict(self, offset_range = 3, timing = 'start'):
-        # making a dictionary with each bout and array of zscored cells in a time window locked to either start or end of bout
+    def bout_locked_dict(self): # collecting means of some frames before and after bouting
+        # bout_window is the frames before and after the bout that you are collecting
         self.zdiff_cells = [arrutils.zdiffcell(i) for i in self.f_cells]
-        bout_zdiff_dict = {i: {} for i in range(len(self.tail_bouts_df))}
+        self.bout_zdiff_dict = {i: {} for i in range(len(self.tail_bouts_df))}
 
         for bout in range(len(self.tail_bouts_df)):
-            if timing == 'start':
-                arrs = arrutils.subsection_arrays(np.array([self.tail_bouts_df.image_frames[bout][0]], dtype=int), offsets=(-offset_range, 0)) #  before the bout
-            elif timing == 'end':
-                arrs = arrutils.subsection_arrays(np.array([self.tail_bouts_df.image_frames[bout][1]], dtype=int), offsets=(0,offset_range)) #  after the bout
-            else:
-                arrs = arrutils.subsection_arrays(np.array([self.tail_bouts_df.image_frames[bout][0]], dtype=int), offsets=(-offset_range, 0)) #  before the bout
-                print('using start frame of bout')
+            arrs = arrutils.subsection_arrays(np.array([self.tail_bouts_df.image_frames[bout][0]], dtype=int), offsets=(self.bout_window))
             for n, nrn in enumerate(self.zdiff_cells):
                 resp_arrs = []
                 for arr in arrs:
                     resp_arrs.append(arrutils.pretty(nrn[arr], 2))
-                bout_zdiff_dict[bout][n] = resp_arrs
+                self.bout_zdiff_dict[bout][n] = resp_arrs # for each bout, this is the array of each neuron
 
-        return bout_zdiff_dict
+        return self.bout_zdiff_dict
 
-    def single_bout_avg_neurresp(self, bout_zdiff_dict, thresh_resp = 2, num_resp_neurons = 15):
+    def single_bout_avg_neurresp(self, num_resp_neurons = 15):
         # make df and adding average and peak responses to dictionary with arrays of each neuron response with bout
-        self.bout_zdiff_df = pd.DataFrame(bout_zdiff_dict)
-        means = []
-        peaks = []
-
+        self.bout_zdiff_df = pd.DataFrame(self.bout_zdiff_dict)
+        before_means = []
+        before_peak = []
+        after_means = []
+        after_peak = []
+        all_means = []
+        all_peak = []
         for i in range(len(self.bout_zdiff_df)):
             if i == range(len(self.bout_zdiff_df))[-1]:
-                means.append(np.nanmean([item for sublist in self.bout_zdiff_df.iloc[-1:].values for item in sublist]))
-                peaks.append(np.nanmax([item for sublist in self.bout_zdiff_df.iloc[-1:].values for item in sublist]))
+                all_arrays_one_neur = [item for sublist in self.bout_zdiff_df.iloc[-1:].values for item in sublist]
+                all_means.append((np.nanmean(all_arrays_one_neur)))
+                all_peak.append((np.nanmax(all_arrays_one_neur)))
+                for subset in all_arrays_one_neur:
+                    before = subset[0][-self.bout_window[0] - self.bout_offset: -self.bout_window[0]]
+                    after = subset[0][-self.bout_window[0]:-self.bout_window[0] + self.bout_offset]
+                    before_means.append(np.nanmean(before))
+                    before_peak.append(np.nanmax(before))
+                    after_means.append(np.nanmean(after))
+                    after_peak.append(np.nanmax(after))
             else:
-                means.append(np.nanmean([item for sublist in self.bout_zdiff_df.iloc[i:i+1].values for item in sublist]))
-                peaks.append(np.nanmax([item for sublist in self.bout_zdiff_df.iloc[i:i+1].values for item in sublist]))
+                all_arrays_one_neur = [item for sublist in self.bout_zdiff_df.iloc[i:i+1].values for item in sublist]
+                all_means.append((np.nanmean(all_arrays_one_neur)))
+                all_peak.append((np.nanmax(all_arrays_one_neur)))
+                for subset in all_arrays_one_neur:
+                    before = subset[0][-self.bout_window[0] - self.bout_offset: -self.bout_window[0]]
+                    after = subset[0][-self.bout_window[0]:-self.bout_window[0] + self.bout_offset]
+                    before_means.append(np.nanmean(before)) # all means before bout for one neuron
+                    before_peak.append(np.nanmax(before))
+                    after_means.append(np.nanmean(after))
+                    after_peak.append(np.nanmax(after))
 
-        self.bout_zdiff_df['overall_avg_resp'] = means
-        self.bout_zdiff_df['overall_peak_resp'] = peaks
+        self.bout_zdiff_df['all_avg_resp'] = all_means
+        self.bout_zdiff_df['all_peak_resp'] = all_peak
+        self.max_mean_before = np.nanmax(before_means) # the max mean of the responses before bout across all neurons
+        self.max_mean_after = np.nanmax(after_means)
+        self.max_peak_before = np.nanmax(before_peak)
+        self.max_peak_after = np.nanmean(after_peak)
 
         # self.most_resp_bout_zdiff_df = self.bout_zdiff_df[self.bout_zdiff_df.overall_peak_resp > thresh_resp] # taking top neurons based on threshold
-        self.most_resp_bout_zdiff_df = self.bout_zdiff_df.sort_values(['overall_peak_resp'], ascending= False)[0:num_resp_neurons] #taking top 15 resp neurons
+        self.most_resp_bout_zdiff_df = self.bout_zdiff_df.sort_values(['all_peak_resp'], ascending= False)[0:num_resp_neurons] #taking top 15 resp neurons
 
         self.most_resp_bout_avg = {}
-        if 'overall_avg_resp' in self.most_resp_bout_zdiff_df.columns:
-            sub_bout_zdiff_df = self.most_resp_bout_zdiff_df.drop(columns = ['overall_avg_resp', 'overall_peak_resp'])
+        if 'all_avg_resp' in self.most_resp_bout_zdiff_df.columns:
+            sub_bout_zdiff_df = self.most_resp_bout_zdiff_df.drop(columns = ['all_avg_resp', 'all_peak_resp'])
             for b in sub_bout_zdiff_df:
                 if b not in self.most_resp_bout_avg.keys():
                     self.most_resp_bout_avg[b] = {}
@@ -1140,12 +1159,12 @@ class WorkingFish_Tail(WorkingFish, TailTrackedFish):
 
         return self.most_resp_bout_zdiff_df, self.most_resp_bout_avg
     
-    def avg_bout_avg_neurresp(self, before_bout_avg_dict, after_bout_avg_dict):
+    def avg_bout_avg_neurresp(self):
         total_bout_dict = {}
         for bout_no in self.most_resp_bout_avg.keys():
             if bout_no not in total_bout_dict.keys():
                 total_bout_dict[bout_no] = {}
-            total_bout_arr = np.concatenate((before_bout_avg_dict[bout_no], after_bout_avg_dict[bout_no]))
+            total_bout_arr = self.most_resp_bout_avg[bout_no]
             total_bout_dict[bout_no] = total_bout_arr
         total_bout_df = pd.DataFrame(total_bout_dict)
         total_bout_df['mean'] = total_bout_df.mean(axis=1)
