@@ -63,7 +63,7 @@ class OnlineAlign:
             msg_src = data_msg["source"].strip('"')
             msg_id = data_msg["id"].strip('"')
 
-            if cmd == 'set ref images':
+            if cmd == "set ref images":
                 self.output(
                     output_sock, msg_src, msg_id, cmd, f"processing {cmd}", "pending"
                 )
@@ -80,10 +80,14 @@ class OnlineAlign:
                     print(f"failed {cmd} because {e}")
                     self.output(output_sock, msg_src, msg_id, cmd, f"{e}", "error", e)
 
-                self.save_pixel_voltage_transform(output_sock, msg_src, msg_id, cmd, data_msg, f"T_pxls-to-volts")
-                self.save_pixel_voltage_transform(output_sock, msg_src, msg_id, cmd, data_msg, f"T_volts-to-pxls")
+                self.save_pixel_voltage_transform(
+                    output_sock, msg_src, msg_id, cmd, data_msg, f"T_pxls-to-volts"
+                )
+                self.save_pixel_voltage_transform(
+                    output_sock, msg_src, msg_id, cmd, data_msg, f"T_volts-to-pxls"
+                )
 
-            elif cmd == 'set target images':
+            elif cmd == "set target images":
                 self.output(
                     output_sock, msg_src, msg_id, cmd, f"processing {cmd}", "pending"
                 )
@@ -100,10 +104,14 @@ class OnlineAlign:
                     print(f"failed {cmd} because {e}")
                     self.output(output_sock, msg_src, msg_id, cmd, f"{e}", "error", e)
 
-                self.save_pixel_voltage_transform(output_sock, msg_src, msg_id, cmd, data_msg, f"T_pxls-to-volts")
-                self.save_pixel_voltage_transform(output_sock, msg_src, msg_id, cmd, data_msg, f"T_volts-to-pxls")
+                self.save_pixel_voltage_transform(
+                    output_sock, msg_src, msg_id, cmd, data_msg, f"T_pxls-to-volts"
+                )
+                self.save_pixel_voltage_transform(
+                    output_sock, msg_src, msg_id, cmd, data_msg, f"T_volts-to-pxls"
+                )
 
-            elif cmd == 'register':
+            elif cmd == "register":
                 self.output(
                     output_sock, msg_src, msg_id, cmd, f"processing {cmd}", "pending"
                 )
@@ -132,7 +140,7 @@ class OnlineAlign:
                     print(f"failed {cmd} because {e}")
                     self.output(output_sock, msg_src, msg_id, cmd, f"{e}", "error", e)
 
-            elif cmd == 'register inverse':
+            elif cmd == "register inverse":
                 self.output(
                     output_sock, msg_src, msg_id, cmd, f"processing {cmd}", "pending"
                 )
@@ -162,7 +170,7 @@ class OnlineAlign:
                     print(f"failed {cmd} because {e}")
                     self.output(output_sock, msg_src, msg_id, cmd, f"{e}", "error", e)
 
-            elif cmd == 'get transformed image':
+            elif cmd == "get transformed image":
                 self.output(
                     output_sock, msg_src, msg_id, cmd, f"processing {cmd}", "pending"
                 )
@@ -183,10 +191,10 @@ class OnlineAlign:
                         cmd,
                         "please run alignment first",
                         "error",
-                        e
+                        e,
                     )
 
-            elif cmd == 'get inverse transformed image':
+            elif cmd == "get inverse transformed image":
                 self.output(
                     output_sock, msg_src, msg_id, cmd, f"processing {cmd}", "pending"
                 )
@@ -207,10 +215,10 @@ class OnlineAlign:
                         cmd,
                         "please run inverse alignment first",
                         "error",
-                        e
+                        e,
                     )
 
-            elif cmd == 'points transform':
+            elif cmd == "points transform":
                 self.output(
                     output_sock, msg_src, msg_id, cmd, f"processing {cmd}", "pending"
                 )
@@ -232,7 +240,7 @@ class OnlineAlign:
                     print(f"failed {cmd} because {e}")
                     self.output(output_sock, msg_src, msg_id, cmd, f"{e}", "error", e)
 
-            elif cmd == 'points inverse transform':
+            elif cmd == "points inverse transform":
                 self.output(
                     output_sock, msg_src, msg_id, cmd, f"processing {cmd}", "pending"
                 )
@@ -254,7 +262,7 @@ class OnlineAlign:
                     print(f"failed {cmd} because {e}")
                     self.output(output_sock, msg_src, msg_id, cmd, f"{e}", "error", e)
 
-            elif cmd == 'spawn new ip':
+            elif cmd == "spawn new ip":
                 self.output(
                     output_sock, msg_src, msg_id, cmd, f"processing {cmd}", "pending"
                 )
@@ -283,7 +291,7 @@ class OnlineAlign:
                     print(f"failed {cmd} because {e}")
                     self.output(output_sock, msg_src, msg_id, cmd, f"{e}", "error", e)
 
-            elif cmd == 'get T_volts-to-pxls':
+            elif cmd == "get T_volts-to-pxls":
                 self.output(
                     output_sock, msg_src, msg_id, cmd, f"processing {cmd}", "pending"
                 )
@@ -301,7 +309,7 @@ class OnlineAlign:
                 except Exception as e:
                     self.output(output_sock, msg_src, msg_id, cmd, f"{e}", "error", e)
 
-            elif cmd == 'get T_pxls-to-volts':
+            elif cmd == "get T_pxls-to-volts":
                 self.output(
                     output_sock, msg_src, msg_id, cmd, f"processing {cmd}", "pending"
                 )
@@ -319,7 +327,7 @@ class OnlineAlign:
                 except Exception as e:
                     self.output(output_sock, msg_src, msg_id, cmd, f"{e}", "error", e)
 
-            elif cmd == 'get T_pxls-volts':
+            elif cmd == "get T_pxls-volts":
                 self.output(
                     output_sock, msg_src, msg_id, cmd, f"processing {cmd}", "pending"
                 )
@@ -329,8 +337,22 @@ class OnlineAlign:
                     with open(self.v2p_path) as file:
                         data_v2p = file.read()
 
-                    self.output(output_sock, msg_src, msg_id, 'get T_pxls-to-volts', data_p2v, "complete")
-                    self.output(output_sock, msg_src, '', 'get T_volts-to-pxls', data_v2p, "complete")
+                    self.output(
+                        output_sock,
+                        msg_src,
+                        msg_id,
+                        "get T_pxls-to-volts",
+                        data_p2v,
+                        "complete",
+                    )
+                    self.output(
+                        output_sock,
+                        msg_src,
+                        "",
+                        "get T_volts-to-pxls",
+                        data_v2p,
+                        "complete",
+                    )
 
                     self.output(
                         output_sock,
@@ -373,6 +395,7 @@ class OnlineAlign:
                 )
 
             elif cmd == "set registration options":
+                print("meow")
                 self.output(
                     output_sock, msg_src, msg_id, cmd, f"processing {cmd}", "pending"
                 )
@@ -396,18 +419,36 @@ class OnlineAlign:
                     "error",
                 )
 
-    def save_pixel_voltage_transform(self, output_sock, msg_src, msg_id, cmd, data_msg, transform_str):
+    def save_pixel_voltage_transform(
+        self, output_sock, msg_src, msg_id, cmd, data_msg, transform_str
+    ):
         try:
             transform_data = data_msg[transform_str]
-            transform_path = self.v2p_path if transform_str == f"T_volts-to-pxls" else self.p2v_path
-            self.output(output_sock, msg_src, msg_id, cmd, f"processing " + transform_str, "pending")
+            transform_path = (
+                self.v2p_path if transform_str == f"T_volts-to-pxls" else self.p2v_path
+            )
+            self.output(
+                output_sock,
+                msg_src,
+                msg_id,
+                cmd,
+                f"processing " + transform_str,
+                "pending",
+            )
             try:
                 if os.path.exists(transform_path):
                     os.remove(transform_path)
-                with open(transform_path, 'w') as file:
+                with open(transform_path, "w") as file:
                     file.write(transform_data)
                     file.flush()
-                self.output(output_sock, msg_src, msg_id, cmd, f"processing " + transform_str, "complete")
+                self.output(
+                    output_sock,
+                    msg_src,
+                    msg_id,
+                    cmd,
+                    f"processing " + transform_str,
+                    "complete",
+                )
             except Exception as e:
                 self.output(output_sock, msg_src, msg_id, cmd, f"{e}", "error", e)
         except Exception as e:
@@ -464,7 +505,7 @@ class OnlineAlign:
         msg_type,
         msg_data,
         process_status="complete",
-        err=None
+        err=None,
     ):
         output_sock.send_multipart(
             [
@@ -519,9 +560,9 @@ if __name__ == "__main__":
     #     "port_push": "5556",
     # }
     # input_path = r"D:\Data\alignment_sample"
-    '''
+    """
     python -m registration.online_alignment --filename="D:/Data/alignment_sample" --ip="tcp://10.196.144.133:" --port_sub="5555" --port_push="5556"
-    '''
+    """
     import argparse
 
     parser = argparse.ArgumentParser()
@@ -548,5 +589,5 @@ if __name__ == "__main__":
             "port_sub": "5555",
             "port_push": "5556",
         }
-        input_path = Path(os.path.expanduser(r'~\Documents\registration'))
+        input_path = Path(os.path.expanduser(r"~\Documents\registration"))
     OA = OnlineAlign(communications_dict=used_comms, data_path=input_path)
