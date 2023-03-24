@@ -14,7 +14,11 @@ import threading as tr
 import numpy as np
 
 from pathlib import Path
-from tifffile import imread, imwrite
+from tifffile import imread
+try:
+    from tifffile import imwrite
+except ImportError:
+    from tifffile import imsave
 
 
 class OnlineAlign:
@@ -38,8 +42,8 @@ class OnlineAlign:
         self.initialize_from_saved()
         self.comp_id = compname
 
-        self.affine_iterations = 1000
-        self.bspline_iterations = 1000
+        self.affine_iterations = 500
+        self.bspline_iterations = 250
         self.scale_penalty = 100
 
         self.zmq_input = zmqutils.Subscriber(
