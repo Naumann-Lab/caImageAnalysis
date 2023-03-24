@@ -38,8 +38,8 @@ class OnlineAlign:
         self.initialize_from_saved()
         self.comp_id = compname
 
-        self.affine_iterations = 1000
-        self.bspline_iterations = 1000
+        self.affine_iterations = 500
+        self.bspline_iterations = 250
         self.scale_penalty = 100
 
         self.zmq_input = zmqutils.Subscriber(
@@ -58,7 +58,7 @@ class OnlineAlign:
         self.message_reception_tr.start()
 
     def messaging_reception(self, input_sock, output_sock):
-        print('Ready. Waiting for messages.')
+        print("Ready. Waiting for messages.")
         while self.running:
             data = input_sock.recv_multipart()
             data_msg = self.msg_unpacker(data)
