@@ -584,15 +584,18 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
     try:
-        input_path = Path(args.filename)
+        input_path = Path(args.filename) if args.filename is not None \
+            else Path(os.path.expanduser(r"~\Documents\registration"))
 
         used_comms = {
-            "ip": args.ip,
-            "port_sub": args.port_sub,
-            "port_push": args.port_push,
+            "ip": args.ip if not None else "tcp://localhost:",
+            "port_sub": args.port_sub if not None else 5555,
+            "port_push": args.port_push if not None else 5556,
         }
+        print("used_comms: ip = {}, port_sub = {}, port_push = {}".format(
+            used_comms['ip'], used_comms['port_sub'], used_comms['port_push']))
     except TypeError:
-        # if user doesnt put stuff in
+        # if user doesn't put stuff in
         used_comms = {
             "ip": "tcp://localhost:",
             # "ip": "tcp://10.196.144.133:",
