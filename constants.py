@@ -104,3 +104,7 @@ velocity_mono_dict = {
         0.01: [[1, 0, 1], 0.2],
     },
 }
+
+bout_timing_color_dict = {
+    "before": [0, 1, 0],
+    "after": [1, 0.25, 0]}
