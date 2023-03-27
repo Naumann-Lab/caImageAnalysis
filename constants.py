@@ -107,4 +107,6 @@ velocity_mono_dict = {
 
 bout_timing_color_dict = {
     "before": [0, 1, 0],
-    "after": [1, 0.25, 0]}
+    "after": [1, 0.25, 0],
+    "during": [0, 0.25, 1]}
+
