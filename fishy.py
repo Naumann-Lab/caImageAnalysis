@@ -656,8 +656,12 @@ class TailTrackedFish(VizStimFish):
         new_peak_pts = np.stack(
             [bout_start, bout_end], axis=1
         )  # all peaks in tail data
-        tail_ind_start = self.tail_stimulus_df.iloc[0].tail_ind_start
-        tail_ind_stop = self.tail_stimulus_df.iloc[-2].tail_ind_end
+        if hasattr(self, 'tail_stimulus_df'):
+            tail_ind_start = self.tail_stimulus_df.iloc[0].tail_ind_start
+            tail_ind_stop = self.tail_stimulus_df.iloc[-2].tail_ind_end
+        else: #if you don't have stimulus file
+            tail_ind_start = self.tail_df.iloc[0].frame
+            tail_ind_stop = self.tail_df.iloc[-2].frame
 
         ind_0 = np.where(new_peak_pts[:, 0] >= tail_ind_start)[0][0]
         ind_1 = np.where(new_peak_pts[:, 1] <= tail_ind_stop)[0][-1]
@@ -1034,8 +1038,8 @@ class WorkingFish_Tail(WorkingFish, TailTrackedFish):
 
     def __init__(self, corr_threshold=0.65, bout_window = (-10, 10), bout_offset = 3, ref_image=None, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.bout_window = bout_window
-        self.bout_offset = bout_offset
+        self.bout_window = bout_window # complete frames to right and left you want to be able to visualize
+        self.bout_offset = bout_offset # how many frames to right and left you want to analyze as responses in relation to bout
 
         if "move_corrected_image" not in self.data_paths:
             raise TankError
@@ -1047,8 +1051,11 @@ class WorkingFish_Tail(WorkingFish, TailTrackedFish):
         # self.diff_image = self.make_difference_image()
 
         self.load_suite2p()
-        self.stimulus_df = stimuli.validate_stims(self.stimulus_df, self.f_cells)
-        self.build_stimdicts()
+        if hasattr(self, 'tail_stimulus_df'):
+            self.stimulus_df = stimuli.validate_stims(self.stimulus_df, self.f_cells)
+            self.build_stimdicts()
+        else:
+            pass
         self.bout_locked_dict()
         self.single_bout_avg_neurresp()
 
@@ -1154,13 +1161,17 @@ class WorkingFish_Tail(WorkingFish, TailTrackedFish):
     
     def avg_bout_avg_neurresp(self):
         self.avgbout_avgneur_dict = {}
+        all_bout_len_avgs = []
         for bout_no in self.most_resp_bout_avg.keys():
+            bout_len = self.tail_bouts_df.iloc[bout_no].image_frames[1] - self.tail_bouts_df.iloc[bout_no].image_frames[0]
+            all_bout_len_avgs.append(bout_len)
             if bout_no not in self.avgbout_avgneur_dict.keys():
                 self.avgbout_avgneur_dict[bout_no] = {}
             total_bout_arr = self.most_resp_bout_avg[bout_no]
             self.avgbout_avgneur_dict[bout_no] = total_bout_arr
         self.avgbout_avgneur_df = pd.DataFrame(self.avgbout_avgneur_dict)
         self.avgbout_avgneur_df['mean'] = self.avgbout_avgneur_df.mean(axis=1)
+        self.one_bout_len_avg = np.mean(all_bout_len_avgs)
 
         return self.avgbout_avgneur_df, self.avgbout_avgneur_dict
 
@@ -1205,6 +1216,7 @@ class WorkingFish_Tail(WorkingFish, TailTrackedFish):
             for subset in all_arrays_one_neur:
                 self.timing_bout_dict[neuron]['before'] = np.nanmean(subset[-self.bout_window[0] - self.bout_offset: -self.bout_window[0]])
                 self.timing_bout_dict[neuron]['after'] = np.nanmean(subset[-self.bout_window[0]:-self.bout_window[0] + self.bout_offset])
+                self.timing_bout_dict[neuron]['during'] = np.nanmean(subset[ -self.bout_window[0] - self.bout_offset : -self.bout_window[0] + self.bout_offset])
 
     def make_indneur_indbout_plots(self):
         # plotting each individual neuron to a bout, then mean of the neuron to all bouts
@@ -1212,25 +1224,27 @@ class WorkingFish_Tail(WorkingFish, TailTrackedFish):
 
         for v, vals in enumerate(self.most_resp_bout_zdiff_df[self.responsive_trial_bouts].index):
             one_neur_responses = self.most_resp_bout_zdiff_df[self.responsive_trial_bouts].iloc[v]
-            fig, axs = plt.subplots(nrows=1, ncols=10, sharex=True, sharey=True, figsize=(10,2))
+            fig, axs = plt.subplots(nrows=1, ncols=len(self.responsive_trial_bouts) + 1, sharex=True, sharey=True, figsize=(10,2))
             fig.suptitle(f'Neuron #{vals} Response to bouts')
             axs = axs.flatten()
             for n, neur in enumerate(one_neur_responses):
+                bout_no = one_neur_responses.index[n]
+                bout_len = self.tail_bouts_df.iloc[bout_no].image_frames[1] - self.tail_bouts_df.iloc[bout_no].image_frames[0]
                 axs[n].plot(neur[0])
                 axs[n].set_title(f'Bout {one_neur_responses.index[n]}')
                 axs[n].set_ylim(-3,3)
                 #marks the bout to be only one frame in time, might need to change with framerate
-                axs[n].axvspan(-self.bout_window[0], -self.bout_window[0] + 1, color='red', alpha=0.5)
+                axs[n].axvspan(-self.bout_window[0] - bout_len, -self.bout_window[0], color='red', alpha=0.5)
                 axs[n].axis('off')
 
             averages = [item for sublist in one_neur_responses.values for item in sublist]
             avg_arr = [l.tolist() for l in averages]
             one_neur_avg = np.mean(np.array(avg_arr), axis=0)
-            axs[9].plot(one_neur_avg, color = 'k')
-            axs[9].set_title('Mean')
-            axs[9].set_ylim(-3,3)
-            axs[9].axvspan(-self.bout_window[0], -self.bout_window[0] + 1, color='red', alpha=0.5)
-            axs[9].axis('off')
+            axs[-1].plot(one_neur_avg, color = 'k')
+            axs[-1].set_title('Mean')
+            axs[-1].set_ylim(-3,3)
+            axs[-1].axvspan(-self.bout_window[0] - self.one_bout_len_avg, -self.bout_window[0] , color='red', alpha=0.5)
+            axs[-1].axis('off')
 
             fig.tight_layout()
             plt.show()
@@ -1238,31 +1252,35 @@ class WorkingFish_Tail(WorkingFish, TailTrackedFish):
     def make_avgneur_indbout_plots(self):
     # plotting neuron averages for each plot
         import matplotlib.pyplot as plt
-        self.avg_bout_avg_neurresp()
+        if hasattr(self, 'one_bout_len_avg'):
+            pass
+        else:
+            self.avg_bout_avg_neurresp()
 
         self.responsive_trial_bout_df = self.avgbout_avgneur_df[self.responsive_trial_bouts]
         self.responsive_trial_bout_df['mean'] = self.responsive_trial_bout_df.mean(axis=1)
 
-        fig1, axs1 = plt.subplots(nrows=1, ncols=10, sharex=True, sharey=True, figsize=(10,2))
+        fig1, axs1 = plt.subplots(nrows=1, ncols=len(self.responsive_trial_bouts) + 1, sharex=True, sharey=True, figsize=(10,2))
         fig1.suptitle(f'Mean Neural Response to each "responsive" bout')
 
         for m, bout_no in enumerate(self.responsive_trial_bouts):
             total_bout = pd.DataFrame(self.responsive_trial_bout_df[bout_no])
+            bout_len = self.tail_bouts_df.iloc[bout_no].image_frames[1] - self.tail_bouts_df.iloc[bout_no].image_frames[0]
 
             axs1[m].plot(total_bout)
             axs1[m].set_title(f'Bout #{bout_no}')
             axs1[m].set_ylim(-3,3)
             #marks the bout to be only one frame in time, might need to change with framerate
-            axs1[m].axvspan(-self.bout_window[0], -self.bout_window[0] + 1, color='red', alpha=0.5)
+            axs1[m].axvspan(-self.bout_window[0] - bout_len, -self.bout_window[0], color='red', alpha=0.5)
             axs1[m].axis('off')
 
             fig1.tight_layout()
 
-        axs1[9].plot(self.responsive_trial_bout_df['mean'], color = 'k')
-        axs1[9].axis('off')
-        axs1[9].axvspan(-self.bout_window[0], -self.bout_window[0] + 1, color='red', alpha=0.5)
-        axs1[9].set_ylim(-3,3)
-        axs1[9].set_title(f'Mean')
+        axs1[-1].plot(self.responsive_trial_bout_df['mean'], color = 'k')
+        axs1[-1].axis('off')
+        axs1[-1].axvspan(-self.bout_window[0] - self.one_bout_len_avg, -self.bout_window[0], color='red', alpha=0.5)
+        axs1[-1].set_ylim(-1,1)
+        axs1[-1].set_title(f'Mean')
 
         plt.show()
 
@@ -1270,7 +1288,10 @@ class WorkingFish_Tail(WorkingFish, TailTrackedFish):
         from matplotlib.lines import Line2D
         import matplotlib.pyplot as plt
 
-        self.build_timing_bout_dict()
+        if hasattr(self, 'timing_bout_dict'):
+            pass
+        else:
+            self.build_timing_bout_dict()
 
         xpos = []
         ypos = []
