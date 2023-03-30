@@ -1197,14 +1197,14 @@ class WorkingFish_Tail(WorkingFish, TailTrackedFish):
                 rsp_after_lst.append(rsp_after)
 
         # max values before and after bout
-        max_before = max(mean_before_lst)
-        max_after = max(mean_after_lst)
+        max_before = max(rsp_before_lst)
+        max_after = max(rsp_after_lst)
 
         # grab trials that are in top 30% of max values
-        for i, before_val in enumerate(mean_before_lst):
+        for i, before_val in enumerate(rsp_before_lst):
             if before_val > ((1 - self.percent) * max_before):
                 self.responsive_trial_bouts.append(i)
-        for j, after_val in enumerate(mean_after_lst):
+        for j, after_val in enumerate(rsp_after_lst):
             if after_val > ((1 - self.percent) * max_after):
                 self.responsive_trial_bouts.append(j)
         self.responsive_trial_bouts = sorted(set(self.responsive_trial_bouts))
@@ -1251,17 +1251,20 @@ class WorkingFish_Tail(WorkingFish, TailTrackedFish):
             end = self.tail_bouts_df.iloc[bout_no].image_frames[1]
 
             # visual stimuli shading
-            if self.tail_stimulus_df.stim_name.isin(constants.baseBinocs).any(): #if binocular stimuli
-                stimuli.stim_shader(self)
-            elif hasattr(self.tail_stimulus_df.columns, 'velocity'): # if you want to plot velocity values with motion stim
-                self.tail_stimulus_df.loc[:, 'color'] = self.tail_stimulus_df.stim_name.astype(str).map(constants.velocity_mono_dict) #adding color for plotting
-                for stim in range(len(self.tail_stimulus_df)):
-                    a = self.tail_stimulus_df.iloc[stim]
-                    q = a.img_ind_start
-                    v = a.velocity
-                    ax[1].axvspan(q-1, q + self.stim_offset + 2, color=ma.colorAlpha_to_rgb(a.color[v][0], a.color[v][1])[0],label=f'{a.stim_name},{a.velocity}')
+            if hasattr(self, 'tail_stimulus_df'):
+                if self.tail_stimulus_df.stim_name.isin(constants.baseBinocs).any(): #if binocular stimuli
+                    stimuli.stim_shader(self)
+                elif hasattr(self.tail_stimulus_df.columns, 'velocity'): # if you want to plot velocity values with motion stim
+                    self.tail_stimulus_df.loc[:, 'color'] = self.tail_stimulus_df.stim_name.astype(str).map(constants.velocity_mono_dict) #adding color for plotting
+                    for stim in range(len(self.tail_stimulus_df)):
+                        a = self.tail_stimulus_df.iloc[stim]
+                        q = a.img_ind_start
+                        v = a.velocity
+                        ax[1].axvspan(q-1, q + self.stim_offset + 2, color=ma.colorAlpha_to_rgb(a.color[v][0], a.color[v][1])[0],label=f'{a.stim_name},{a.velocity}')
+                else:
+                    print('no visual stimulus shading')
             else:
-                print('no visual stimulus shading')
+                print('no visual stimulus in experiment')
 
             ax[1].plot(self.tail_df.iloc[:,-1].values, self.tail_df.iloc[:,4].values, color='black') #plotting deflect sum
             ax[1].axvspan(start, end, ymin = 0.9, ymax = 1, color='red', alpha=1)
