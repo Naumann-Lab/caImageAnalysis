@@ -1,5 +1,4 @@
 import pandas as pd
-from numpy import nan
 import numpy as np
 
 
@@ -218,3 +217,103 @@ def validate_stims(stim_df, f_cells):
         pass
 
     return stim_df
+
+
+class StimulusCollapse:
+    # requires a neuron_df with stims labeled and the arrays tucked in
+
+    def __init__(self, neuron_df, pad=6, start_ind=0):
+        self.neuron_df = neuron_df
+        self.pad = pad
+        self.start_ind = start_ind
+
+        self.iterator = len(self.neuron_df.iloc[0, 0][0]) + self.pad
+
+    def create_stimkey_master(self):
+        running_ind = self.start_ind
+        stimulus_starts = {}
+        for stimulus in self.neuron_df.columns:
+            stimulus_starts[stimulus] = running_ind
+            running_ind += self.iterator
+        return stimulus_starts
+
+    def collapse_to_stims(self):
+        # neuron_df.reset_index(inplace=True, drop=True)
+        master_key = self.create_stimkey_master()
+
+        collapsed_arrs = []
+        for n in range(len(self.neuron_df)):
+            collapsed_arr = np.zeros(self.iterator * (len(master_key.keys()) + 1))
+            nrn_arrs = self.neuron_df.iloc[n]
+
+            running_ind = self.start_ind
+            for stimulus in self.neuron_df.columns:
+                nrn_stim_arrs = nrn_arrs[stimulus]
+                mean_stim_arr = np.nanmean(nrn_stim_arrs, axis=0)
+                collapsed_arr[running_ind : running_ind + len(mean_stim_arr)] = mean_stim_arr
+                running_ind += self.iterator
+            collapsed_arrs.append(collapsed_arr)
+        return np.nanmean(collapsed_arrs, axis=0)
+
+
+def label_stim_ax(plot, stim_keys, fs=12, offset=10, stim_offset=6):
+
+    import constants
+
+    y_top = round(max(plot.get_ylim()))
+    ylabel_pos = y_top + y_top * 0.05
+
+    x_top = round(max(plot.get_xlim()))
+    xlabel_pos = x_top + x_top * 0.05
+    xlabel_pos_pct = xlabel_pos / x_top
+
+    for stim, start_pos in stim_keys.items():
+        plot.text(start_pos + 2, ylabel_pos, constants.stim_title_dict[stim], fontsize=fs)
+
+        begin = start_pos + offset - 2
+        end = start_pos + offset + stim_offset//2
+        midpt = begin + (end - begin) // 2
+
+
+        if stim in constants.monocular_dict.keys():
+            plot.axvspan(begin, end, alpha=0.4, color=constants.monocular_dict[stim])
+
+
+        else:
+            if stim == "lateral_left":
+                plot.axvspan(
+                    begin, midpt, color=constants.monocular_dict["left"], alpha=0.4
+                )
+                plot.axvspan(midpt, end, color="gray", alpha=0.4, hatch=r"\\\\")
+            if stim == "medial_left":
+                plot.axvspan(begin, midpt, color="gray", alpha=0.4, hatch=r"\\\\")
+                plot.axvspan(
+                    midpt, end, color=constants.monocular_dict["left"], alpha=0.4
+                )
+
+            if stim == "lateral_right":
+                plot.axvspan(begin, midpt, color="gray", alpha=0.4, hatch=r"\\\\")
+                plot.axvspan(
+                    midpt, end, color=constants.monocular_dict["right"], alpha=0.4
+                )
+            if stim == "medial_right":
+                plot.axvspan(
+                    begin, midpt, color=constants.monocular_dict["right"], alpha=0.4
+                )
+                plot.axvspan(midpt, end, color="gray", alpha=0.4, hatch=r"\\\\")
+
+            if stim == "converging":
+                plot.axvspan(
+                    begin, midpt, color=constants.monocular_dict["right"], alpha=0.4
+                )
+                plot.axvspan(
+                    midpt, end, color=constants.monocular_dict["left"], alpha=0.4
+                )
+
+            if stim == "diverging":
+                plot.axvspan(
+                    begin, midpt, color=constants.monocular_dict["left"], alpha=0.4
+                )
+                plot.axvspan(
+                    midpt, end, color=constants.monocular_dict["right"], alpha=0.4
+                )

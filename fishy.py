@@ -1063,6 +1063,7 @@ class WorkingFish_Tail(WorkingFish, TailTrackedFish):
         self.neur_responsive_trials()
         self.build_timing_bout_dict()
 
+
     def make_heatmap_bout_count(
         self,
     ):  # to visualize bout counts per stimulus type if have different velocities
@@ -1098,13 +1099,19 @@ class WorkingFish_Tail(WorkingFish, TailTrackedFish):
         plt.title(" Bout Count/Stim", size=14)
         plt.tight_layout()
 
-    def bout_locked_dict(self): # collecting means of some frames before and after bouting split into each bout
+    def bout_locked_dict(
+        self,
+    ):  # collecting means of some frames before and after bouting split into each bout
+
         # bout_window is the frames before and after the bout that you are collecting
         self.zdiff_cells = [arrutils.zdiffcell(i) for i in self.f_cells]
         self.bout_zdiff_dict = {i: {} for i in range(len(self.tail_bouts_df))}
 
         for bout in range(len(self.tail_bouts_df)):
-            arrs = arrutils.subsection_arrays(np.array([self.tail_bouts_df.image_frames[bout][0]], dtype=int), offsets=(self.bout_window))
+            arrs = arrutils.subsection_arrays(
+                np.array([self.tail_bouts_df.image_frames[bout][0]], dtype=int),
+                offsets=(self.bout_window),
+            )
             for n, nrn in enumerate(self.zdiff_cells):
                 resp_arrs = []
                 for arr in arrs:
@@ -1148,6 +1155,7 @@ class WorkingFish_Tail(WorkingFish, TailTrackedFish):
         self.most_resp_bout_avg = {}
         if 'all_avg_resp' in self.most_resp_bout_zdiff_df.columns:
             sub_bout_zdiff_df = self.most_resp_bout_zdiff_df.drop(columns = ['all_avg_resp', 'all_peak_resp'])
+
             for b in sub_bout_zdiff_df:
                 if b not in self.most_resp_bout_avg.keys():
                     self.most_resp_bout_avg[b] = {}
@@ -1160,7 +1168,6 @@ class WorkingFish_Tail(WorkingFish, TailTrackedFish):
                 self.most_resp_bout_avg[b] = one_bout_avg
 
         return self.most_resp_bout_zdiff_df, self.most_resp_bout_avg
-    
     def avg_bout_avg_neurresp(self):
         self.avgbout_avgneur_dict = {}
         all_bout_len_avgs = []
