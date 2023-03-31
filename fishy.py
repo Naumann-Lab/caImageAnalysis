@@ -656,8 +656,12 @@ class TailTrackedFish(VizStimFish):
         new_peak_pts = np.stack(
             [bout_start, bout_end], axis=1
         )  # all peaks in tail data
-        tail_ind_start = self.tail_stimulus_df.iloc[0].tail_ind_start
-        tail_ind_stop = self.tail_stimulus_df.iloc[-2].tail_ind_end
+        if hasattr(self, 'tail_stimulus_df'):
+            tail_ind_start = self.tail_stimulus_df.iloc[0].tail_ind_start
+            tail_ind_stop = self.tail_stimulus_df.iloc[-2].tail_ind_end
+        else: #if you don't have stimulus file
+            tail_ind_start = self.tail_df.iloc[0].frame
+            tail_ind_stop = self.tail_df.iloc[-2].frame
 
         ind_0 = np.where(new_peak_pts[:, 0] >= tail_ind_start)[0][0]
         ind_1 = np.where(new_peak_pts[:, 1] <= tail_ind_stop)[0][-1]
@@ -1032,18 +1036,11 @@ class WorkingFish_Tail(WorkingFish, TailTrackedFish):
     utilizes tail tracked fish data with visual stimuli
     """
 
-    def __init__(
-        self,
-        corr_threshold=0.65,
-        bout_window=(-10, 10),
-        bout_offset=3,
-        ref_image=None,
-        *args,
-        **kwargs,
-    ):
+    def __init__(self, corr_threshold=0.65, bout_window = (-10, 10), bout_offset = 3, percent = 0.4, ref_image=None, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.bout_window = bout_window
-        self.bout_offset = bout_offset
+        self.bout_window = bout_window # complete frames to right and left you want to be able to visualize
+        self.bout_offset = bout_offset # how many frames to right and left you want to analyze as responses in relation to bout
+        self.percent = percent # the top percentage that you will be collecting bouts to be called "responsive", so 0.4 = 40%
 
         if "move_corrected_image" not in self.data_paths:
             raise TankError
@@ -1055,12 +1052,17 @@ class WorkingFish_Tail(WorkingFish, TailTrackedFish):
         # self.diff_image = self.make_difference_image()
 
         self.load_suite2p()
-        self.stimulus_df = stimuli.validate_stims(self.stimulus_df, self.f_cells)
-        self.build_stimdicts()
+        if hasattr(self, 'tail_stimulus_df'):
+            self.stimulus_df = stimuli.validate_stims(self.stimulus_df, self.f_cells)
+            self.build_stimdicts()
+        else:
+            pass
         self.bout_locked_dict()
         self.single_bout_avg_neurresp()
-
+        self.avg_bout_avg_neurresp()
         self.neur_responsive_trials()
+        self.build_timing_bout_dict()
+
 
     def make_heatmap_bout_count(
         self,
@@ -1100,6 +1102,7 @@ class WorkingFish_Tail(WorkingFish, TailTrackedFish):
     def bout_locked_dict(
         self,
     ):  # collecting means of some frames before and after bouting split into each bout
+
         # bout_window is the frames before and after the bout that you are collecting
         self.zdiff_cells = [arrutils.zdiffcell(i) for i in self.f_cells]
         self.bout_zdiff_dict = {i: {} for i in range(len(self.tail_bouts_df))}
@@ -1113,16 +1116,14 @@ class WorkingFish_Tail(WorkingFish, TailTrackedFish):
                 resp_arrs = []
                 for arr in arrs:
                     resp_arrs.append(arrutils.pretty(nrn[arr], 2))
-                self.bout_zdiff_dict[bout][
-                    n
-                ] = resp_arrs  # for each bout, this is the array of each neuron
+                self.bout_zdiff_dict[bout][n] = resp_arrs # for each bout, this is the array of each neuron
 
         return self.bout_zdiff_dict
 
-    def single_bout_avg_neurresp(self, num_resp_neurons=15):
+    def single_bout_avg_neurresp(self, num_resp_neurons = 15):
         # make df and adding average and peak responses to dictionary with arrays of each neuron response with bout
         self.bout_zdiff_df = pd.DataFrame(self.bout_zdiff_dict)
-        before_means = []
+        before_means = [] #keeping these here in case I want to do before and after means
         before_peak = []
         after_means = []
         after_peak = []
@@ -1130,51 +1131,31 @@ class WorkingFish_Tail(WorkingFish, TailTrackedFish):
         all_peak = []
         for i in range(len(self.bout_zdiff_df)):
             if i == range(len(self.bout_zdiff_df))[-1]:
-                all_arrays_one_neur = [
-                    item
-                    for sublist in self.bout_zdiff_df.iloc[-1:].values
-                    for item in sublist
-                ]
+                all_arrays_one_neur = [item for sublist in self.bout_zdiff_df.iloc[-1:].values for item in sublist]
                 all_means.append((np.nanmean(all_arrays_one_neur)))
                 all_peak.append((np.nanmax(all_arrays_one_neur)))
                 for subset in all_arrays_one_neur:
-                    before = subset[0][
-                        -self.bout_window[0] - self.bout_offset : -self.bout_window[0]
-                    ]
-                    after = subset[0][
-                        -self.bout_window[0] : -self.bout_window[0] + self.bout_offset
-                    ]
+                    before = subset[0][-self.bout_window[0] - self.bout_offset: -self.bout_window[0]]
+                    after = subset[0][-self.bout_window[0]:-self.bout_window[0] + self.bout_offset]
             else:
-                all_arrays_one_neur = [
-                    item
-                    for sublist in self.bout_zdiff_df.iloc[i : i + 1].values
-                    for item in sublist
-                ]
+                all_arrays_one_neur = [item for sublist in self.bout_zdiff_df.iloc[i:i+1].values for item in sublist]
                 all_means.append((np.nanmean(all_arrays_one_neur)))
                 all_peak.append((np.nanmax(all_arrays_one_neur)))
                 for subset in all_arrays_one_neur:
-                    before = subset[0][
-                        -self.bout_window[0] - self.bout_offset : -self.bout_window[0]
-                    ]
-                    after = subset[0][
-                        -self.bout_window[0] : -self.bout_window[0] + self.bout_offset
-                    ]
+                    before = subset[0][-self.bout_window[0] - self.bout_offset: -self.bout_window[0]]
+                    after = subset[0][-self.bout_window[0]:-self.bout_window[0] + self.bout_offset]
 
-        self.bout_zdiff_df["all_avg_resp"] = all_means
-        self.bout_zdiff_df["all_peak_resp"] = all_peak
+
+        self.bout_zdiff_df['all_avg_resp'] = all_means
+        self.bout_zdiff_df['all_peak_resp'] = all_peak
 
         # self.most_resp_bout_zdiff_df = self.bout_zdiff_df[self.bout_zdiff_df.overall_peak_resp > thresh_resp] # taking top neurons based on threshold
-        self.most_resp_bout_zdiff_df = self.bout_zdiff_df.sort_values(
-            ["all_peak_resp"], ascending=False
-        )[
-            0:num_resp_neurons
-        ]  # taking top 15 resp neurons
-
+        self.most_resp_bout_zdiff_df = self.bout_zdiff_df.sort_values(['all_peak_resp'], ascending= False)[0:num_resp_neurons] #taking top 15 resp neurons
+        self.responsive_neuron_ids = self.most_resp_bout_zdiff_df.index.values.tolist()
         self.most_resp_bout_avg = {}
-        if "all_avg_resp" in self.most_resp_bout_zdiff_df.columns:
-            sub_bout_zdiff_df = self.most_resp_bout_zdiff_df.drop(
-                columns=["all_avg_resp", "all_peak_resp"]
-            )
+        if 'all_avg_resp' in self.most_resp_bout_zdiff_df.columns:
+            sub_bout_zdiff_df = self.most_resp_bout_zdiff_df.drop(columns = ['all_avg_resp', 'all_peak_resp'])
+
             for b in sub_bout_zdiff_df:
                 if b not in self.most_resp_bout_avg.keys():
                     self.most_resp_bout_avg[b] = {}
@@ -1187,179 +1168,200 @@ class WorkingFish_Tail(WorkingFish, TailTrackedFish):
                 self.most_resp_bout_avg[b] = one_bout_avg
 
         return self.most_resp_bout_zdiff_df, self.most_resp_bout_avg
-
     def avg_bout_avg_neurresp(self):
         self.avgbout_avgneur_dict = {}
+        all_bout_len_avgs = []
         for bout_no in self.most_resp_bout_avg.keys():
+            bout_len = self.tail_bouts_df.iloc[bout_no].image_frames[1] - self.tail_bouts_df.iloc[bout_no].image_frames[0]
+            all_bout_len_avgs.append(bout_len)
             if bout_no not in self.avgbout_avgneur_dict.keys():
                 self.avgbout_avgneur_dict[bout_no] = {}
             total_bout_arr = self.most_resp_bout_avg[bout_no]
             self.avgbout_avgneur_dict[bout_no] = total_bout_arr
         self.avgbout_avgneur_df = pd.DataFrame(self.avgbout_avgneur_dict)
-        self.avgbout_avgneur_df["mean"] = self.avgbout_avgneur_df.mean(axis=1)
+        self.avgbout_avgneur_df['mean'] = self.avgbout_avgneur_df.mean(axis=1)
+        self.one_bout_len_avg = np.mean(all_bout_len_avgs)
 
         return self.avgbout_avgneur_df, self.avgbout_avgneur_dict
 
-    def neur_responsive_trials(self, percent=0.7):
-        # getting the top percentage of responsive neurons (calculated by taking the mean responses)
+    def neur_responsive_trials(self):
+        #getting the top percentage of responsive neurons (calculated by taking the mean responses)
         self.responsive_trial_bouts = []
-        mean_before_lst = []
-        mean_after_lst = []
-        for (
-            event
-        ) in (
-            self.most_resp_bout_avg.keys()
-        ):  # finding mean values before and after bout
-            mean_before = np.mean(
-                self.most_resp_bout_avg[event][
-                    -self.bout_window[0] - self.bout_offset : -self.bout_window[0]
-                ]
-            )
-            mean_before_lst.append(mean_before)
-            mean_after = np.mean(
-                self.most_resp_bout_avg[event][
-                    -self.bout_window[0] : -self.bout_window[0] + self.bout_offset
-                ]
-            )
-            mean_after_lst.append(mean_after)
+        rsp_before_lst = []
+        rsp_after_lst = []
+        for event in self.most_resp_bout_avg.keys(): # finding mean values before and after bout
+            bout_no = int(event)
+            bout_len = int(self.tail_bouts_df.iloc[bout_no].image_frames[1] - self.tail_bouts_df.iloc[bout_no].image_frames[0])
+            if self.r_type == "peak": # takes the peak
+                rsp_before = np.nanmax(self.most_resp_bout_avg[bout_no][-self.bout_window[0] - self.bout_offset: -self.bout_window[0]])
+                rsp_before_lst.append(rsp_before)
+                rsp_after = np.nanmax(self.most_resp_bout_avg[bout_no][int(-self.bout_window[0] + bout_len) : int(-self.bout_window[0] + bout_len + self.bout_offset)])
+                rsp_after_lst.append(rsp_after)
+            else: # takes the average
+                rsp_before = np.nanmean(self.most_resp_bout_avg[bout_no][-self.bout_window[0] - self.bout_offset: -self.bout_window[0]])
+                rsp_before_lst.append(rsp_before)
+                rsp_after = np.nanmean(self.most_resp_bout_avg[bout_no][int(-self.bout_window[0] + bout_len) : int(-self.bout_window[0] + bout_len + self.bout_offset)])
+                rsp_after_lst.append(rsp_after)
 
         # max values before and after bout
-        max_before = max(mean_before_lst)
-        max_after = max(mean_after_lst)
+        max_before = max(rsp_before_lst)
+        max_after = max(rsp_after_lst)
 
         # grab trials that are in top 30% of max values
-        for i, before_val in enumerate(mean_before_lst):
-            if before_val > (percent * max_before):
+        for i, before_val in enumerate(rsp_before_lst):
+            if before_val > ((1 - self.percent) * max_before):
                 self.responsive_trial_bouts.append(i)
-        for j, after_val in enumerate(mean_after_lst):
-            if after_val > (percent * max_after):
+        for j, after_val in enumerate(rsp_after_lst):
+            if after_val > ((1 - self.percent) * max_after):
                 self.responsive_trial_bouts.append(j)
         self.responsive_trial_bouts = sorted(set(self.responsive_trial_bouts))
 
         return self.responsive_trial_bouts
+
 
     def build_timing_bout_dict(self):
         self.timing_bout_dict = {}
         all_means = []
         all_peak = []
 
-        for n, neuron in enumerate(
-            self.most_resp_bout_zdiff_df[self.responsive_trial_bouts].index.values
-        ):
+        for n, neuron in enumerate(self.most_resp_bout_zdiff_df[self.responsive_trial_bouts].index.values):
             if neuron not in self.timing_bout_dict.keys():
                 self.timing_bout_dict[neuron] = {}
-            all_arrays_one_neur = [
-                item
-                for sublist in self.most_resp_bout_zdiff_df[self.responsive_trial_bouts]
-                .iloc[n]
-                .values
-                for item in sublist
-            ]
+            all_arrays_one_neur = [item for sublist in self.most_resp_bout_zdiff_df[self.responsive_trial_bouts].iloc[n].values for item in sublist]
             all_means.append((np.nanmean(all_arrays_one_neur)))
             all_peak.append((np.nanmax(all_arrays_one_neur)))
-            for subset in all_arrays_one_neur:
-                self.timing_bout_dict[neuron]["before"] = np.nanmean(
-                    subset[
-                        -self.bout_window[0] - self.bout_offset : -self.bout_window[0]
-                    ]
-                )
-                self.timing_bout_dict[neuron]["after"] = np.nanmean(
-                    subset[
-                        -self.bout_window[0] : -self.bout_window[0] + self.bout_offset
-                    ]
-                )
+            for s, subset in enumerate(all_arrays_one_neur):
+                bout_no = self.responsive_trial_bouts[s]
+                bout_len = int(self.tail_bouts_df.iloc[bout_no].image_frames[1] - self.tail_bouts_df.iloc[bout_no].image_frames[0])
+                self.timing_bout_dict[neuron]['before'] = np.nanmean(subset[-self.bout_window[0] - self.bout_offset: -self.bout_window[0]])
+                self.timing_bout_dict[neuron]['after'] = np.nanmean(subset[-self.bout_window[0] + bout_len:-self.bout_window[0] + bout_len + self.bout_offset])
+                if bout_len != 0:
+                    self.timing_bout_dict[neuron]['during'] = np.nanmean(subset[ -self.bout_window[0] - bout_len : -self.bout_window[0] + bout_len])
+                else:
+                    # for my slow imaging
+                    self.timing_bout_dict[neuron]['during'] = np.nanmean(subset[ -self.bout_window[0] : -self.bout_window[0] + 1])
+
+
+    def make_taildata_avgneur_plots(self):
+        import matplotlib.pyplot as plt
+        from mimic_alpha import mimic_alpha as ma
+
+        for bout_no in self.responsive_trial_bouts:
+            total_bout = pd.DataFrame(self.avgbout_avgneur_dict[bout_no])
+            bout_len = self.tail_bouts_df.iloc[bout_no].image_frames[1] - self.tail_bouts_df.iloc[bout_no].image_frames[0]
+
+            fig, ax = plt.subplots(nrows=1, ncols=2, figsize=(12,4), gridspec_kw={'width_ratios': [1, 2]})
+            fig.suptitle(f'Bout {bout_no}, Most Responsive neurons (n = {len(self.responsive_neuron_ids)})')
+
+            # tail movement data
+            start = self.tail_bouts_df.iloc[bout_no].image_frames[0]
+            end = self.tail_bouts_df.iloc[bout_no].image_frames[1]
+
+            # visual stimuli shading
+            if hasattr(self, 'tail_stimulus_df'):
+                if self.tail_stimulus_df.stim_name.isin(constants.baseBinocs).any(): #if binocular stimuli
+                    stimuli.stim_shader(self)
+                elif hasattr(self.tail_stimulus_df.columns, 'velocity'): # if you want to plot velocity values with motion stim
+                    self.tail_stimulus_df.loc[:, 'color'] = self.tail_stimulus_df.stim_name.astype(str).map(constants.velocity_mono_dict) #adding color for plotting
+                    for stim in range(len(self.tail_stimulus_df)):
+                        a = self.tail_stimulus_df.iloc[stim]
+                        q = a.img_ind_start
+                        v = a.velocity
+                        ax[1].axvspan(q-1, q + self.stim_offset + 2, color=ma.colorAlpha_to_rgb(a.color[v][0], a.color[v][1])[0],label=f'{a.stim_name},{a.velocity}')
+                else:
+                    print('no visual stimulus shading')
+            else:
+                print('no visual stimulus in experiment')
+
+            ax[1].plot(self.tail_df.iloc[:,-1].values, self.tail_df.iloc[:,4].values, color='black') #plotting deflect sum
+            ax[1].axvspan(start, end, ymin = 0.9, ymax = 1, color='red', alpha=1)
+            ax[1].set_xlim(start+self.bout_window[0], end+self.bout_window[1])
+            ax[1].set_xlabel('Frames (from imaging data)')
+            ax[1].set_ylabel('Z score Tail Deflection Sum')
+            ax[1].set_title('Tail behavior')
+
+            # neural z score trace
+            ax[0].plot(total_bout)
+            ax[0].set_title('Z score neural activity')
+            ax[0].set_ylabel('Z score average')
+            ax[0].set_xlabel('Frames (from imaging data)')
+            ax[0].set_ylim(-1,1)
+            ax[0].axvspan(-self.bout_window[0], bout_len + -self.bout_window[0], color='red', alpha=0.5)
 
     def make_indneur_indbout_plots(self):
         # plotting each individual neuron to a bout, then mean of the neuron to all bouts
         import matplotlib.pyplot as plt
 
-        for v, vals in enumerate(
-            self.most_resp_bout_zdiff_df[self.responsive_trial_bouts].index
-        ):
-            one_neur_responses = self.most_resp_bout_zdiff_df[
-                self.responsive_trial_bouts
-            ].iloc[v]
-            fig, axs = plt.subplots(
-                nrows=1, ncols=10, sharex=True, sharey=True, figsize=(10, 2)
-            )
-            fig.suptitle(f"Neuron #{vals} Response to bouts")
+        for v, vals in enumerate(self.most_resp_bout_zdiff_df[self.responsive_trial_bouts].index):
+            one_neur_responses = self.most_resp_bout_zdiff_df[self.responsive_trial_bouts].iloc[v]
+            fig, axs = plt.subplots(nrows=1, ncols=len(self.responsive_trial_bouts) + 1, sharex=True, sharey=True, figsize=(10,2))
+            fig.suptitle(f'Neuron #{vals} Response to bouts')
             axs = axs.flatten()
             for n, neur in enumerate(one_neur_responses):
+                bout_no = one_neur_responses.index[n]
+                bout_len = self.tail_bouts_df.iloc[bout_no].image_frames[1] - self.tail_bouts_df.iloc[bout_no].image_frames[0]
                 axs[n].plot(neur[0])
-                axs[n].set_title(f"Bout {one_neur_responses.index[n]}")
-                axs[n].set_ylim(-3, 3)
-                # marks the bout to be only one frame in time, might need to change with framerate
-                axs[n].axvspan(
-                    -self.bout_window[0],
-                    -self.bout_window[0] + 1,
-                    color="red",
-                    alpha=0.5,
-                )
-                axs[n].axis("off")
+                axs[n].set_title(f'Bout {one_neur_responses.index[n]}')
+                axs[n].set_ylim(-3,3)
+                #marks the bout to be only one frame in time, might need to change with framerate
+                axs[n].axvspan(-self.bout_window[0], -self.bout_window[0] + bout_len, color='red', alpha=0.5)
+                axs[n].axis('off')
 
-            averages = [
-                item for sublist in one_neur_responses.values for item in sublist
-            ]
+            averages = [item for sublist in one_neur_responses.values for item in sublist]
             avg_arr = [l.tolist() for l in averages]
             one_neur_avg = np.mean(np.array(avg_arr), axis=0)
-            axs[9].plot(one_neur_avg, color="k")
-            axs[9].set_title("Mean")
-            axs[9].set_ylim(-3, 3)
-            axs[9].axvspan(
-                -self.bout_window[0], -self.bout_window[0] + 1, color="red", alpha=0.5
-            )
-            axs[9].axis("off")
+            axs[-1].plot(one_neur_avg, color = 'k')
+            axs[-1].set_title('Mean')
+            axs[-1].set_ylim(-3,3)
+            axs[-1].axvspan(-self.bout_window[0], -self.bout_window[0] + self.one_bout_len_avg, color='red', alpha=0.5)
+            axs[-1].axis('off')
 
             fig.tight_layout()
             plt.show()
 
     def make_avgneur_indbout_plots(self):
-        # plotting neuron averages for each plot
+    # plotting neuron averages for each plot
         import matplotlib.pyplot as plt
+        if hasattr(self, 'one_bout_len_avg'):
+            pass
+        else:
+            self.avg_bout_avg_neurresp()
 
-        self.avg_bout_avg_neurresp()
+        self.responsive_trial_bout_df = self.avgbout_avgneur_df[self.responsive_trial_bouts]
+        self.responsive_trial_bout_df['mean'] = self.responsive_trial_bout_df.mean(axis=1)
 
-        self.responsive_trial_bout_df = self.avgbout_avgneur_df[
-            self.responsive_trial_bouts
-        ]
-        self.responsive_trial_bout_df["mean"] = self.responsive_trial_bout_df.mean(
-            axis=1
-        )
-
-        fig1, axs1 = plt.subplots(
-            nrows=1, ncols=10, sharex=True, sharey=True, figsize=(10, 2)
-        )
+        fig1, axs1 = plt.subplots(nrows=1, ncols=len(self.responsive_trial_bouts) + 1, sharex=True, sharey=True, figsize=(10,2))
         fig1.suptitle(f'Mean Neural Response to each "responsive" bout')
 
         for m, bout_no in enumerate(self.responsive_trial_bouts):
             total_bout = pd.DataFrame(self.responsive_trial_bout_df[bout_no])
+            bout_len = self.tail_bouts_df.iloc[bout_no].image_frames[1] - self.tail_bouts_df.iloc[bout_no].image_frames[0]
 
             axs1[m].plot(total_bout)
-            axs1[m].set_title(f"Bout #{bout_no}")
-            axs1[m].set_ylim(-3, 3)
-            # marks the bout to be only one frame in time, might need to change with framerate
-            axs1[m].axvspan(
-                -self.bout_window[0], -self.bout_window[0] + 1, color="red", alpha=0.5
-            )
-            axs1[m].axis("off")
+            axs1[m].set_title(f'Bout #{bout_no}')
+            axs1[m].set_ylim(-3,3)
+            #marks the bout to be only one frame in time, might need to change with framerate
+            axs1[m].axvspan(-self.bout_window[0], -self.bout_window[0] + bout_len, color='red', alpha=0.5)
+            axs1[m].axis('off')
 
             fig1.tight_layout()
 
-        axs1[9].plot(self.responsive_trial_bout_df["mean"], color="k")
-        axs1[9].axis("off")
-        axs1[9].axvspan(
-            -self.bout_window[0], -self.bout_window[0] + 1, color="red", alpha=0.5
-        )
-        axs1[9].set_ylim(-3, 3)
-        axs1[9].set_title(f"Mean")
+        axs1[-1].plot(self.responsive_trial_bout_df['mean'], color = 'k')
+        axs1[-1].axis('off')
+        axs1[-1].axvspan(-self.bout_window[0], -self.bout_window[0] + self.one_bout_len_avg, color='red', alpha=0.5)
+        axs1[-1].set_ylim(-1,1)
+        axs1[-1].set_title(f'Mean')
 
         plt.show()
 
-    def make_computed_image_bouttiming(self, colorsumthresh=0):
+    def make_computed_image_bouttiming(self, colorsumthresh = 0):
         from matplotlib.lines import Line2D
         import matplotlib.pyplot as plt
 
-        self.build_timing_bout_dict()
+        if hasattr(self, 'timing_bout_dict'):
+            pass
+        else:
+            self.build_timing_bout_dict()
 
         xpos = []
         ypos = []
@@ -1391,23 +1393,13 @@ class WorkingFish_Tail(WorkingFish, TailTrackedFish):
                 colors.append(fullcolor)
                 neurons.append(neuron)
 
-        fig, axs = plt.subplots(1, 1, figsize=(8, 8))
+        fig, axs = plt.subplots(1,1, figsize=(8,8))
 
-        axs.scatter(
-            xpos, ypos, c=colors, alpha=0.85, s=90
-        )  ## most responsive neurons active before or after
-        axs.imshow(
-            self.ops["refImg"],
-            cmap="gray",
-            alpha=1,
-            vmax=np.percentile(self.ops["refImg"], 99.5),
-        )
-        axs.set_title(f"Top {len(neurons)} Responsive Neurons Before/After Bout")
-        axs.axis("off")
-        markers = [
-            plt.Line2D([0, 0], [0, 0], color=color, marker="o", linestyle="")
-            for color in constants.bout_timing_color_dict.values()
-        ]
+        axs.scatter(xpos, ypos, c= colors, alpha=.85, s=90) ## most responsive neurons active before or after
+        axs.imshow(self.ops['refImg'], cmap='gray', alpha=1, vmax=np.percentile(self.ops['refImg'], 99.5))
+        axs.set_title(f'Top {len(neurons)} Responsive Neurons Before/After Bout')
+        axs.axis('off')
+        markers = [plt.Line2D([0,0],[0,0],color=color, marker='o', linestyle='') for color in constants.bout_timing_color_dict.values()]
         plt.legend(markers, constants.bout_timing_color_dict.keys(), numpoints=1)
 
 
