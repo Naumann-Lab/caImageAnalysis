@@ -443,7 +443,10 @@ class TailTrackedFish(VizStimFish):
         tail_fxn=None,  # tail_fxn is a variable for a fxn that is in the tailtracking.py
         tail_fxn_args=None,
         sig=4,
-        interpeak_dst=50,
+        interpeak_dst=[0,50],
+        height=None,
+        width=None,
+        prominence=1,
         tail_offset=2,
         thresh=0.7,
         *args,
@@ -466,7 +469,7 @@ class TailTrackedFish(VizStimFish):
             self.tail_stimulus_df = pd.read_feather(self.data_paths["tail_stimulus_df"])
             print("found tail df and tail stimulus df")
 
-        self.bout_finder(sig, interpeak_dst)
+        self.bout_finder(sig=4, interpeak_dst=[0,50], height=None, width=None, prominence=1)
 
         if hasattr(self, "f_cells"):
             self.bout_responsive_neurons(tail_offset, thresh)
@@ -601,14 +604,12 @@ class TailTrackedFish(VizStimFish):
         return self.tail_df, self.tail_stimulus_df
 
     def bout_finder(
-        self, sig=4, interpeak_dst=50, height=None, width=None, prominence=1
+        self, sig=4, interpeak_dst=[0,50], height=None, width=None, prominence=1
     ):
         from scipy.signal import find_peaks
         import scipy.ndimage
-
         # sig = sigma for gaussian filter on the tail data
-        # interpeak_dst = ms, distance between bouts
-
+        # interpeak_dst = frames of tail data info, first value is minimum between peaks, second valus is maximum length of whole bout
         # tail deflection sum from central axis of fish, filtered with gaussian fit
         if width is None:
             width = [0, 750]
@@ -635,24 +636,24 @@ class TailTrackedFish(VizStimFish):
         bout_start = []
         bout_end = []
         n = 0
-        while n < len(peak_pts) - 2:
-            # if current right + minimum is less than the next left its good
-            if peak_pts[n][1] + interpeak_dst <= peak_pts[n + 1][0]:
-                bout_end.append(int(peak_pts[n][1]))
-                bout_start.append(int(peak_pts[n][0]))
-                n += 1
-            # otherwise increase the index until thats the case
-            else:
-                while n < len(peak_pts) - 2:
+        for n in range(len(peak_pts)):
+            while n < len(peak_pts) - 2: #getting number of oscillations, right now is 1
+                current_right = peak_pts[n][1]
+                minimum = current_right + interpeak_dst[0]
+                next_left = peak_pts[n + 1][0]
+                diff = next_left - current_right
+                # if current right + minimum is less than the next left its good
+                # if interpeak distance minimum and interpeak distance maximum are met, then add the peak
+                if (minimum <= next_left) & (diff < interpeak_dst[1]):
+                    bout_end.append(int(peak_pts[n + 1][1]))
+                    bout_start.append(int(peak_pts[n][0]))
                     n += 1
-                    if peak_pts[n][1] + interpeak_dst <= peak_pts[n + 1][0]:
-                        bout_end.append(int(peak_pts[n][1]))
-                        bout_start.append(int(peak_pts[n][0]))
-                        n += 1
-                        break
+                else:
+                    n += 1
+                    break
 
         # accounts for interbout distance, left and right of each peak in filtered tail deflection data ("/'TailLoc'/'TailDeflectSum'")
-        new_peak_pts = np.stack(
+        self.new_peak_pts = np.stack(
             [bout_start, bout_end], axis=1
         )  # all peaks in tail data
         if hasattr(self, "tail_stimulus_df"):
@@ -662,28 +663,39 @@ class TailTrackedFish(VizStimFish):
             tail_ind_start = self.tail_df.iloc[0].frame
             tail_ind_stop = self.tail_df.iloc[-2].frame
 
-        ind_0 = np.where(new_peak_pts[:, 0] >= tail_ind_start)[0][0]
-        ind_1 = np.where(new_peak_pts[:, 1] <= tail_ind_stop)[0][-1]
-        relevant_pts = new_peak_pts[
+        ind_0 = np.where(self.new_peak_pts[:, 0] >= tail_ind_start)[0][0]
+        ind_1 = np.where(self.new_peak_pts[:, 1] <= tail_ind_stop)[0][-1]
+        pts_during_tail = self.new_peak_pts[
             ind_0:ind_1
         ]  # peaks only within the stimuli presentation
 
+        pts_uniq = [] #only gathering unique bouts
+        for i in pts_during_tail.tolist():
+            if pts_uniq.__contains__(i):
+                pass
+            else:
+                pts_uniq.append(i)
+
+        # making sure that all bouts don't overlap with others
+        # need to run this function a few times because sometimes the peaks have many overlapping left/rights
+        # in future build a function that can check how many overlapping peaks and then run fxn according to that...
+        pts_uniq_2 = arrutils.remove_nearest_vals(pts_uniq)
+        pts_uniq_3 = arrutils.remove_nearest_vals(pts_uniq_2)
+        self.relevant_pts = arrutils.remove_nearest_vals(pts_uniq_3)
+
         dict_info = {}
-        for bout_ind in range(len(relevant_pts)):
+        for bout_ind in range(len(self.relevant_pts)):
             if bout_ind not in dict_info.keys():
                 dict_info[bout_ind] = {}
             bout_angle = np.sum(
                 self.tail_df.iloc[:, 4].values[
-                    relevant_pts[bout_ind][0] : relevant_pts[bout_ind][1]
+                self.relevant_pts[bout_ind][0] : self.relevant_pts[bout_ind][1]
                 ]
             )  # total bout angle
+            frame_start = self.tail_df.iloc[:, -1].values[self.relevant_pts[bout_ind][0]]
+            frame_end = self.tail_df.iloc[:, -1].values[self.relevant_pts[bout_ind][1]]
+
             dict_info[bout_ind]["bout_angle"] = bout_angle
-
-            # frame_start = self.tail_df.iloc[:, -1].values[relevant_pts[bout_ind][0]]
-            # frame_end = self.tail_df.iloc[:, -1].values[relevant_pts[bout_ind][1]]
-
-            frame_start = self.tail_df.iloc[:, -1].values[relevant_pts[bout_ind][0]]
-            frame_end = self.tail_df.iloc[:, -1].values[relevant_pts[bout_ind][1]]
             dict_info[bout_ind]["image_frames"] = frame_start, frame_end
 
         self.tail_bouts_df = pd.DataFrame.from_dict(dict_info, "index")
@@ -1041,6 +1053,7 @@ class WorkingFish_Tail(WorkingFish, TailTrackedFish):
         bout_window=(-10, 10),
         bout_offset=3,
         percent=0.4,
+        num_resp_neurons=15,
         ref_image=None,
         *args,
         **kwargs,
@@ -1049,6 +1062,7 @@ class WorkingFish_Tail(WorkingFish, TailTrackedFish):
         self.bout_window = bout_window  # complete frames to right and left you want to be able to visualize
         self.bout_offset = bout_offset  # how many frames to right and left you want to analyze as responses in relation to bout
         self.percent = percent  # the top percentage that you will be collecting bouts to be called "responsive", so 0.4 = 40%
+        self.num_resp_neurons = num_resp_neurons
 
         if "move_corrected_image" not in self.data_paths:
             raise TankError
@@ -1128,7 +1142,7 @@ class WorkingFish_Tail(WorkingFish, TailTrackedFish):
 
         return self.bout_zdiff_dict
 
-    def single_bout_avg_neurresp(self, num_resp_neurons=15):
+    def single_bout_avg_neurresp(self):
         # make df and adding average and peak responses to dictionary with arrays of each neuron response with bout
         self.bout_zdiff_df = pd.DataFrame(self.bout_zdiff_dict)
         all_means = []
@@ -1159,15 +1173,14 @@ class WorkingFish_Tail(WorkingFish, TailTrackedFish):
         self.most_resp_bout_zdiff_df = self.bout_zdiff_df.sort_values(
             ["all_peak_resp"], ascending=False
         )[
-            0:num_resp_neurons
-        ]  # taking top 15 resp neurons
+            0:self.num_resp_neurons
+        ]  # taking top resp neurons
         self.responsive_neuron_ids = self.most_resp_bout_zdiff_df.index.values.tolist()
         self.most_resp_bout_avg = {}
         if "all_avg_resp" in self.most_resp_bout_zdiff_df.columns:
             sub_bout_zdiff_df = self.most_resp_bout_zdiff_df.drop(
                 columns=["all_avg_resp", "all_peak_resp"]
             )
-
             for b in sub_bout_zdiff_df:
                 if b not in self.most_resp_bout_avg.keys():
                     self.most_resp_bout_avg[b] = {}
@@ -1337,9 +1350,7 @@ class WorkingFish_Tail(WorkingFish, TailTrackedFish):
                     constants.baseBinocs
                 ).any():  # if binocular stimuli
                     stimuli.stim_shader(self)
-                elif hasattr(
-                    self.tail_stimulus_df.columns, "velocity"
-                ):  # if you want to plot velocity values with motion stim
+                elif 'velocity' in self.tail_stimulus_df.columns:  # if you want to plot velocity values with motion stim
                     self.tail_stimulus_df.loc[
                         :, "color"
                     ] = self.tail_stimulus_df.stim_name.astype(str).map(
