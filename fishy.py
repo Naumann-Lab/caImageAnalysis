@@ -442,6 +442,7 @@ class TailTrackedFish(VizStimFish):
         tail_key="tail",  # need to have 'tail' in the tail output file
         tail_fxn=None,  # tail_fxn is a variable for a fxn that is in the tailtracking.py
         tail_fxn_args=None,
+        bout_finder_args= None,
         sig=4,
         interpeak_dst=[0,50],
         height=None,
@@ -614,7 +615,7 @@ class TailTrackedFish(VizStimFish):
         if width is None:
             width = [0, 750]
         if height is None:
-            height = [20, 120]
+            height = [5, 200]
 
         filtered_deflections = scipy.ndimage.gaussian_filter(
             self.tail_df["/'TailLoc'/'TailDeflectSum'"].values, sigma=sig
@@ -679,9 +680,9 @@ class TailTrackedFish(VizStimFish):
         # making sure that all bouts don't overlap with others
         # need to run this function a few times because sometimes the peaks have many overlapping left/rights
         # in future build a function that can check how many overlapping peaks and then run fxn according to that...
-        pts_uniq_2 = arrutils.remove_nearest_vals(pts_uniq)
-        pts_uniq_3 = arrutils.remove_nearest_vals(pts_uniq_2)
-        self.relevant_pts = arrutils.remove_nearest_vals(pts_uniq_3)
+        # pts_uniq_2 = arrutils.remove_nearest_vals(pts_uniq)
+        # pts_uniq_3 = arrutils.remove_nearest_vals(pts_uniq)
+        self.relevant_pts = arrutils.remove_nearest_vals(pts_uniq)
 
         dict_info = {}
         for bout_ind in range(len(self.relevant_pts)):
@@ -1263,7 +1264,7 @@ class WorkingFish_Tail(WorkingFish, TailTrackedFish):
         max_before = max(rsp_before_lst)
         max_after = max(rsp_after_lst)
 
-        # grab trials that are in top 30% of max values
+        # grab trials that are in top % of max values
         for i, before_val in enumerate(rsp_before_lst):
             if before_val > ((1 - self.percent) * max_before):
                 self.responsive_trial_bouts.append(i)
@@ -1394,6 +1395,60 @@ class WorkingFish_Tail(WorkingFish, TailTrackedFish):
                 color="red",
                 alpha=0.5,
             )
+
+
+    def make_oneneur_allbout_plots(self, neur_id):
+        import matplotlib.pyplot as plt
+
+        for ind, n in enumerate(self.most_resp_bout_zdiff_df[self.responsive_trial_bouts].index):
+            if n == neur_id:
+                one_neur_responses = self.most_resp_bout_zdiff_df[self.responsive_trial_bouts].iloc[ind]
+
+        fig, axs = plt.subplots(
+            nrows=1,
+            ncols=len(self.responsive_trial_bouts) + 1,
+            sharex=True,
+            sharey=True,
+            figsize=(10, 2),
+        )
+        fig.suptitle(f"Neuron #{neur_id} Response to bouts")
+        axs = axs.flatten()
+        for n, neur in enumerate(one_neur_responses):
+            bout_no = one_neur_responses.index[n]
+            bout_len = (
+                    self.tail_bouts_df.iloc[bout_no].image_frames[1]
+                    - self.tail_bouts_df.iloc[bout_no].image_frames[0]
+            )
+            axs[n].plot(neur[0])
+            axs[n].set_title(f"Bout {one_neur_responses.index[n]}")
+            axs[n].set_ylim(-1, 1)
+            # marks the bout to be only one frame in time, might need to change with frame rate
+            axs[n].axvspan(
+                -self.bout_window[0],
+                -self.bout_window[0] + bout_len,
+                color="red",
+                alpha=0.5,
+                )
+            axs[n].axis("off")
+
+        averages = [
+            item for sublist in one_neur_responses.values for item in sublist
+        ]
+        avg_arr = [l.tolist() for l in averages]
+        one_neur_avg = np.mean(np.array(avg_arr), axis=0)
+        axs[-1].plot(one_neur_avg, color="k")
+        axs[-1].set_title("Mean")
+        axs[-1].set_ylim(-3, 3)
+        axs[-1].axvspan(
+            -self.bout_window[0],
+            -self.bout_window[0] + self.one_bout_len_avg,
+            color="red",
+            alpha=0.5,
+            )
+        axs[-1].axis("off")
+
+        fig.tight_layout()
+        plt.show()
 
     def make_indneur_indbout_plots(self):
         # plotting each individual neuron to a bout, then mean of the neuron to all bouts
@@ -1549,18 +1604,22 @@ class WorkingFish_Tail(WorkingFish, TailTrackedFish):
                 colors.append(fullcolor)
                 neurons.append(neuron)
 
-        fig, axs = plt.subplots(1, 1, figsize=(8, 8))
+        fig, axs = plt.subplots(1, 1, figsize=(12, 12))
 
         axs.scatter(
-            xpos, ypos, c=colors, alpha=0.85, s=90
+            xpos, ypos, c=colors, alpha=0.85, s=200
         )  ## most responsive neurons active before or after
+
+        for i, txt in enumerate(neurons):
+            axs.annotate(txt, (xpos[i], ypos[i]), c='pink')
+
         axs.imshow(
             self.ops["refImg"],
             cmap="gray",
             alpha=1,
             vmax=np.percentile(self.ops["refImg"], 99.5),
         )
-        axs.set_title(f"Top {len(neurons)} Responsive Neurons Before/After Bout")
+        axs.set_title(f"Top {len(neurons)} Responsive Neurons Before/During/After Bout")
         axs.axis("off")
         markers = [
             plt.Line2D([0, 0], [0, 0], color=color, marker="o", linestyle="")
