@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+from numpy import nan #important for stimuli fxns
 
 
 def pandastim_to_df(pstimpath, minimode=False, addvelocity=True):
