@@ -470,7 +470,7 @@ class TailTrackedFish(VizStimFish):
             self.tail_stimulus_df = pd.read_feather(self.data_paths["tail_stimulus_df"])
             print("found tail df and tail stimulus df")
 
-        self.bout_finder(sig=4, interpeak_dst=[0,50], height=None, width=None, prominence=1)
+        self.bout_finder(sig=5, interpeak_dst=[0,200], height=[5, 100], width=[10, 300], prominence=7)
 
         if hasattr(self, "f_cells"):
             self.bout_responsive_neurons(tail_offset, thresh)
@@ -605,7 +605,7 @@ class TailTrackedFish(VizStimFish):
         return self.tail_df, self.tail_stimulus_df
 
     def bout_finder(
-        self, sig=4, interpeak_dst=[0,50], height=None, width=None, prominence=1
+        self, sig=5, interpeak_dst=[0,200], height=[5, 100], width=[10, 300], prominence=7
     ):
         from scipy.signal import find_peaks
         import scipy.ndimage
@@ -680,9 +680,9 @@ class TailTrackedFish(VizStimFish):
         # making sure that all bouts don't overlap with others
         # need to run this function a few times because sometimes the peaks have many overlapping left/rights
         # in future build a function that can check how many overlapping peaks and then run fxn according to that...
-        # pts_uniq_2 = arrutils.remove_nearest_vals(pts_uniq)
-        # pts_uniq_3 = arrutils.remove_nearest_vals(pts_uniq)
-        self.relevant_pts = arrutils.remove_nearest_vals(pts_uniq)
+        pts_uniq_2 = arrutils.remove_nearest_vals(pts_uniq)
+        pts_uniq_3 = arrutils.remove_nearest_vals(pts_uniq_2)
+        self.relevant_pts = arrutils.remove_nearest_vals(pts_uniq_3)
 
         dict_info = {}
         for bout_ind in range(len(self.relevant_pts)):
@@ -1083,7 +1083,7 @@ class WorkingFish_Tail(WorkingFish, TailTrackedFish):
         self.bout_locked_dict()
         self.single_bout_avg_neurresp()
         self.avg_bout_avg_neurresp()
-        self.neur_responsive_trials()
+        # self.neur_responsive_trials()
         self.build_timing_bout_dict()
 
     def make_heatmap_bout_count(
@@ -1414,31 +1414,38 @@ class WorkingFish_Tail(WorkingFish, TailTrackedFish):
         fig.suptitle(f"Neuron #{neur_id} Response to bouts")
         axs = axs.flatten()
         for n, neur in enumerate(one_neur_responses):
-            bout_no = one_neur_responses.index[n]
-            bout_len = (
-                    self.tail_bouts_df.iloc[bout_no].image_frames[1]
-                    - self.tail_bouts_df.iloc[bout_no].image_frames[0]
-            )
-            axs[n].plot(neur[0])
-            axs[n].set_title(f"Bout {one_neur_responses.index[n]}")
-            axs[n].set_ylim(-1, 1)
-            # marks the bout to be only one frame in time, might need to change with frame rate
-            axs[n].axvspan(
-                -self.bout_window[0],
-                -self.bout_window[0] + bout_len,
-                color="red",
-                alpha=0.5,
-                )
-            axs[n].axis("off")
+                # bout_no = one_neur_responses.index[n]
+                if one_neur_responses.index[n] in self.responsive_trial_bouts:
+                    bout_no = one_neur_responses.index[n]
+                    bout_len = (
+                            self.tail_bouts_df.iloc[bout_no].image_frames[1]
+                            - self.tail_bouts_df.iloc[bout_no].image_frames[0]
+                    )
+                    axs[n].axhline(y = 0, color = 'black', alpha=0.3, linestyle='--')
+                    axs[n].plot(neur[0])
+                    axs[n].set_title(f"Bout {bout_no}")
+                    axs[n].set_ylim(-1, 1)
+                    # marks the bout to be only one frame in time, might need to change with frame rate
+                    axs[n].axvspan(
+                        -self.bout_window[0],
+                        -self.bout_window[0] + bout_len,
+                        color="red",
+                        alpha=0.5,
+                        )
+                    axs[n].axis("off")
+                else:
+                    pass
+                    # print(f'not showing bout number {bout_no} here')
 
         averages = [
             item for sublist in one_neur_responses.values for item in sublist
         ]
         avg_arr = [l.tolist() for l in averages]
         one_neur_avg = np.mean(np.array(avg_arr), axis=0)
+        axs[-1].axhline(y = 0, color = 'black', alpha=0.3, linestyle='--')
         axs[-1].plot(one_neur_avg, color="k")
         axs[-1].set_title("Mean")
-        axs[-1].set_ylim(-3, 3)
+        axs[-1].set_ylim(-1, 1)
         axs[-1].axvspan(
             -self.bout_window[0],
             -self.bout_window[0] + self.one_bout_len_avg,
@@ -1446,6 +1453,7 @@ class WorkingFish_Tail(WorkingFish, TailTrackedFish):
             alpha=0.5,
             )
         axs[-1].axis("off")
+
 
         fig.tight_layout()
         plt.show()
@@ -1477,7 +1485,7 @@ class WorkingFish_Tail(WorkingFish, TailTrackedFish):
                 )
                 axs[n].plot(neur[0])
                 axs[n].set_title(f"Bout {one_neur_responses.index[n]}")
-                axs[n].set_ylim(-3, 3)
+                axs[n].set_ylim(-1, 1)
                 # marks the bout to be only one frame in time, might need to change with framerate
                 axs[n].axvspan(
                     -self.bout_window[0],
@@ -1494,7 +1502,7 @@ class WorkingFish_Tail(WorkingFish, TailTrackedFish):
             one_neur_avg = np.mean(np.array(avg_arr), axis=0)
             axs[-1].plot(one_neur_avg, color="k")
             axs[-1].set_title("Mean")
-            axs[-1].set_ylim(-3, 3)
+            axs[-1].set_ylim(-1, 1)
             axs[-1].axvspan(
                 -self.bout_window[0],
                 -self.bout_window[0] + self.one_bout_len_avg,
@@ -1565,7 +1573,7 @@ class WorkingFish_Tail(WorkingFish, TailTrackedFish):
 
         plt.show()
 
-    def make_computed_image_bouttiming(self, colorsumthresh=0):
+    def make_computed_image_bouttiming(self, colorsumthresh=0.4):
         from matplotlib.lines import Line2D
         import matplotlib.pyplot as plt
 
@@ -1626,6 +1634,8 @@ class WorkingFish_Tail(WorkingFish, TailTrackedFish):
             for color in constants.bout_timing_color_dict.values()
         ]
         plt.legend(markers, constants.bout_timing_color_dict.keys(), numpoints=1)
+
+        return xpos, ypos, colors, neurons
 
 
 class VolumeFish:
