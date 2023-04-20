@@ -1092,6 +1092,7 @@ class WorkingFish_Tail(WorkingFish, TailTrackedFish):
         # self.diff_image = self.make_difference_image()
 
         self.load_suite2p()
+        
         if hasattr(self, "tail_stimulus_df"):
             self.stimulus_df = stimuli.validate_stims(self.stimulus_df, self.f_cells)
             self.build_stimdicts()
@@ -1141,6 +1142,7 @@ class WorkingFish_Tail(WorkingFish, TailTrackedFish):
     def bout_locked_dict(
         self,
     ):  # collecting means of some frames before and after bouting split into each bout
+
         # bout_window is the frames before and after the bout that you are collecting
         self.zdiff_cells = [arrutils.zdiffcell(i) for i in self.f_cells]
         self.bout_zdiff_dict = {i: {} for i in range(len(self.tail_bouts_df))}
@@ -1154,51 +1156,37 @@ class WorkingFish_Tail(WorkingFish, TailTrackedFish):
                 resp_arrs = []
                 for arr in arrs:
                     resp_arrs.append(arrutils.pretty(nrn[arr], 2))
-                self.bout_zdiff_dict[bout][
-                    n
-                ] = resp_arrs  # for each bout, this is the array of each neuron
+                self.bout_zdiff_dict[bout][n] = resp_arrs # for each bout, this is the array of each neuron
 
         return self.bout_zdiff_dict
 
     def single_bout_avg_neurresp(self):
         # make df and adding average and peak responses to dictionary with arrays of each neuron response with bout
         self.bout_zdiff_df = pd.DataFrame(self.bout_zdiff_dict)
+
         all_means = []
         all_peak = []
         for i in range(len(self.bout_zdiff_df)):
             if i == range(len(self.bout_zdiff_df))[-1]:
-                all_arrays_one_neur = [
-                    item
-                    for sublist in self.bout_zdiff_df.iloc[-1:].values
-                    for item in sublist
-                ]
+                all_arrays_one_neur = [item for sublist in self.bout_zdiff_df.iloc[-1:].values for item in sublist]
                 all_means.append((np.nanmean(all_arrays_one_neur)))
                 all_peak.append((np.nanmax(all_arrays_one_neur)))
-
             else:
-                all_arrays_one_neur = [
-                    item
-                    for sublist in self.bout_zdiff_df.iloc[i : i + 1].values
-                    for item in sublist
-                ]
+                all_arrays_one_neur = [item for sublist in self.bout_zdiff_df.iloc[i:i+1].values for item in sublist]
                 all_means.append((np.nanmean(all_arrays_one_neur)))
                 all_peak.append((np.nanmax(all_arrays_one_neur)))
-
-        self.bout_zdiff_df["all_avg_resp"] = all_means
-        self.bout_zdiff_df["all_peak_resp"] = all_peak
-
         # self.most_resp_bout_zdiff_df = self.bout_zdiff_df[self.bout_zdiff_df.overall_peak_resp > thresh_resp] # taking top neurons based on threshold
         self.most_resp_bout_zdiff_df = self.bout_zdiff_df.sort_values(
             ["all_peak_resp"], ascending=False
         )[
             0:self.num_resp_neurons
         ]  # taking top resp neurons
+
         self.responsive_neuron_ids = self.most_resp_bout_zdiff_df.index.values.tolist()
         self.most_resp_bout_avg = {}
-        if "all_avg_resp" in self.most_resp_bout_zdiff_df.columns:
-            sub_bout_zdiff_df = self.most_resp_bout_zdiff_df.drop(
-                columns=["all_avg_resp", "all_peak_resp"]
-            )
+        if 'all_avg_resp' in self.most_resp_bout_zdiff_df.columns:
+            sub_bout_zdiff_df = self.most_resp_bout_zdiff_df.drop(columns = ['all_avg_resp', 'all_peak_resp'])
+
             for b in sub_bout_zdiff_df:
                 if b not in self.most_resp_bout_avg.keys():
                     self.most_resp_bout_avg[b] = {}
@@ -1211,7 +1199,6 @@ class WorkingFish_Tail(WorkingFish, TailTrackedFish):
                 self.most_resp_bout_avg[b] = one_bout_avg
 
         return self.most_resp_bout_zdiff_df, self.most_resp_bout_avg
-
     def avg_bout_avg_neurresp(self):
         from scipy import stats
         self.avgbout_avgneur_dict = {}
@@ -1221,15 +1208,15 @@ class WorkingFish_Tail(WorkingFish, TailTrackedFish):
                 self.tail_bouts_df.iloc[bout_no].image_frames[1]
                 - self.tail_bouts_df.iloc[bout_no].image_frames[0]
             )
+
             all_bout_len_avgs.append(bout_len)
             if bout_no not in self.avgbout_avgneur_dict.keys():
                 self.avgbout_avgneur_dict[bout_no] = {}
             total_bout_arr = self.most_resp_bout_avg[bout_no]
             self.avgbout_avgneur_dict[bout_no] = total_bout_arr
         self.avgbout_avgneur_df = pd.DataFrame(self.avgbout_avgneur_dict)
-
         self.avgbout_avgneur_df["mean"] = self.avgbout_avgneur_df.mean(axis=1)
-
+        
         sem_lst = []
         std_lst = []
         for j in self.avgbout_avgneur_df.iloc[:,:-1].values:
@@ -1286,6 +1273,7 @@ class WorkingFish_Tail(WorkingFish, TailTrackedFish):
                         )
                     ]
                 )
+
                 rsp_after_lst.append(rsp_after)
 
         # max values before and after bout
@@ -1303,9 +1291,9 @@ class WorkingFish_Tail(WorkingFish, TailTrackedFish):
 
         return self.responsive_trial_bouts
 
+
     def build_timing_bout_dict(self):
         self.timing_bout_dict = {}
-        
         for n, neuron in enumerate(
             self.most_resp_bout_zdiff_df[self.responsive_trial_bouts].index.values
         ):
@@ -1351,6 +1339,7 @@ class WorkingFish_Tail(WorkingFish, TailTrackedFish):
                         subset[-self.bout_window[0] : -self.bout_window[0] + 1]
                     )
 
+
     def make_taildata_avgneur_plots(self):
         import matplotlib.pyplot as plt
         from mimic_alpha import mimic_alpha as ma
@@ -1387,6 +1376,7 @@ class WorkingFish_Tail(WorkingFish, TailTrackedFish):
                     ] = self.tail_stimulus_df.stim_name.astype(str).map(
                         constants.velocity_mono_dict
                     )  # adding color for plotting
+
                     for stim in range(len(self.tail_stimulus_df)):
                         a = self.tail_stimulus_df.iloc[stim]
                         q = a.img_ind_start
@@ -1495,6 +1485,7 @@ class WorkingFish_Tail(WorkingFish, TailTrackedFish):
         fig.tight_layout()
         plt.show()
 
+
     def make_indneur_indbout_plots(self):
         # plotting each individual neuron to a bout, then mean of the neuron to all bouts
         import matplotlib.pyplot as plt
@@ -1532,9 +1523,8 @@ class WorkingFish_Tail(WorkingFish, TailTrackedFish):
                 )
                 axs[n].axis("off")
 
-            averages = [
-                item for sublist in one_neur_responses.values for item in sublist
-            ]
+
+            averages = [item for sublist in one_neur_responses.values for item in sublist]
             avg_arr = [l.tolist() for l in averages]
             one_neur_avg = np.mean(np.array(avg_arr), axis=0)
             one_neur_std = np.std(np.array(avg_arr), axis = 0)
@@ -1551,11 +1541,12 @@ class WorkingFish_Tail(WorkingFish, TailTrackedFish):
             )
             axs[-1].axis("off")
 
+
             fig.tight_layout()
             plt.show()
 
     def make_avgneur_indbout_plots(self):
-        # plotting neuron averages for each plot
+    # plotting neuron averages for each plot
         import matplotlib.pyplot as plt
         from scipy import stats
 
@@ -1633,6 +1624,7 @@ class WorkingFish_Tail(WorkingFish, TailTrackedFish):
         import matplotlib.pyplot as plt
 
         if hasattr(self, "timing_bout_dict"):
+
             pass
         else:
             self.build_timing_bout_dict()
@@ -1689,6 +1681,7 @@ class WorkingFish_Tail(WorkingFish, TailTrackedFish):
             plt.Line2D([0, 0], [0, 0], color=color, marker="o", linestyle="")
             for color in constants.bout_timing_color_dict.values()
         ]
+
         plt.legend(markers, constants.bout_timing_color_dict.keys(), numpoints=1)
 
         return xpos, ypos, colors, neurons
