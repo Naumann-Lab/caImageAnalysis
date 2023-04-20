@@ -605,7 +605,7 @@ class TailTrackedFish(VizStimFish):
         return self.tail_df, self.tail_stimulus_df
 
     def bout_finder(
-        self, sig=5, interpeak_dst=[0,200], height=[5, 100], width=[10, 300], prominence=7
+        self, sig=5, interpeak_dst=[0,200], height=[0, 100], width=[10, 300], prominence=7
     ):
         from scipy.signal import find_peaks
         import scipy.ndimage
@@ -617,9 +617,9 @@ class TailTrackedFish(VizStimFish):
         if height is None:
             height = [5, 200]
 
-        filtered_deflections = scipy.ndimage.gaussian_filter(
-            self.tail_df["/'TailLoc'/'TailDeflectSum'"].values, sigma=sig
-        )
+        # test one: putting in z-scored activity for filtered gaussian instead of raw
+        zscored_tail = arrutils.zscoring(self.tail_df["/'TailLoc'/'TailDeflectSum'"].values)
+        filtered_deflections = scipy.ndimage.gaussian_filter(zscored_tail, sigma=sig)
 
         peak_deflection, peaks = scipy.signal.find_peaks(
             abs(filtered_deflections),
@@ -681,21 +681,38 @@ class TailTrackedFish(VizStimFish):
         # need to run this function a few times because sometimes the peaks have many overlapping left/rights
         # in future build a function that can check how many overlapping peaks and then run fxn according to that...
         pts_uniq_2 = arrutils.remove_nearest_vals(pts_uniq)
-        pts_uniq_3 = arrutils.remove_nearest_vals(pts_uniq_2)
-        self.relevant_pts = arrutils.remove_nearest_vals(pts_uniq_3)
+        #pts_uniq_3 = arrutils.remove_nearest_vals(pts_uniq_2)
+        # pts_uniq_4 = arrutils.remove_nearest_vals(pts_uniq_3)
+        self.relevant_pts = arrutils.remove_nearest_vals(pts_uniq_2)
 
         dict_info = {}
-        for bout_ind in range(len(self.relevant_pts)):
+        rnge = 400
+        z_thresh = 2
+        for bout_ind, pts in enumerate(self.relevant_pts):
             if bout_ind not in dict_info.keys():
                 dict_info[bout_ind] = {}
-            bout_angle = np.sum(
-                self.tail_df.iloc[:, 4].values[
-                self.relevant_pts[bout_ind][0] : self.relevant_pts[bout_ind][1]
-                ]
-            )  # total bout angle
-            frame_start = self.tail_df.iloc[:, -1].values[self.relevant_pts[bout_ind][0]]
-            frame_end = self.tail_df.iloc[:, -1].values[self.relevant_pts[bout_ind][1]]
 
+            window = zscored_tail[pts[0] - rnge: pts[1] + rnge]
+            start_not_pts = window[0:rnge]
+            end_not_pts = window[len(window)- rnge:len(window)]
+            conditions = [start_not_pts, end_not_pts]
+
+            for c, arr in enumerate(conditions):
+                _, pval = scipy.stats.ttest_ind(arr, window, nan_policy = 'omit')
+                if pval > 0.05:
+                    frame_start = self.tail_df.iloc[:, -1].values[pts[0]]
+                    frame_end = self.tail_df.iloc[:, -1].values[pts[1]]
+                else:
+                    for q, r in enumerate(arr):
+                        if c == 0:
+                            if abs(r) > z_thresh:
+                                frame_start = self.tail_df.iloc[:, -1].values[pts[0] - (rnge - q)]
+                                break
+                        else:
+                            if abs(r) > z_thresh:
+                                frame_end = self.tail_df.iloc[:, -1].values[pts[1] + q] # don't break since I want the last occurance
+
+            bout_angle = np.sum(self.tail_df["/'TailLoc'/'TailDeflectSum'"][(self.tail_df["frame"] >= frame_start) & (self.tail_df["frame"] <= frame_end)].values)  # total bout angle
             dict_info[bout_ind]["bout_angle"] = bout_angle
             dict_info[bout_ind]["image_frames"] = frame_start, frame_end
 
@@ -1083,7 +1100,7 @@ class WorkingFish_Tail(WorkingFish, TailTrackedFish):
         self.bout_locked_dict()
         self.single_bout_avg_neurresp()
         self.avg_bout_avg_neurresp()
-        # self.neur_responsive_trials()
+        self.neur_responsive_trials()
         self.build_timing_bout_dict()
 
     def make_heatmap_bout_count(
@@ -1196,6 +1213,7 @@ class WorkingFish_Tail(WorkingFish, TailTrackedFish):
         return self.most_resp_bout_zdiff_df, self.most_resp_bout_avg
 
     def avg_bout_avg_neurresp(self):
+        from scipy import stats
         self.avgbout_avgneur_dict = {}
         all_bout_len_avgs = []
         for bout_no in self.most_resp_bout_avg.keys():
@@ -1209,7 +1227,17 @@ class WorkingFish_Tail(WorkingFish, TailTrackedFish):
             total_bout_arr = self.most_resp_bout_avg[bout_no]
             self.avgbout_avgneur_dict[bout_no] = total_bout_arr
         self.avgbout_avgneur_df = pd.DataFrame(self.avgbout_avgneur_dict)
+
         self.avgbout_avgneur_df["mean"] = self.avgbout_avgneur_df.mean(axis=1)
+
+        sem_lst = []
+        std_lst = []
+        for j in self.avgbout_avgneur_df.iloc[:,:-1].values:
+            sem_lst.append(stats.sem(j))
+            std_lst.append(np.std(j))
+        self.avgbout_avgneur_df["sem"] = sem_lst
+        self.avgbout_avgneur_df["std"] = std_lst
+
         self.one_bout_len_avg = np.mean(all_bout_len_avgs)
 
         return self.avgbout_avgneur_df, self.avgbout_avgneur_dict
@@ -1327,8 +1355,10 @@ class WorkingFish_Tail(WorkingFish, TailTrackedFish):
         import matplotlib.pyplot as plt
         from mimic_alpha import mimic_alpha as ma
 
+        self.avgbout_avgneur_df, self.avgbout_avgneur_dict = self.avg_bout_avg_neurresp()
+
         for bout_no in self.responsive_trial_bouts:
-            total_bout = pd.DataFrame(self.avgbout_avgneur_dict[bout_no])
+            total_bout = self.avgbout_avgneur_df.iloc[:,bout_no]
             bout_len = (
                 self.tail_bouts_df.iloc[bout_no].image_frames[1]
                 - self.tail_bouts_df.iloc[bout_no].image_frames[0]
@@ -1383,9 +1413,12 @@ class WorkingFish_Tail(WorkingFish, TailTrackedFish):
             ax[1].set_ylabel("Z score Tail Deflection Sum")
             ax[1].set_title("Tail behavior")
 
-            # neural z score trace
-            ax[0].plot(total_bout)
-            ax[0].set_title("Z score neural activity")
+            # neural z score trace, with std
+            x = np.arange(len(total_bout))
+            std_error = np.std(total_bout.values)
+            ax[0].plot(x, total_bout.values, 'k-')
+            ax[0].fill_between(x, total_bout.values - std_error, total_bout.values + std_error, alpha = 0.3)
+            ax[0].set_title("Z score neural activity with Std")
             ax[0].set_ylabel("Z score average")
             ax[0].set_xlabel("Frames (from imaging data)")
             ax[0].set_ylim(-1, 1)
@@ -1397,8 +1430,13 @@ class WorkingFish_Tail(WorkingFish, TailTrackedFish):
             )
 
 
-    def make_oneneur_allbout_plots(self, neur_id):
+    def make_oneneur_allbout_plots(self, neur_id, num_bouts = None):
         import matplotlib.pyplot as plt
+
+        if num_bouts == None:
+            num_bouts = len(self.responsive_trial_bouts)
+        else:
+            num_bouts = num_bouts
 
         for ind, n in enumerate(self.most_resp_bout_zdiff_df[self.responsive_trial_bouts].index):
             if n == neur_id:
@@ -1406,7 +1444,7 @@ class WorkingFish_Tail(WorkingFish, TailTrackedFish):
 
         fig, axs = plt.subplots(
             nrows=1,
-            ncols=len(self.responsive_trial_bouts) + 1,
+            ncols=num_bouts + 1,
             sharex=True,
             sharey=True,
             figsize=(10, 2),
@@ -1414,9 +1452,8 @@ class WorkingFish_Tail(WorkingFish, TailTrackedFish):
         fig.suptitle(f"Neuron #{neur_id} Response to bouts")
         axs = axs.flatten()
         for n, neur in enumerate(one_neur_responses):
-                # bout_no = one_neur_responses.index[n]
-                if one_neur_responses.index[n] in self.responsive_trial_bouts:
-                    bout_no = one_neur_responses.index[n]
+                bout_no = one_neur_responses.index[n]
+                if bout_no in self.responsive_trial_bouts[:num_bouts]:
                     bout_len = (
                             self.tail_bouts_df.iloc[bout_no].image_frames[1]
                             - self.tail_bouts_df.iloc[bout_no].image_frames[0]
@@ -1424,7 +1461,7 @@ class WorkingFish_Tail(WorkingFish, TailTrackedFish):
                     axs[n].axhline(y = 0, color = 'black', alpha=0.3, linestyle='--')
                     axs[n].plot(neur[0])
                     axs[n].set_title(f"Bout {bout_no}")
-                    axs[n].set_ylim(-1, 1)
+                    axs[n].set_ylim(-2, 2)
                     # marks the bout to be only one frame in time, might need to change with frame rate
                     axs[n].axvspan(
                         -self.bout_window[0],
@@ -1442,10 +1479,12 @@ class WorkingFish_Tail(WorkingFish, TailTrackedFish):
         ]
         avg_arr = [l.tolist() for l in averages]
         one_neur_avg = np.mean(np.array(avg_arr), axis=0)
+        one_neur_std = np.std(np.array(avg_arr), axis = 0)
         axs[-1].axhline(y = 0, color = 'black', alpha=0.3, linestyle='--')
-        axs[-1].plot(one_neur_avg, color="k")
+        axs[-1].plot(one_neur_avg, "k-")
+        axs[-1].fill_between(np.arange(one_neur_avg.shape[0]), one_neur_avg - one_neur_std, one_neur_avg + one_neur_std, alpha = 0.5)
         axs[-1].set_title("Mean")
-        axs[-1].set_ylim(-1, 1)
+        axs[-1].set_ylim(-2, 2)
         axs[-1].axvspan(
             -self.bout_window[0],
             -self.bout_window[0] + self.one_bout_len_avg,
@@ -1453,8 +1492,6 @@ class WorkingFish_Tail(WorkingFish, TailTrackedFish):
             alpha=0.5,
             )
         axs[-1].axis("off")
-
-
         fig.tight_layout()
         plt.show()
 
@@ -1500,7 +1537,10 @@ class WorkingFish_Tail(WorkingFish, TailTrackedFish):
             ]
             avg_arr = [l.tolist() for l in averages]
             one_neur_avg = np.mean(np.array(avg_arr), axis=0)
-            axs[-1].plot(one_neur_avg, color="k")
+            one_neur_std = np.std(np.array(avg_arr), axis = 0)
+            axs[-1].axhline(y = 0, color = 'black', alpha=0.3, linestyle='--')
+            axs[-1].plot(one_neur_avg, "k-")
+            axs[-1].fill_between(np.arange(one_neur_avg.shape[0]), one_neur_avg - one_neur_std, one_neur_avg + one_neur_std, alpha = 0.5)
             axs[-1].set_title("Mean")
             axs[-1].set_ylim(-1, 1)
             axs[-1].axvspan(
@@ -1517,6 +1557,7 @@ class WorkingFish_Tail(WorkingFish, TailTrackedFish):
     def make_avgneur_indbout_plots(self):
         # plotting neuron averages for each plot
         import matplotlib.pyplot as plt
+        from scipy import stats
 
         if hasattr(self, "one_bout_len_avg"):
             pass
@@ -1526,9 +1567,18 @@ class WorkingFish_Tail(WorkingFish, TailTrackedFish):
         self.responsive_trial_bout_df = self.avgbout_avgneur_df[
             self.responsive_trial_bouts
         ]
+
         self.responsive_trial_bout_df["mean"] = self.responsive_trial_bout_df.mean(
             axis=1
         )
+
+        sem_lst = []
+        std_lst = []
+        for j in self.responsive_trial_bout_df.iloc[:,:-1].values:
+            sem_lst.append(stats.sem(j))
+            std_lst.append(np.std(j))
+        self.responsive_trial_bout_df["sem"] = sem_lst
+        self.responsive_trial_bout_df["std"] = std_lst
 
         fig1, axs1 = plt.subplots(
             nrows=1,
@@ -1540,15 +1590,18 @@ class WorkingFish_Tail(WorkingFish, TailTrackedFish):
         fig1.suptitle(f'Mean Neural Response to each "responsive" bout')
 
         for m, bout_no in enumerate(self.responsive_trial_bouts):
-            total_bout = pd.DataFrame(self.responsive_trial_bout_df[bout_no])
+            total_bout = self.responsive_trial_bout_df[bout_no]
             bout_len = (
                 self.tail_bouts_df.iloc[bout_no].image_frames[1]
                 - self.tail_bouts_df.iloc[bout_no].image_frames[0]
             )
 
-            axs1[m].plot(total_bout)
+            x = np.arange(len(total_bout))
+            std = np.std(total_bout.values)
+            axs1[m].plot(total_bout, 'k-')
+            axs1[m].fill_between(x, total_bout.values - std, total_bout.values + std, alpha = 0.3)
             axs1[m].set_title(f"Bout #{bout_no}")
-            axs1[m].set_ylim(-3, 3)
+            axs1[m].set_ylim(-1, 1)
             # marks the bout to be only one frame in time, might need to change with framerate
             axs1[m].axvspan(
                 -self.bout_window[0],
@@ -1560,7 +1613,9 @@ class WorkingFish_Tail(WorkingFish, TailTrackedFish):
 
             fig1.tight_layout()
 
-        axs1[-1].plot(self.responsive_trial_bout_df["mean"], color="k")
+        axs1[-1].plot(self.responsive_trial_bout_df["mean"], 'k-')
+        axs1[-1].fill_between(x, self.responsive_trial_bout_df['mean'].values - self.responsive_trial_bout_df['std'].values,
+                         self.responsive_trial_bout_df['mean'].values + self.responsive_trial_bout_df['std'].values, alpha = 0.5)
         axs1[-1].axis("off")
         axs1[-1].axvspan(
             -self.bout_window[0],
@@ -1569,11 +1624,11 @@ class WorkingFish_Tail(WorkingFish, TailTrackedFish):
             alpha=0.5,
         )
         axs1[-1].set_ylim(-1, 1)
-        axs1[-1].set_title(f"Mean")
+        axs1[-1].set_title("Mean")
 
         plt.show()
 
-    def make_computed_image_bouttiming(self, colorsumthresh=0.4):
+    def make_computed_image_bouttiming(self, colorsumthresh=0.4, size = 150, alpha = 0.9, annotate_ids = True):
         from matplotlib.lines import Line2D
         import matplotlib.pyplot as plt
 
@@ -1615,11 +1670,12 @@ class WorkingFish_Tail(WorkingFish, TailTrackedFish):
         fig, axs = plt.subplots(1, 1, figsize=(12, 12))
 
         axs.scatter(
-            xpos, ypos, c=colors, alpha=0.85, s=200
+            xpos, ypos, c=colors, alpha=alpha, s=size
         )  ## most responsive neurons active before or after
 
-        for i, txt in enumerate(neurons):
-            axs.annotate(txt, (xpos[i], ypos[i]), c='pink')
+        if annotate_ids == True:
+            for i, txt in enumerate(neurons):
+                axs.annotate(txt, (xpos[i], ypos[i]), c='pink')
 
         axs.imshow(
             self.ops["refImg"],
