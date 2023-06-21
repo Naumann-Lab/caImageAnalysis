@@ -5,6 +5,8 @@ import pandas as pd
 import numpy as np
 from tiffile import imread, imwrite
 from datetime import datetime as dt, timedelta
+import glob
+import caiman as cm
 
 
 def bruker_img_organization(folder_path, testkey, safe=False):
@@ -38,7 +40,9 @@ def bruker_img_organization(folder_path, testkey, safe=False):
     # making the frametimes file
     with os.scandir(folder_path) as entries:
         for entry in entries:
-            if entry.name.endswith(".xml"):
+            if entry.name.endswith(".xml") and "MarkPoints" in entry.name:
+                slm_xml_path = Path(entry.path)
+            elif entry.name.endswith(".xml") and "MarkPoints" not in entry.name:
                 xml_path = Path(entry.path)
 
     with open(xml_path, "r") as f:
@@ -74,20 +78,29 @@ def bruker_img_organization(folder_path, testkey, safe=False):
     z_len = int(keylist[-1])  # getting number of planes
 
     for k, v in images.items():
-        fullstack = np.array(v)
-        new_folder = Path(new_output).joinpath(f"plane_{k}")
-        if not os.path.exists(new_folder):
-            os.mkdir(new_folder)
-        imwrite(
-            new_folder.joinpath(f"img_stack_{k}.tif"), fullstack
-        )  # saving new tifs, each one is a time series for each plane
+        # fullstack = np.array(v)
+        fld = Path(new_output).joinpath(f"plane_{k}")
+        if not os.path.exists(fld):
+            os.mkdir(fld)
+        for i, individual in enumerate(v):
+            imwrite(
+                fld.joinpath(f"individual_img_{k}_{i}.tif"), individual
+            )  # saving new tifs, each one is a time series for each plane
+        fls = glob.glob(os.path.join(fld,'*.tif'))  #  change tif to the extension you need
+        fls.sort()  # make sure your files are sorted alphanumerically
+        m = cm.load_movie_chain(fls)
+        m.save(os.path.join(fld,f'img_stack_{k}.tif'))
+        with os.scandir(fld) as entries:
+            for entry in entries:
+                if 'individual' in entry.name:
+                    os.remove(entry)
 
         for i in range(len(frametimes_df[0 : z_len - 1])):
             _frametimes_df = frametimes_df.iloc[i:]
             subdf = _frametimes_df.iloc[::z_len, :]
             subdf.reset_index(drop=True, inplace=True)
             if i == int(k):
-                saving = Path(new_folder).joinpath(f"frametimes.h5")
+                saving = Path(fld).joinpath(f"frametimes.h5")
                 subdf.to_hdf(
                     saving, key="frames", mode="a"
                 )  # saving frametimes into each specific folder
