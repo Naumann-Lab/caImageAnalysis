@@ -8,8 +8,8 @@ from datetime import datetime as dt, timedelta
 import glob
 import caiman as cm
 
-
-def bruker_img_organization(folder_path, testkey, safe=False):
+def bruker_img_organization_PV7(folder_path, testkey, safe=False):
+    # PV 5.7 software bruker organization function
     keyset = set()
     # get images all together
     with os.scandir(folder_path) as entries:
@@ -125,6 +125,130 @@ def bruker_img_organization(folder_path, testkey, safe=False):
                     else:
                         os.remove(new_location)
                 shutil.move(entry, new_location)
+
+
+def bruker_img_organization_PV8(folder_path, testkey = 'Cycle', safe=False):
+    # PV 5.8 software bruker organization function
+    keyset = set()
+
+    # get images all together
+    with os.scandir(folder_path) as entries:
+        for entry in entries:
+            if 'Cycle' in entry.name:
+                keyset.add(
+                    entry.name.split("Cycle")[1].split("_")[0]
+                )  # make a key for each plane
+
+    volume_path_dict = {k: {} for k in keyset}
+
+    # image paths go in this dict for each volume
+    for k in volume_path_dict.keys():
+        with os.scandir(folder_path) as entries:
+            for entry in entries:
+                if k in entry.name and testkey in entry.name:
+                    volume_path_dict[k] = entry.path
+
+    # number of planes gotten from the first image
+    plane_no = imread(volume_path_dict[k]).shape[0]
+    planes_dict = {k: [] for k in range(plane_no)}  # dictionary for each plane
+
+    for k in volume_path_dict.keys():
+        vol_img = volume_path_dict[k]
+        for n in range(len(planes_dict.keys())):
+            img = imread(vol_img)[n]
+            planes_dict[n].append(img)  # each plane_dict key is a different plane, with every image in a list
+
+    # making the frametimes file
+
+    with os.scandir(folder_path) as entries:
+        for entry in entries:
+            if entry.name.endswith(".xml") and "MarkPoints" in entry.name:
+                slm_xml_path = Path(entry.path)
+            elif entry.name.endswith(".xml") and "MarkPoints" not in entry.name:
+                xml_path = Path(entry.path)
+            elif 'pstim' in entry.name:
+                pstim_path = Path(entry.path)
+
+    with open(xml_path, "r") as f:
+        data = f.read()
+
+    times = []
+    for i in data.split("\n"):
+        if "time" in i:
+            start = [i][0].split("time=")[1].split('"')[1]
+            start_dt = dt.strptime(start[:-1], "%H:%M:%S.%f").time()
+
+        elif "absoluteTime" in i:
+            added_secs = [i.split("absoluteTime=")[1].split('"')[1]][0]
+            frame_dt = addSecs(start_dt, float(added_secs))
+            times.append(frame_dt)
+    frametimes_df = pd.DataFrame(times)
+    frametimes_df.rename({0: "time"}, axis=1, inplace=True)
+
+    save_path = Path(folder_path).joinpath(
+        "master_frametimes.h5"
+    )
+    frametimes_df.to_hdf(save_path, key="frames", mode="a") # saving master frametimes file
+
+    # reorganizing images, frametimes, pstim files into different folders
+
+    new_output = Path(folder_path).joinpath(
+        "output_folders"
+    )  # new folder to save the output tiffs
+    if not os.path.exists(new_output):
+        os.mkdir(new_output)
+
+    # getting plane stacks into specific folders
+
+    for k, v in planes_dict.items():
+        fld = Path(new_output).joinpath(f"plane_{k}")
+        if not os.path.exists(fld):
+            os.mkdir(fld)
+        for i, individual in enumerate(v):
+            imwrite(
+                fld.joinpath(f"individual_img_{k}_{i}.tif"), individual
+            )  # saving new tifs, each one is a time series for each plane
+        fls = glob.glob(os.path.join(fld,'*.tif'))  #  change tif to the extension you need
+        fls.sort()  # make sure your files are sorted alphanumerically
+        m = cm.load_movie_chain(fls)
+        m.save(os.path.join(fld,f'img_stack_{k}.tif'))
+        with os.scandir(fld) as entries:
+            for entry in entries:
+                if 'individual' in entry.name:
+                    os.remove(entry)
+
+        for i in range(plane_no):
+            _frametimes_df = frametimes_df.iloc[i:]
+            subdf = _frametimes_df.iloc[::plane_no, :]
+            subdf.reset_index(drop=True, inplace=True)
+            if i == int(k):
+                saving = Path(fld).joinpath(f"frametimes.h5")
+                subdf.to_hdf(
+                    saving, key="frames", mode="a"
+                )  # saving frametimes into each specific folder
+
+                if pstim_path.exists():  # if pstim output exists, save into each folder
+                    shutil.copy(pstim_path, Path(fld).joinpath(f"pstim_output.txt"))
+            else:
+                pass
+
+        # move over the original images into a new folder
+        moveto_folder = Path(folder_path).joinpath("bruker_images")
+        if not os.path.exists(moveto_folder):
+            os.mkdir(moveto_folder)
+
+        with os.scandir(folder_path) as entries:
+            for entry in entries:
+                if testkey in entry.name:
+                    new_location = moveto_folder.joinpath(entry.name)
+                    if os.path.exists(new_location):
+                        if safe:
+                            print("file already found at this location")
+
+                        else:
+                            os.remove(new_location)
+                    shutil.move(entry, new_location)
+
 
 
 def addSecs(tm, secs):
