@@ -243,7 +243,7 @@ class BaseFish:
 
     @staticmethod
     def hzReturner(frametimes):
-        increment = 15
+        increment = 5 #KF edit from 15, did not work with Bruker image sets
         test0 = 0
         test1 = increment
         while True:
