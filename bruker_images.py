@@ -24,7 +24,7 @@ def bruker_img_organization_PV7(folder_path, testkey, safe=False):
     for k in image_path_dict.keys():
         with os.scandir(folder_path) as entries:
             for entry in entries:
-                if k in entry.name and testkey in entry.name:
+                if k in entry.name and testkey in entry.name and 'tif' in entry.name:
                     entry_set = int(str(entry.path).split("Cycle")[1].split("_")[0])
                     image_path_dict[k][entry_set] = entry.path
 
@@ -128,7 +128,7 @@ def bruker_img_organization_PV7(folder_path, testkey, safe=False):
 
 
 def bruker_img_organization_PV8(folder_path, testkey = 'Cycle', safe=False):
-    # PV 5.8 software bruker organization function
+    # PV 5.8 software bruker organization function, volume stack
     keyset = set()
 
     # get images all together
@@ -145,7 +145,7 @@ def bruker_img_organization_PV8(folder_path, testkey = 'Cycle', safe=False):
     for k in volume_path_dict.keys():
         with os.scandir(folder_path) as entries:
             for entry in entries:
-                if k in entry.name and testkey in entry.name:
+                if k in entry.name and testkey in entry.name and 'tif' in entry.name:
                     volume_path_dict[k] = entry.path
 
     # number of planes gotten from the first image
