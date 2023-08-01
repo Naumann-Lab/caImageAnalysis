@@ -256,5 +256,77 @@ def addSecs(tm, secs):
     fulldate = fulldate + timedelta(seconds=secs)
     return fulldate.time()
 
+def find_photostim_frames(folderpath):
 
+    """
+    :param folderpath: path to folder that contains image and xml file with mark points
+    :return:
+    """
+    from PIL import Image
+
+    with os.scandir(folderpath) as entries:
+        for entry in entries:
+            if 'tif' in entry.name:
+                img_path = Path(entry.path) # open movement correct image
+
+    # IMAGE FRAMES
+    img = Image.open(img_path)
+    myArray = np.zeros((np.shape(img)[0], (np.shape(img)[1]), img.n_frames))
+
+    # read each frame into the array
+    for i in range(img.n_frames):
+        img.seek(i)
+        myArray[:, :, i] = img
+
+    # calculate a mean brightness trace
+    brightnessArray = myArray.mean(axis=(0, 1))
+
+    # use large changes in brightness (due to PMT shutter closure for laser) to do timing
+    diffArray = np.diff(brightnessArray)
+
+    # identify frames with large brightness changes
+    ids = np.squeeze(np.where(diffArray > 10))
+    beginIds = np.squeeze(np.where(diffArray < -10))
+
+    buffer = 2 # needed to have a few more frames on the end of this next for loop to accurately capture all frames that are bad
+    badframes = []
+    photostim_events = [] #list of start and end frames of each photostim event, helpful for plotting
+    for i, j in enumerate(beginIds):
+        photostim_events.append([j, ids[i]])
+        for number in range(beginIds[i], ids[i] + buffer):
+            badframes.append(number)
+
+    badframes_arr = np.array([*set(badframes)])  # remove duplicates and get array
+
+    np.save(folderpath.joinpath('bad_frames.npy'), badframes_arr)  # save badframes
+    print('saved bad_frames.npy')
+
+    return badframes_arr, photostim_events
+
+def find_photostimulated_cell(folderpath):
+    import xml.etree.ElementTree as et
+    from PIL import Image
+
+    with os.scandir(folderpath) as entries:
+        for entry in entries:
+            if 'tif' in entry.name:
+                img = Image.open(Path(entry.path)) # open movement correct image
+            elif entry.name.endswith(".xml") and "MarkPoints" in entry.name:
+                mark_pts_xml = Path(entry.path) # get path for mark points file
+
+    # load the photostim xml file
+    with open(mark_pts_xml, "r") as f:
+        data = f.read()
+    # read the x and y percentages
+    for i in data.split("\n"):
+        if 'Point Index' in i:
+            myX = i.split('X')[1].split('"')[1]
+            myY = i.split('Y')[1].split('"')[1]
+
+    xCoord = np.shape(img)[1] * float(myX)
+    yCoord = np.shape(img)[0] * float(myY)
+
+    # need to edit when stimulating more than just one cell
+
+    return [xCoord, yCoord]
 #%%

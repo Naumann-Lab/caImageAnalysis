@@ -1159,9 +1159,6 @@ class WorkingFish_Tail(WorkingFish, TailTrackedFish):
         self.avgbout_avgneur_dict = {}
         all_bout_len_avgs = []
         for bout_no in self.most_resp_bout_avg.keys():
-<<<<<<<<< Temporary merge branch 1
-            bout_len = self.tail_bouts_df.iloc[bout_no].image_frames[1] - self.tail_bouts_df.iloc[bout_no].image_frames[0]
-=========
             bout_len = (
                 self.tail_bouts_df.iloc[bout_no].image_frames[1]
                 - self.tail_bouts_df.iloc[bout_no].image_frames[0]
