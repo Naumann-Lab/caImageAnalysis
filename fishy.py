@@ -1155,6 +1155,9 @@ class WorkingFish_Tail(WorkingFish, TailTrackedFish):
                 all_arrays_one_neur = [item for sublist in self.bout_zdiff_df.iloc[-1:].values for item in sublist]
                 all_means.append((np.nanmean(all_arrays_one_neur)))
                 all_peak.append((np.nanmax(all_arrays_one_neur)))
+                for subset in all_arrays_one_neur:
+                    before = subset[0][-self.bout_window[0] - self.bout_offset: -self.bout_window[0]]
+                    after = subset[0][-self.bout_window[0]:-self.bout_window[0] + self.bout_offset]
             else:
                 all_arrays_one_neur = [item for sublist in self.bout_zdiff_df.iloc[i:i+1].values for item in sublist]
                 all_means.append((np.nanmean(all_arrays_one_neur)))
@@ -1274,7 +1277,7 @@ class WorkingFish_Tail(WorkingFish, TailTrackedFish):
 
     def build_timing_bout_dict(self):
         self.timing_bout_dict = {}
-        
+
         for n, neuron in enumerate(
             self.most_resp_bout_zdiff_df[self.responsive_trial_bouts].index.values
         ):
