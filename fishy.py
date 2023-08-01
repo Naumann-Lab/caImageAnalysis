@@ -243,7 +243,7 @@ class BaseFish:
 
     @staticmethod
     def hzReturner(frametimes):
-        increment = 5 #KF edit from 15, did not work with Bruker image sets
+        increment = 15
         test0 = 0
         test1 = increment
         while True:
@@ -1034,7 +1034,6 @@ class WorkingFish_Tail(WorkingFish, TailTrackedFish):
         # self.diff_image = self.make_difference_image()
 
         self.load_suite2p()
-        
         if hasattr(self, "tail_stimulus_df"):
             self.stimulus_df = stimuli.validate_stims(self.stimulus_df, self.f_cells)
             self.build_stimdicts()
@@ -1084,7 +1083,6 @@ class WorkingFish_Tail(WorkingFish, TailTrackedFish):
     def bout_locked_dict(
         self,
     ):  # collecting means of some frames before and after bouting split into each bout
-
         # bout_window is the frames before and after the bout that you are collecting
         self.zdiff_cells = [arrutils.zdiffcell(i) for i in self.f_cells]
         self.bout_zdiff_dict = {i: {} for i in range(len(self.tail_bouts_df))}
@@ -1098,7 +1096,9 @@ class WorkingFish_Tail(WorkingFish, TailTrackedFish):
                 resp_arrs = []
                 for arr in arrs:
                     resp_arrs.append(arrutils.pretty(nrn[arr], 2))
-                self.bout_zdiff_dict[bout][n] = resp_arrs # for each bout, this is the array of each neuron
+                self.bout_zdiff_dict[bout][
+                    n
+                ] = resp_arrs  # for each bout, this is the array of each neuron
 
         return self.bout_zdiff_dict
 
@@ -1159,6 +1159,9 @@ class WorkingFish_Tail(WorkingFish, TailTrackedFish):
         self.avgbout_avgneur_dict = {}
         all_bout_len_avgs = []
         for bout_no in self.most_resp_bout_avg.keys():
+<<<<<<<<< Temporary merge branch 1
+            bout_len = self.tail_bouts_df.iloc[bout_no].image_frames[1] - self.tail_bouts_df.iloc[bout_no].image_frames[0]
+=========
             bout_len = (
                 self.tail_bouts_df.iloc[bout_no].image_frames[1]
                 - self.tail_bouts_df.iloc[bout_no].image_frames[0]
@@ -1215,13 +1218,8 @@ class WorkingFish_Tail(WorkingFish, TailTrackedFish):
             else:  # takes the average
                 rsp_before = np.nanmean(self.most_resp_bout_avg[bout_no][-self.bout_window[0] - self.bout_offset : -self.bout_window[0]])
                 rsp_before_lst.append(rsp_before)
-                rsp_after = np.nanmean(
-                    self.most_resp_bout_avg[bout_no][
-                        int(-self.bout_window[0] + bout_len) : int(
-                            -self.bout_window[0] + bout_len + self.bout_offset
-                        )
-                    ]
-                )
+                rsp_after = np.nanmean(self.most_resp_bout_avg[bout_no][int(-self.bout_window[0] + bout_len) :
+                                                                        int(-self.bout_window[0] + bout_len + self.bout_offset)])
                 rsp_after_lst.append(rsp_after)
 
         # max values before and after bout
@@ -1241,7 +1239,6 @@ class WorkingFish_Tail(WorkingFish, TailTrackedFish):
 
     def build_timing_bout_dict(self):
         self.timing_bout_dict = {}
-
 
         for n, neuron in enumerate(
             self.most_resp_bout_zdiff_df[self.responsive_trial_bouts].index.values
@@ -1440,6 +1437,7 @@ class WorkingFish_Tail(WorkingFish, TailTrackedFish):
     def make_indneur_indbout_plots(self):
         # plotting each individual neuron to a bout, then mean of the neuron to all bouts
         import matplotlib.pyplot as plt
+
         for v, vals in enumerate(
             self.most_resp_bout_zdiff_df[self.responsive_trial_bouts].index
         ):
@@ -1473,7 +1471,6 @@ class WorkingFish_Tail(WorkingFish, TailTrackedFish):
                 )
                 axs[n].axis("off")
 
-            averages = [item for sublist in one_neur_responses.values for item in sublist]
             averages = [
                 item for sublist in one_neur_responses.values for item in sublist
             ]
