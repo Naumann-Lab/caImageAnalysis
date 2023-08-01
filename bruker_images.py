@@ -5,9 +5,11 @@ import pandas as pd
 import numpy as np
 from tiffile import imread, imwrite
 from datetime import datetime as dt, timedelta
+import glob
+import caiman as cm
 
-
-def bruker_img_organization(folder_path, testkey, safe=False):
+def bruker_img_organization_PV7(folder_path, testkey, safe=False):
+    # PV 5.7 software bruker organization function
     keyset = set()
     # get images all together
     with os.scandir(folder_path) as entries:
@@ -22,7 +24,7 @@ def bruker_img_organization(folder_path, testkey, safe=False):
     for k in image_path_dict.keys():
         with os.scandir(folder_path) as entries:
             for entry in entries:
-                if k in entry.name and testkey in entry.name:
+                if k in entry.name and testkey in entry.name and 'tif' in entry.name:
                     entry_set = int(str(entry.path).split("Cycle")[1].split("_")[0])
                     image_path_dict[k][entry_set] = entry.path
 
@@ -38,7 +40,9 @@ def bruker_img_organization(folder_path, testkey, safe=False):
     # making the frametimes file
     with os.scandir(folder_path) as entries:
         for entry in entries:
-            if entry.name.endswith(".xml"):
+            if entry.name.endswith(".xml") and "MarkPoints" in entry.name:
+                slm_xml_path = Path(entry.path)
+            elif entry.name.endswith(".xml") and "MarkPoints" not in entry.name:
                 xml_path = Path(entry.path)
 
     with open(xml_path, "r") as f:
@@ -74,20 +78,29 @@ def bruker_img_organization(folder_path, testkey, safe=False):
     z_len = int(keylist[-1])  # getting number of planes
 
     for k, v in images.items():
-        fullstack = np.array(v)
-        new_folder = Path(new_output).joinpath(f"plane_{k}")
-        if not os.path.exists(new_folder):
-            os.mkdir(new_folder)
-        imwrite(
-            new_folder.joinpath(f"img_stack_{k}.tif"), fullstack
-        )  # saving new tifs, each one is a time series for each plane
+        # fullstack = np.array(v)
+        fld = Path(new_output).joinpath(f"plane_{k}")
+        if not os.path.exists(fld):
+            os.mkdir(fld)
+        for i, individual in enumerate(v):
+            imwrite(
+                fld.joinpath(f"individual_img_{k}_{i}.tif"), individual
+            )  # saving new tifs, each one is a time series for each plane
+        fls = glob.glob(os.path.join(fld,'*.tif'))  #  change tif to the extension you need
+        fls.sort()  # make sure your files are sorted alphanumerically
+        m = cm.load_movie_chain(fls)
+        m.save(os.path.join(fld,f'img_stack_{k}.tif'))
+        with os.scandir(fld) as entries:
+            for entry in entries:
+                if 'individual' in entry.name:
+                    os.remove(entry)
 
         for i in range(len(frametimes_df[0 : z_len - 1])):
             _frametimes_df = frametimes_df.iloc[i:]
             subdf = _frametimes_df.iloc[::z_len, :]
             subdf.reset_index(drop=True, inplace=True)
             if i == int(k):
-                saving = Path(new_folder).joinpath(f"frametimes.h5")
+                saving = Path(fld).joinpath(f"frametimes.h5")
                 subdf.to_hdf(
                     saving, key="frames", mode="a"
                 )  # saving frametimes into each specific folder
@@ -114,10 +127,206 @@ def bruker_img_organization(folder_path, testkey, safe=False):
                 shutil.move(entry, new_location)
 
 
+def bruker_img_organization_PV8(folder_path, testkey = 'Cycle', safe=False):
+    # PV 5.8 software bruker organization function, volume stack
+    keyset = set()
+
+    # get images all together
+    with os.scandir(folder_path) as entries:
+        for entry in entries:
+            if 'Cycle' in entry.name:
+                keyset.add(
+                    entry.name.split("Cycle")[1].split("_")[0]
+                )  # make a key for each plane
+
+    volume_path_dict = {k: {} for k in keyset}
+
+    # image paths go in this dict for each volume
+    for k in volume_path_dict.keys():
+        with os.scandir(folder_path) as entries:
+            for entry in entries:
+                if k in entry.name and testkey in entry.name and 'tif' in entry.name:
+                    volume_path_dict[k] = entry.path
+
+    # number of planes gotten from the first image
+    plane_no = imread(volume_path_dict[k]).shape[0]
+    planes_dict = {k: [] for k in range(plane_no)}  # dictionary for each plane
+
+    for k in volume_path_dict.keys():
+        vol_img = volume_path_dict[k]
+        for n in range(len(planes_dict.keys())):
+            img = imread(vol_img)[n]
+            planes_dict[n].append(img)  # each plane_dict key is a different plane, with every image in a list
+
+    # making the frametimes file
+
+    with os.scandir(folder_path) as entries:
+        for entry in entries:
+            if entry.name.endswith(".xml") and "MarkPoints" in entry.name:
+                slm_xml_path = Path(entry.path)
+            elif entry.name.endswith(".xml") and "MarkPoints" not in entry.name:
+                xml_path = Path(entry.path)
+            elif 'pstim' in entry.name:
+                pstim_path = Path(entry.path)
+
+    with open(xml_path, "r") as f:
+        data = f.read()
+
+    times = []
+    for i in data.split("\n"):
+        if "time" in i:
+            start = [i][0].split("time=")[1].split('"')[1]
+            start_dt = dt.strptime(start[:-1], "%H:%M:%S.%f").time()
+
+        elif "absoluteTime" in i:
+            added_secs = [i.split("absoluteTime=")[1].split('"')[1]][0]
+            frame_dt = addSecs(start_dt, float(added_secs))
+            times.append(frame_dt)
+    frametimes_df = pd.DataFrame(times)
+    frametimes_df.rename({0: "time"}, axis=1, inplace=True)
+
+    save_path = Path(folder_path).joinpath(
+        "master_frametimes.h5"
+    )
+    frametimes_df.to_hdf(save_path, key="frames", mode="a") # saving master frametimes file
+
+    # reorganizing images, frametimes, pstim files into different folders
+
+    new_output = Path(folder_path).joinpath(
+        "output_folders"
+    )  # new folder to save the output tiffs
+    if not os.path.exists(new_output):
+        os.mkdir(new_output)
+
+    # getting plane stacks into specific folders
+
+    for k, v in planes_dict.items():
+        fld = Path(new_output).joinpath(f"plane_{k}")
+        if not os.path.exists(fld):
+            os.mkdir(fld)
+        for i, individual in enumerate(v):
+            imwrite(
+                fld.joinpath(f"individual_img_{k}_{i}.tif"), individual
+            )  # saving new tifs, each one is a time series for each plane
+        fls = glob.glob(os.path.join(fld,'*.tif'))  #  change tif to the extension you need
+        fls.sort()  # make sure your files are sorted alphanumerically
+        m = cm.load_movie_chain(fls)
+        m.save(os.path.join(fld,f'img_stack_{k}.tif'))
+        with os.scandir(fld) as entries:
+            for entry in entries:
+                if 'individual' in entry.name:
+                    os.remove(entry)
+
+        for i in range(plane_no):
+            _frametimes_df = frametimes_df.iloc[i:]
+            subdf = _frametimes_df.iloc[::plane_no, :]
+            subdf.reset_index(drop=True, inplace=True)
+            if i == int(k):
+                saving = Path(fld).joinpath(f"frametimes.h5")
+                subdf.to_hdf(
+                    saving, key="frames", mode="a"
+                )  # saving frametimes into each specific folder
+
+                if pstim_path.exists():  # if pstim output exists, save into each folder
+                    shutil.copy(pstim_path, Path(fld).joinpath(f"pstim_output.txt"))
+            else:
+                pass
+
+        # move over the original images into a new folder
+        moveto_folder = Path(folder_path).joinpath("bruker_images")
+        if not os.path.exists(moveto_folder):
+            os.mkdir(moveto_folder)
+
+        with os.scandir(folder_path) as entries:
+            for entry in entries:
+                if testkey in entry.name:
+                    new_location = moveto_folder.joinpath(entry.name)
+                    if os.path.exists(new_location):
+                        if safe:
+                            print("file already found at this location")
+
+                        else:
+                            os.remove(new_location)
+                    shutil.move(entry, new_location)
+
+
+
 def addSecs(tm, secs):
     fulldate = dt(100, 1, 1, tm.hour, tm.minute, tm.second, tm.microsecond)
     fulldate = fulldate + timedelta(seconds=secs)
     return fulldate.time()
 
+def find_photostim_frames(folderpath):
 
+    """
+    :param folderpath: path to folder that contains image and xml file with mark points
+    :return:
+    """
+    from PIL import Image
+
+    with os.scandir(folderpath) as entries:
+        for entry in entries:
+            if 'tif' in entry.name:
+                img_path = Path(entry.path) # open movement correct image
+
+    # IMAGE FRAMES
+    img = Image.open(img_path)
+    myArray = np.zeros((np.shape(img)[0], (np.shape(img)[1]), img.n_frames))
+
+    # read each frame into the array
+    for i in range(img.n_frames):
+        img.seek(i)
+        myArray[:, :, i] = img
+
+    # calculate a mean brightness trace
+    brightnessArray = myArray.mean(axis=(0, 1))
+
+    # use large changes in brightness (due to PMT shutter closure for laser) to do timing
+    diffArray = np.diff(brightnessArray)
+
+    # identify frames with large brightness changes
+    ids = np.squeeze(np.where(diffArray > 10))
+    beginIds = np.squeeze(np.where(diffArray < -10))
+
+    buffer = 2 # needed to have a few more frames on the end of this next for loop to accurately capture all frames that are bad
+    badframes = []
+    photostim_events = [] #list of start and end frames of each photostim event, helpful for plotting
+    for i, j in enumerate(beginIds):
+        photostim_events.append([j, ids[i]])
+        for number in range(beginIds[i], ids[i] + buffer):
+            badframes.append(number)
+
+    badframes_arr = np.array([*set(badframes)])  # remove duplicates and get array
+
+    np.save(folderpath.joinpath('bad_frames.npy'), badframes_arr)  # save badframes
+    print('saved bad_frames.npy')
+
+    return badframes_arr, photostim_events
+
+def find_photostimulated_cell(folderpath):
+    import xml.etree.ElementTree as et
+    from PIL import Image
+
+    with os.scandir(folderpath) as entries:
+        for entry in entries:
+            if 'tif' in entry.name:
+                img = Image.open(Path(entry.path)) # open movement correct image
+            elif entry.name.endswith(".xml") and "MarkPoints" in entry.name:
+                mark_pts_xml = Path(entry.path) # get path for mark points file
+
+    # load the photostim xml file
+    with open(mark_pts_xml, "r") as f:
+        data = f.read()
+    # read the x and y percentages
+    for i in data.split("\n"):
+        if 'Point Index' in i:
+            myX = i.split('X')[1].split('"')[1]
+            myY = i.split('Y')[1].split('"')[1]
+
+    xCoord = np.shape(img)[1] * float(myX)
+    yCoord = np.shape(img)[0] * float(myY)
+
+    # need to edit when stimulating more than just one cell
+
+    return [xCoord, yCoord]
 #%%
