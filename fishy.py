@@ -758,8 +758,12 @@ class WorkingFish(VizStimFish):
             normcells = arrutils.norm_fdff(self.f_cells)
             for n, nrn in enumerate(normcells):
                 resp_arrs = []
-                for arr in arrs:
-                    resp_arrs.append(arrutils.pretty(nrn[arr], 2))
+                try:
+                    for arr in arrs:
+                        # resp_arrs.append(arrutils.pretty(nrn[arr], 2))
+                        resp_arrs.append(nrn[arr])
+                except:
+                    pass
                 self.extended_responses2[stim][n] = resp_arrs
 
     def build_stimdicts(self):
