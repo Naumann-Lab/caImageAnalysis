@@ -137,7 +137,7 @@ def bruker_img_organization_PV8(folder_path, testkey = 'Cycle', safe=False, sing
     # get images all together
     with os.scandir(folder_path) as entries:
         for entry in entries:
-            if 'Cycle' and 'tif' in entry.name: 
+            if 'Cycle' and 'tif' in entry.name:
                 keyset.add(
                     entry.name.split("Cycle")[1].split("_")[0]
                 )  # make a key for each plane
@@ -146,8 +146,8 @@ def bruker_img_organization_PV8(folder_path, testkey = 'Cycle', safe=False, sing
             elif entry.name.endswith(".xml") and "MarkPoints" not in entry.name:
                 xml_path = Path(entry.path)
             elif 'pstim' in entry.name:
-                pstim_path = Path(entry.path)                
-    
+                pstim_path = Path(entry.path)
+
     # making new output folders
     new_output = Path(folder_path).joinpath(
         "output_folders"
@@ -206,7 +206,7 @@ def bruker_img_organization_PV8(folder_path, testkey = 'Cycle', safe=False, sing
     frametimes_df.to_hdf(save_path, key="frames", mode="a") # saving master frametimes file
 
     # reorganizing images, frametimes, pstim files into different folders
-   
+
     # getting plane stacks into specific folders
     if single_plane == True:
         save_path = Path(save_fld).joinpath("frametimes.h5")
@@ -232,7 +232,7 @@ def bruker_img_organization_PV8(folder_path, testkey = 'Cycle', safe=False, sing
                 for entry in entries:
                     if 'individual' in entry.name:
                         os.remove(entry)
- 
+
         for i in range(plane_no):
             _frametimes_df = frametimes_df.iloc[i:]
             subdf = _frametimes_df.iloc[::plane_no, :]
@@ -309,7 +309,7 @@ def find_photostim_frames(folderpath, buffer = 2, thresh_int = 20):
     for m, n in enumerate(beginIds):
         if (n != beginIds[-1]) and (beginIds[m+1] - beginIds[m] == 1): #if the next value is only 1 away, then we want to keep the smaller frame number
             beginIds.remove(beginIds[m+1])
-    
+
     if len(beginIds) < len(ids): # inserting the first frame to be the start of beginning ids in case the first stimulation event was the first frame
         beginIds.insert(0, 0)
 
@@ -319,7 +319,7 @@ def find_photostim_frames(folderpath, buffer = 2, thresh_int = 20):
         photostim_events.append([j, ids[i]])
         for number in range(beginIds[i], ids[i] + buffer):
             badframes.append(number)
-    
+
     badframes_arr = np.array(badframes)  # remove duplicates and get array
 
     np.save(folderpath.joinpath('bad_frames.npy'), badframes_arr)  # save badframes
@@ -337,7 +337,7 @@ def find_photostimulated_cell(folderpath, basefish_class, roi = 6):
                 img = imread(Path(entry.path)) # open original image
             elif entry.name.endswith(".xml") and "MarkPoints" in entry.name:
                 mark_pts_xml = Path(entry.path) # get path for mark points file
-    
+
     # load the photostim xml file
     with open(mark_pts_xml, "r") as f:
         data = f.read()
@@ -350,8 +350,8 @@ def find_photostimulated_cell(folderpath, basefish_class, roi = 6):
     xCoord = img.shape[1] * float(myX)
     yCoord = img.shape[2] * float(myY)
     coors = np.array([xCoord, yCoord])
-    
+
     # need to edit when stimulating more than just one cell
 
-    return coors 
+    return coors
 #%%
