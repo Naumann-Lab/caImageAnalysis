@@ -327,7 +327,7 @@ def find_photostim_frames(folderpath, buffer = 2, thresh_int = 20):
 
     return badframes_arr, photostim_events
 
-def find_photostimulated_cell(folderpath, basefish_class, roi = 6):
+def find_photostimulated_cell(folderpath, roi = 6):
     import xml.etree.ElementTree as et
     from PIL import Image
 
