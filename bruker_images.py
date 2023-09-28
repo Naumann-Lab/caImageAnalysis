@@ -4,9 +4,13 @@ import shutil
 import pandas as pd
 import numpy as np
 from tiffile import imread, imwrite
+import tifftools
 from datetime import datetime as dt, timedelta
+import xml.etree.ElementTree as ET
 import glob
 import caiman as cm
+
+
 
 def bruker_img_organization_PV7(folder_path, testkey, safe=False):
     # PV 5.7 software bruker organization function
@@ -133,14 +137,17 @@ def bruker_img_organization_PV8(folder_path, testkey = 'Cycle', safe=False, sing
 
     keyset = set()
     pstim_path = None
+    tiff_files_li = []
 
     # get images all together
     with os.scandir(folder_path) as entries:
         for entry in entries:
-            if 'Cycle' and 'tif' in entry.name:
+            if testkey in entry.name and 'tif' in entry.name:
                 keyset.add(
                     entry.name.split("Cycle")[1].split("_")[0]
                 )  # make a key for each plane
+                tiff_files_li.append(Path(entry.path))
+
             elif entry.name.endswith(".xml") and "MarkPoints" in entry.name:
                 stim_xml_path = Path(entry.path)
             elif entry.name.endswith(".xml") and "MarkPoints" not in entry.name:
@@ -156,6 +163,7 @@ def bruker_img_organization_PV8(folder_path, testkey = 'Cycle', safe=False, sing
         os.mkdir(new_output)
 
     if single_plane == True:
+
         fls = glob.glob(os.path.join(folder_path,'*.tif'))  #  change tif to the extension you need
         fls.sort()  # make sure your files are sorted alphanumerically
         m = cm.load_movie_chain(fls)
@@ -163,7 +171,35 @@ def bruker_img_organization_PV8(folder_path, testkey = 'Cycle', safe=False, sing
         if not os.path.exists(save_fld):
             os.mkdir(save_fld)
         m.save(os.path.join(save_fld,'img_stack.tif'))
+        # making the frametimes file
+        with open(xml_path, "r") as f:
+            data = f.read()
+
+        times = []
+        for i in data.split("\n"):
+            if "time" in i:
+                start = [i][0].split("time=")[1].split('"')[1]
+                start_dt = dt.strptime(start[:-1], "%H:%M:%S.%f").time()
+
+            elif "absoluteTime" in i:
+                added_secs = [i.split("absoluteTime=")[1].split('"')[1]][0]
+                frame_dt = addSecs(start_dt, float(added_secs))
+                times.append(frame_dt)
+        frametimes_df = pd.DataFrame(times)
+        frametimes_df.rename({0: "time"}, axis=1, inplace=True)
+
+        save_path = Path(save_fld).joinpath(
+            "frametimes.h5"
+        )
+        frametimes_df.to_hdf(save_path, key="frames", mode="a")  # saving frametimes file into single plane
+
+        if pstim_path in locals():  # if pstim output exists, save into each folder
+            shutil.copy(pstim_path, Path(save_fld).joinpath(f"pstim_output.txt"))
+        else:
+            print('no pstim file')
+
     else:
+        # do everything for volumes here
         volume_path_dict = {k: {} for k in keyset}
 
         # image paths go in this dict for each volume
@@ -183,39 +219,29 @@ def bruker_img_organization_PV8(folder_path, testkey = 'Cycle', safe=False, sing
                 img = imread(vol_img)[n]
                 planes_dict[n].append(img)  # each plane_dict key is a different plane, with every image in a list
 
-    # making the frametimes file
-    with open(xml_path, "r") as f:
-        data = f.read()
+    # reorganizing images, frametimes, pstim files into different folders
+        tree = ET.parse(xml_path)
+        root = tree.getroot()
 
-    times = []
-    for i in data.split("\n"):
-        if "time" in i:
-            start = [i][0].split("time=")[1].split('"')[1]
-            start_dt = dt.strptime(start[:-1], "%H:%M:%S.%f").time()
+        times = []
+        for start in root.iter('PVScan'):
+            begin_time = start.attrib['date'].split(' ')[1]
+            start_dt = dt.strptime(begin_time, "%H:%M:%S").time()
+            if start.attrib['date'].split(' ')[2] == 'PM':
+                start_dt = addHours(start_dt, float(12))
 
-        elif "absoluteTime" in i:
-            added_secs = [i.split("absoluteTime=")[1].split('"')[1]][0]
+        for frame in root.iter('Frame'):
+            added_secs = frame.attrib['absoluteTime']
             frame_dt = addSecs(start_dt, float(added_secs))
             times.append(frame_dt)
-    frametimes_df = pd.DataFrame(times)
-    frametimes_df.rename({0: "time"}, axis=1, inplace=True)
-
-    save_path = Path(folder_path).joinpath(
-        "master_frametimes.h5"
-    )
-    frametimes_df.to_hdf(save_path, key="frames", mode="a") # saving master frametimes file
-
-    # reorganizing images, frametimes, pstim files into different folders
-
+        frametimes_df = pd.DataFrame(times)
+        frametimes_df.rename({0: "time"}, axis=1, inplace=True)
+        save_path = Path(folder_path).joinpath(
+            "master_frametimes.h5"
+        )
+        frametimes_df.to_hdf(save_path, key="frames", mode="a")  # saving master frametimes file
     # getting plane stacks into specific folders
-    if single_plane == True:
-        save_path = Path(save_fld).joinpath("frametimes.h5")
-        frametimes_df.to_hdf(save_path, key="frames", mode="a") # saving master frametimes file into single plane
-        if pstim_path in locals():  # if pstim output exists, save into each folder
-            shutil.copy(pstim_path, Path(save_fld).joinpath(f"pstim_output.txt"))
-        else:
-            print('no pstim file')
-    else:
+
         for k, v in planes_dict.items():
             fld = Path(new_output).joinpath(f"plane_{k}")
             if not os.path.exists(fld):
@@ -233,19 +259,17 @@ def bruker_img_organization_PV8(folder_path, testkey = 'Cycle', safe=False, sing
                     if 'individual' in entry.name:
                         os.remove(entry)
 
-        for i in range(plane_no):
-            _frametimes_df = frametimes_df.iloc[i:]
-            subdf = _frametimes_df.iloc[::plane_no, :]
-            subdf.reset_index(drop=True, inplace=True)
-            if i == int(k):
-                saving = Path(fld).joinpath(f"frametimes.h5")
-                subdf.to_hdf(
-                    saving, key="frames", mode="a"
-                )  # saving frametimes into each specific folder
-                if pstim_path in locals():  # if pstim output exists, save into each folder
-                    shutil.copy(pstim_path, Path(fld).joinpath(f"pstim_output.txt"))
-            else:
-                pass
+            for i in range(plane_no):
+                _frametimes_df = frametimes_df.iloc[i:]
+                subdf = _frametimes_df.iloc[::plane_no, :]
+                subdf.reset_index(drop=True, inplace=True)
+                if i == int(k):
+                    saving = Path(fld).joinpath(f"frametimes.h5")
+                    subdf.to_hdf(
+                        saving, key="frames", mode="a"
+                    )  # saving frametimes into each specific folder
+                    if pstim_path in locals():  # if pstim output exists, save into each folder
+                        shutil.copy(pstim_path, Path(fld).joinpath(f"pstim_output.txt"))
 
     # move over the original images into a new folder
     moveto_folder = Path(folder_path).joinpath("bruker_images")
@@ -270,7 +294,24 @@ def addSecs(tm, secs):
     fulldate = fulldate + timedelta(seconds=secs)
     return fulldate.time()
 
-def find_photostim_frames(folderpath, buffer = 2, thresh_int = 20):
+def addHours(tm, hrs):
+    fulldate = dt(100, 1, 1, tm.hour, tm.minute, tm.second, tm.microsecond)
+    fulldate = fulldate + timedelta(hours=hrs)
+    return fulldate.time()
+
+def find_baseline_frames(folder_path):
+    original_imgs = Path(folder_path).joinpath("bruker_images")
+    with os.scandir(original_imgs) as entries:
+        for entry in entries:
+            if 'Cycle' in entry.name and 'tif' in entry.name:
+                baseline_img = imread(entry.path)
+                break #want the first tif file here
+
+    baseline_frames = baseline_img.shape[0]
+
+    return baseline_frames
+
+def find_photostim_frames(some_baseFish, threshold = 0.8):
 
     """
     :param folderpath: path to folder that contains image and xml file with mark points
@@ -278,11 +319,35 @@ def find_photostim_frames(folderpath, buffer = 2, thresh_int = 20):
     :return:
     """
     from PIL import Image
+    import math
+    from fishy import BaseFish
 
-    with os.scandir(folderpath) as entries:
+    img_path = some_baseFish.data_paths['move_corrected_image']
+
+    with os.scandir(Path(img_path).parents[2]) as entries:
         for entry in entries:
-            if 'tif' in entry.name and 'movement_corr' in entry.name:
-                img_path = Path(entry.path) # open movement correct image
+            if 'MarkPoints' in entry.name:
+                xml_file = Path(entry.path)
+
+    with open(xml_file, "r") as f:
+        data = f.read()
+
+    for i in data.split("\n"):
+        if "InitialDelay" in i:
+            initial_delay_ms = int([i][0].split("InitialDelay=")[1].split('"')[1])
+            interpointdelay_ms = int([i][0].split("InterPointDelay=")[1].split('"')[1])
+            duration_ms = int([i][0].split("Duration=")[1].split('"')[1])
+            indices = int([i][0].split("Indices=")[1].split('"')[1].split('-')[1])
+        elif "Repetitions" in i:
+            no_repetitions = int([i][0].split("Repetitions=")[1].split('"')[1])
+        elif "Iterations" in i:
+            no_iterations = int([i][0].split("Iterations=")[1].split('"')[1])
+            iteration_delay_ms = int(float([i][0].split("IterationDelay=")[1].split('"')[1]))
+
+    full_duration_ms = initial_delay_ms + ((no_repetitions * duration_ms + interpointdelay_ms) * indices)
+    img_hz = BaseFish.hzReturner(some_baseFish.frametimes_df)
+    full_duration_frames = math.ceil((full_duration_ms / 1000) * img_hz)
+    iteration_delay_frames = math.ceil((iteration_delay_ms / 1000) * img_hz)
 
     # IMAGE FRAMES
     img = Image.open(img_path)
@@ -299,59 +364,113 @@ def find_photostim_frames(folderpath, buffer = 2, thresh_int = 20):
     # use large changes in brightness (due to PMT shutter closure for laser) to do timing
     diffArray = np.diff(brightnessArray)
 
-    # identify frames with large brightness changes and clean up these arrays
-    ids = list(np.squeeze(np.where(diffArray > thresh_int)))
-    for x, y in enumerate(ids):
-        if (y != ids[-1]) and (ids[x+1] - ids[x] == 1): #if the next value is only 1 away, then we want to keep the larger frame number
-            ids.remove(ids[x])
+    # identify frames brightness 2 std below the mean of the whole array
+    ids = list(np.squeeze(np.where(diffArray > threshold)))
+    print(ids)
+    n=0
+    while n <= 3: # have to rerun this a few times maybe
+        for x, y in enumerate(ids):
+            if (y != ids[-1]) and ((ids[x + 1] - ids[x]) < (iteration_delay_frames-10)):  # if the next value is less than when the next iteration would be, then we want to keep the larger frame number
+                ids.remove(ids[x + 1])
+                print(ids)
+            elif y > 1100: #after all the iterations
+                ids.remove(y)
+            elif y < 400: #baseline value
+                ids.remove(y)
+            elif x == -1:
+                if (ids[x] - ids[x-1]) < 5:
+                    ids.remove(ids[x])
+        if len(ids) > no_iterations:
+            n =+ 1
+        else:
+            break
+    print(ids)
 
-    beginIds = list(np.squeeze(np.where(diffArray < -thresh_int)))
-    for m, n in enumerate(beginIds):
-        if (n != beginIds[-1]) and (beginIds[m+1] - beginIds[m] == 1): #if the next value is only 1 away, then we want to keep the smaller frame number
-            beginIds.remove(beginIds[m+1])
+    frames_lst = []
+    for i in ids:
+        frames = np.arange(i, i + full_duration_frames + 1)
+        frames_lst.append(frames)
+    print(frames_lst)
 
-    if len(beginIds) < len(ids): # inserting the first frame to be the start of beginning ids in case the first stimulation event was the first frame
-        beginIds.insert(0, 0)
+    badframes = [val for sublist in frames_lst for val in sublist]
+    badframes_arr = np.array(badframes)
 
-    badframes = []
-    photostim_events = [] #list of start and end frames of each photostim event, helpful for plotting
-    for i, j in enumerate(beginIds):
-        photostim_events.append([j, ids[i]])
-        for number in range(beginIds[i], ids[i] + buffer):
-            badframes.append(number)
+    photostim_events = pd.DataFrame(index=range(no_iterations), columns = ['frames'])
+    photostim_events['frames'] = frames_lst
 
-    badframes_arr = np.array(badframes)  # remove duplicates and get array
-
-    np.save(folderpath.joinpath('bad_frames.npy'), badframes_arr)  # save badframes
+    np.save(Path(img_path).parents[0].joinpath('bad_frames.npy'), badframes_arr)  # save badframes
     print('saved bad_frames.npy')
+
 
     return badframes_arr, photostim_events
 
-def find_photostimulated_cell(folderpath, roi = 6):
-    import xml.etree.ElementTree as et
-    from PIL import Image
+def find_photostimulated_cell(some_baseFish, angle = 90, rois = [6], proximity = 8):
+    from fishy import BaseFish
+    import utilities
 
-    with os.scandir(folderpath) as entries:
+    img_path = some_baseFish.data_paths['move_corrected_image'].parents[0].joinpath("original_image/img_stack.tif") #original image
+    BaseFish.load_suite2p(some_baseFish) #make sure to load in suite2p
+
+    with os.scandir(Path(img_path).parents[3]) as entries:
         for entry in entries:
-            if 'tif' in entry.name:
-                img = imread(Path(entry.path)) # open original image
-            elif entry.name.endswith(".xml") and "MarkPoints" in entry.name:
-                mark_pts_xml = Path(entry.path) # get path for mark points file
+            if 'MarkPoints' in entry.name:
+                xml_file = Path(entry.path)
 
+    img = imread(img_path)
     # load the photostim xml file
-    with open(mark_pts_xml, "r") as f:
+    with open(xml_file, "r") as f:
         data = f.read()
+
+    coors_lst = []
+    rotated_coors_lst = []
     # read the x and y percentages
-    for i in data.split("\n"):
-        if f'Point Index="{roi}"' in i:
-            myX = i.split('X')[1].split('"')[1]
-            myY = i.split('Y')[1].split('"')[1]
+    for r in rois:
+        for i in data.split("\n"):
+            if f'Point Index="{r}"' in i:
+                myX = i.split('X')[1].split('"')[1]
+                myY = i.split('Y')[1].split('"')[1]
 
-    xCoord = img.shape[1] * float(myX)
-    yCoord = img.shape[2] * float(myY)
-    coors = np.array([xCoord, yCoord])
+                xCoord = img.shape[1] * float(myX)
+                yCoord = img.shape[2] * float(myY)
+                coors = np.array([xCoord, yCoord])
+                coors_lst.append(coors)
+    if angle == 90:
+        for c in coors_lst:
+            stim_x = c[1]
+            stim_y = img.shape[2] - c[0]
+            _coors = np.array([stim_x, stim_y])
+            rotated_coors_lst.append(_coors)
 
-    # need to edit when stimulating more than just one cell
+    df_data = {'original_coors': coors_lst, 'rotated_coors': rotated_coors_lst}
+    df = pd.DataFrame(df_data)
 
-    return coors
+    #finding cells based on proximity (in um) to the stimulation site
+    cell_num_lst = []
+    for roi_no, coor in enumerate(df.rotated_coors):
+        x_val, y_val = coor
+        cell_num = some_baseFish.return_cells_by_location(ymin=round(x_val) - proximity, ymax=round(x_val) + proximity,
+                                                     xmin=round(y_val) - proximity, xmax=round(y_val) + proximity)
+        cell_num_lst.append(cell_num)
+
+    df['cell_proximity'] = cell_num_lst
+    df['stim_cell'] = np.nan
+
+    # choosing stimulated cell to be the most responsive cell overall
+    zdiffcells = [utilities.arrutils.zdiffcell(z) for z in some_baseFish.f_cells]
+    for ind, m in enumerate(df.cell_proximity.values):
+        if m.shape[0] == 1:
+            df['stim_cell'].iloc[ind] = m
+        elif m.shape[0] > 1:
+            med_zdiff_lst = []
+            for x in range(m.shape[0]):
+                med_zdiff_lst.append(abs(np.median(zdiffcells[x])))  # collective absolute median activity
+            max_value = max(med_zdiff_lst)
+            max_index = med_zdiff_lst.index(max_value)
+            df['stim_cell'].iloc[ind] = m[max_index]
+        else:
+            df['stim_cell'].iloc[ind] = np.nan
+
+    return df
+
+
 #%%
