@@ -259,7 +259,7 @@ class BaseFish:
                 test0 += increment
                 test1 += increment
 
-            if test0 >= len(frametimes):
+            if test1 >= len(frametimes):
                 increment = increment // 2
                 test0 = 0
                 test1 = increment

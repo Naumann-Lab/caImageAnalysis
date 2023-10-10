@@ -287,7 +287,6 @@ def bruker_img_organization_PV8(folder_path, testkey = 'Cycle', safe=False, sing
                 shutil.move(entry, new_location)
 
 
-
 def addSecs(tm, secs):
     fulldate = dt(100, 1, 1, tm.hour, tm.minute, tm.second, tm.microsecond)
     fulldate = fulldate + timedelta(seconds=secs)
