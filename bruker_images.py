@@ -139,17 +139,15 @@ def bruker_img_organization_PV8(folder_path, testkey = 'Cycle', safe=False, sing
     pstim_path = None
     tiff_files_li = []
 
-    # get images all together
     with os.scandir(folder_path) as entries:
         for entry in entries:
-            if testkey in entry.name and 'tif' in entry.name:
+            if 'companion' in entry.name:
+                pass
+            elif testkey in entry.name and 'tif' in entry.name:
                 keyset.add(
                     entry.name.split("Cycle")[1].split("_")[0]
-                )  # make a key for each plane
+                )  # make a key for each volume or if single plane, each plane in the t-series
                 tiff_files_li.append(Path(entry.path))
-
-            elif entry.name.endswith(".xml") and "MarkPoints" in entry.name:
-                stim_xml_path = Path(entry.path)
             elif entry.name.endswith(".xml") and "MarkPoints" not in entry.name:
                 xml_path = Path(entry.path)
             elif 'pstim' in entry.name:
@@ -200,20 +198,20 @@ def bruker_img_organization_PV8(folder_path, testkey = 'Cycle', safe=False, sing
 
     else:
         # do everything for volumes here
-        volume_path_dict = {k: {} for k in keyset}
+        volume_path_dict = {k: {} for k in sorted(keyset)}
 
         # image paths go in this dict for each volume
         for k in volume_path_dict.keys():
             with os.scandir(folder_path) as entries:
                 for entry in entries:
-                    if k in entry.name and testkey in entry.name and 'tif' in entry.name:
+                    if f'Cycle{k}' in entry.name and 'tif' in entry.name:
                         volume_path_dict[k] = entry.path
 
         # number of planes gotten from the first image
         plane_no = imread(volume_path_dict[k]).shape[0]
         planes_dict = {k: [] for k in range(plane_no)}  # dictionary for each plane
 
-        for k in volume_path_dict.keys():
+        for k in sorted(volume_path_dict.keys()):
             vol_img = volume_path_dict[k]
             for n in range(len(planes_dict.keys())):
                 img = imread(vol_img)[n]
@@ -240,15 +238,16 @@ def bruker_img_organization_PV8(folder_path, testkey = 'Cycle', safe=False, sing
             "master_frametimes.h5"
         )
         frametimes_df.to_hdf(save_path, key="frames", mode="a")  # saving master frametimes file
+    
     # getting plane stacks into specific folders
-
         for k, v in planes_dict.items():
             fld = Path(new_output).joinpath(f"plane_{k}")
             if not os.path.exists(fld):
                 os.mkdir(fld)
             for i, individual in enumerate(v):
+                _i = str(("%05d" % i))
                 imwrite(
-                    fld.joinpath(f"individual_img_{k}_{i}.tif"), individual
+                    fld.joinpath(f"individual_img_{k}_{_i}.tif"), individual
                 )  # saving new tifs, each one is a time series for each plane
             fls = glob.glob(os.path.join(fld,'*.tif'))  #  change tif to the extension you need
             fls.sort()  # make sure your files are sorted alphanumerically
