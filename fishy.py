@@ -369,6 +369,8 @@ class VizStimFish(BaseFish):
     def tag_frames(self):
         # needed to trim my frametimes and stimulus times to match length of df
         trimmed_frametimes = self.frametimes_df[self.frametimes_df.time > self.stimulus_df.time[0]]
+        if len(trimmed_frametimes) == 0:
+            trimmed_frametimes = self.frametimes_df
         self.stimulus_df = self.stimulus_df[self.stimulus_df.time < self.frametimes_df.time.values[-1]]
 
         frame_matches = [

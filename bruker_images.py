@@ -131,12 +131,11 @@ def bruker_img_organization_PV7(folder_path, testkey, safe=False):
                 shutil.move(entry, new_location)
 
 
-def bruker_img_organization_PV8(folder_path, testkey = 'Cycle', safe=False, single_plane=False):
+def bruker_img_organization_PV8(folder_path, testkey = 'Cycle', safe=False, single_plane=False, pstim_file = True):
 
     # PV 5.8 software bruker organization function, volume stack, single plane if True
 
     keyset = set()
-    pstim_path = None
     tiff_files_li = []
 
     with os.scandir(folder_path) as entries:
@@ -150,7 +149,7 @@ def bruker_img_organization_PV8(folder_path, testkey = 'Cycle', safe=False, sing
                 tiff_files_li.append(Path(entry.path))
             elif entry.name.endswith(".xml") and "MarkPoints" not in entry.name:
                 xml_path = Path(entry.path)
-            elif 'pstim' in entry.name:
+            elif 'pstim' in entry.name and pstim_file:
                 pstim_path = Path(entry.path)
 
     # making new output folders
@@ -191,7 +190,7 @@ def bruker_img_organization_PV8(folder_path, testkey = 'Cycle', safe=False, sing
         )
         frametimes_df.to_hdf(save_path, key="frames", mode="a")  # saving frametimes file into single plane
 
-        if pstim_path in locals():  # if pstim output exists, save into each folder
+        if pstim_file:  # if pstim output exists, save into each folder
             shutil.copy(pstim_path, Path(save_fld).joinpath(f"pstim_output.txt"))
         else:
             print('no pstim file')
@@ -267,7 +266,7 @@ def bruker_img_organization_PV8(folder_path, testkey = 'Cycle', safe=False, sing
                     subdf.to_hdf(
                         saving, key="frames", mode="a"
                     )  # saving frametimes into each specific folder
-                    if pstim_path in locals():  # if pstim output exists, save into each folder
+                    if pstim_file:  # if pstim output exists, save into each folder
                         shutil.copy(pstim_path, Path(fld).joinpath(f"pstim_output.txt"))
 
     # move over the original images into a new folder
@@ -399,7 +398,6 @@ def find_photostim_frames(some_baseFish, threshold = 0.8):
     np.save(Path(img_path).parents[0].joinpath('bad_frames.npy'), badframes_arr)  # save badframes
     print('saved bad_frames.npy')
 
-
     return badframes_arr, photostim_events
 
 def find_photostimulated_cell(some_baseFish, angle = 90, rois = [6], proximity = 8):
@@ -470,5 +468,30 @@ def find_photostimulated_cell(some_baseFish, angle = 90, rois = [6], proximity =
 
     return df
 
+
+# suite2p bruker ops dict
+def run_suite2p_PS(somebasefish, input_tau = 1.5):
+    from suite2p import run_s2p, default_ops
+    from fishy import BaseFish
+
+    # make sure bad frames exists first
+    bad_frames_path = somebasefish.data_paths["move_corrected_image"].parents[0].joinpath('bad_frames.npy')
+    if os.path.isfile(bad_frames_path) == False:
+        find_photostim_frames(somebasefish, threshold = 0.8)
+
+    bruker_s2p_ops = default_ops()
+    bruker_s2p_ops['data_path'] = [somebasefish.data_paths["move_corrected_image"].parents[0].as_posix()]
+    bruker_s2p_ops['save_path'] = somebasefish.data_paths["move_corrected_image"].parents[0].as_posix()
+    bruker_s2p_ops['tau'] = input_tau #gcamp6s
+    bruker_s2p_ops['fs'] = BaseFish.hzReturner(somebasefish.frametimes_df)
+    bruker_s2p_ops['preclassify'] = 0.15
+    bruker_s2p_ops['block_size'] = [32, 32]
+    bruker_s2p_ops['allow_overlap'] = True
+    bruker_s2p_ops['tiff_list']: [somebasefish.data_paths["move_corrected_image"]]
+    bruker_s2p_ops['two_step_registration'] = True
+    bruker_s2p_ops['keep_movie_raw'] = True
+
+    db = {}
+    run_s2p(ops=bruker_s2p_ops, db=db)
 
 #%%
