@@ -5,6 +5,13 @@ from utilities import arrutils
 
 import numpy as np
 
+custom_16stim_order = [
+    "converging","diverging",
+    "left","medial_left","lateral_left",
+    "right","medial_right","lateral_right",
+    "forward","backward","forward_backward", "forward_x", "x_backward", "backward_forward", "x_forward", "backward_x",
+    ]
+
 def groupby(a, b):
     # Get argsort indices, to be used to sort a and b in the next steps
     sidx = b.argsort(kind='mergesort')
@@ -17,7 +24,7 @@ def groupby(a, b):
     return out
 
 
-def neuron_stim_rep_array(somefishclass):
+def neuron_stim_rep_array(somefishclass, stim_order = custom_16stim_order):
     '''
     somefishclass -- has to be a VizStimFish
     output -- array of shape: # of neurons, each repetition, and each stim (in the order of the stim_df) 
@@ -32,8 +39,15 @@ def neuron_stim_rep_array(somefishclass):
     for i in range(len(somefishclass.stimulus_df[somefishclass.stimulus_df.stim_name == 'right'])):
         somefishclass.stimulus_df.iloc[(n_stims*i):(n_stims*i+n_stims)]['rep'] = i
 
+    # do not want incomplete reps
+    last_rep = int(somefishclass.stimulus_df.rep.iloc[-1])
+    if len(somefishclass.stimulus_df[somefishclass.stimulus_df['rep'] == last_rep]) < n_stims:
+        drop_rows = somefishclass.stimulus_df[somefishclass.stimulus_df['rep'] == last_rep].index
+        somefishclass.stimulus_df.drop(drop_rows, axis=0, inplace = True)
+
+
     neur_resps = np.zeros(shape=(
-        len(somefishclass.f_cells),
+        len(normcells),
         somefishclass.stimulus_df.rep.nunique(),
         np.diff(somefishclass.offsets)[0] * somefishclass.stimulus_df.stim_name.nunique()
         ))
@@ -42,7 +56,7 @@ def neuron_stim_rep_array(somefishclass):
         one_rep = somefishclass.stimulus_df[somefishclass.stimulus_df.rep == r]
         all_arrs = np.zeros(shape=(one_rep.stim_name.nunique(),np.diff(somefishclass.offsets)[0]))
 
-        for st, stim in enumerate(one_rep.stim_name.unique()):
+        for st, stim in enumerate(stim_order):
             # finding the frames for each stimuli between the offsets 
             arrs = arrutils.subsection_arrays(one_rep[one_rep.stim_name == stim].frame.values,somefishclass.offsets)
             all_arrs[st] = arrs[0]
