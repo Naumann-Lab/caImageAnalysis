@@ -2,10 +2,11 @@ import scipy.cluster.hierarchy as sch
 from bcdict import BCDict
 
 from utilities import arrutils
+import constants
 
 import numpy as np
 
-custom_16stim_order = [
+whit_custom_16stim_order = [
     "converging","diverging",
     "left","medial_left","lateral_left",
     "right","medial_right","lateral_right",
@@ -23,20 +24,25 @@ def groupby(a, b):
     out = [a_sorted[i:j] for i,j in zip(cut_idx[:-1],cut_idx[1:])]
     return out
 
+def invert_stims(somefishclass):
+    somefishclass.stimulus_df.loc[:, "stim_name"] = somefishclass.stimulus_df.stim_name.map(
+                constants.invStimDict)
 
-def neuron_stim_rep_array(somefishclass, stim_order = custom_16stim_order):
+
+def neuron_stim_rep_array(somefishclass, no_repetitions, stim_order = whit_custom_16stim_order):
     '''
     somefishclass -- has to be a VizStimFish
     output -- array of shape: # of neurons, each repetition, and each stim (in the order of the stim_df) 
             array of activity (length of offsets * num of stims) 
     '''
-    normcells = arrutils.norm_fdff(somefishclass.f_cells)
+    # normcells = arrutils.norm_fdff(somefishclass.f_cells)
+    normcells = arrutils.norm_fdff_new(somefishclass.f_cells, lowPct=10, highPct=98)
 
     somefishclass.stimulus_df['rep'] = 0
 
     # choosing a generic stim here for counting reps
     n_stims = somefishclass.stimulus_df.stim_name.nunique()
-    for i in range(len(somefishclass.stimulus_df[somefishclass.stimulus_df.stim_name == 'right'])):
+    for i in range(no_repetitions):
         somefishclass.stimulus_df.iloc[(n_stims*i):(n_stims*i+n_stims)]['rep'] = i
 
     # do not want incomplete reps
@@ -44,7 +50,6 @@ def neuron_stim_rep_array(somefishclass, stim_order = custom_16stim_order):
     if len(somefishclass.stimulus_df[somefishclass.stimulus_df['rep'] == last_rep]) < n_stims:
         drop_rows = somefishclass.stimulus_df[somefishclass.stimulus_df['rep'] == last_rep].index
         somefishclass.stimulus_df.drop(drop_rows, axis=0, inplace = True)
-
 
     neur_resps = np.zeros(shape=(
         len(normcells),
@@ -58,7 +63,8 @@ def neuron_stim_rep_array(somefishclass, stim_order = custom_16stim_order):
 
         for st, stim in enumerate(stim_order):
             # finding the frames for each stimuli between the offsets 
-            arrs = arrutils.subsection_arrays(one_rep[one_rep.stim_name == stim].frame.values,somefishclass.offsets)
+            arrs = arrutils.subsection_arrays(one_rep[one_rep.stim_name == stim].frame.values,
+                                              somefishclass.offsets)
             all_arrs[st] = arrs[0]
 
         # transforming data types of the arr for indexing into neur list

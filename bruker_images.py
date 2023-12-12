@@ -3,7 +3,7 @@ from pathlib import Path
 import shutil
 import pandas as pd
 import numpy as np
-from tiffile import imread, imwrite
+from tifffile import imread, imwrite
 import tifftools
 from datetime import datetime as dt, timedelta
 import xml.etree.ElementTree as ET
@@ -149,7 +149,7 @@ def bruker_img_organization_PV8(folder_path, testkey = 'Cycle', safe=False, sing
                 tiff_files_li.append(Path(entry.path))
             elif entry.name.endswith(".xml") and "MarkPoints" not in entry.name:
                 xml_path = Path(entry.path)
-            elif 'pstim' in entry.name and pstim_file:
+            elif 'txt' in entry.name and pstim_file:
                 pstim_path = Path(entry.path)
 
     # making new output folders
@@ -224,7 +224,8 @@ def bruker_img_organization_PV8(folder_path, testkey = 'Cycle', safe=False, sing
         for start in root.iter('PVScan'):
             begin_time = start.attrib['date'].split(' ')[1]
             start_dt = dt.strptime(begin_time, "%H:%M:%S").time()
-            if start.attrib['date'].split(' ')[2] == 'PM':
+            hour = int(start.attrib['date'].split(' ')[1].split(':')[0])
+            if (start.attrib['date'].split(' ')[2] == 'PM') & (hour != 12): # convert to 24hr time for stim files
                 start_dt = addHours(start_dt, float(12))
 
         for frame in root.iter('Frame'):
@@ -296,7 +297,7 @@ def addHours(tm, hrs):
     fulldate = fulldate + timedelta(hours=hrs)
     return fulldate.time()
 
-def find_baseline_frames(folder_path):
+def find_baseline_frames(folder_path, volume = False):
     original_imgs = Path(folder_path).joinpath("bruker_images")
     with os.scandir(original_imgs) as entries:
         for entry in entries:
@@ -306,167 +307,176 @@ def find_baseline_frames(folder_path):
 
     baseline_frames = baseline_img.shape[0]
 
+    if volume == True:
+        with os.scandir(folder_path) as entries:
+            for entry in entries:
+                if 'MarkPoints' in entry.name:
+                    mp_xml_file_name = str(entry.name)
+        baseline_frames = int(mp_xml_file_name.split('Cycle')[1].split('_')[0])
+    
     return baseline_frames
 
-def find_photostim_frames(some_baseFish, threshold = 0.8):
+# I have updated functions in the fishy py file
 
-    """
-    :param folderpath: path to folder that contains image and xml file with mark points
-            buffer: needed to have a few more frames on the end of this next for loop to accurately capture all frames that are bad
-    :return:
-    """
-    from PIL import Image
-    import math
-    from fishy import BaseFish
+# def find_photostim_frames(some_baseFish, threshold = 0.8):
 
-    img_path = some_baseFish.data_paths['move_corrected_image']
+#     """
+#     :param folderpath: path to folder that contains image and xml file with mark points
+#             buffer: needed to have a few more frames on the end of this next for loop to accurately capture all frames that are bad
+#     :return:
+#     """
+#     from PIL import Image
+#     import math
+#     from fishy import BaseFish
 
-    with os.scandir(Path(img_path).parents[2]) as entries:
-        for entry in entries:
-            if 'MarkPoints' in entry.name:
-                xml_file = Path(entry.path)
+#     img_path = some_baseFish.data_paths['move_corrected_image']
 
-    with open(xml_file, "r") as f:
-        data = f.read()
+#     with os.scandir(Path(img_path).parents[2]) as entries:
+#         for entry in entries:
+#             if 'MarkPoints' in entry.name:
+#                 xml_file = Path(entry.path)
 
-    for i in data.split("\n"):
-        if "InitialDelay" in i:
-            initial_delay_ms = int([i][0].split("InitialDelay=")[1].split('"')[1])
-            interpointdelay_ms = int([i][0].split("InterPointDelay=")[1].split('"')[1])
-            duration_ms = int([i][0].split("Duration=")[1].split('"')[1])
-            indices = int([i][0].split("Indices=")[1].split('"')[1].split('-')[1])
-        elif "Repetitions" in i:
-            no_repetitions = int([i][0].split("Repetitions=")[1].split('"')[1])
-        elif "Iterations" in i:
-            no_iterations = int([i][0].split("Iterations=")[1].split('"')[1])
-            iteration_delay_ms = int(float([i][0].split("IterationDelay=")[1].split('"')[1]))
+#     with open(xml_file, "r") as f:
+#         data = f.read()
 
-    full_duration_ms = initial_delay_ms + ((no_repetitions * duration_ms + interpointdelay_ms) * indices)
-    img_hz = BaseFish.hzReturner(some_baseFish.frametimes_df)
-    full_duration_frames = math.ceil((full_duration_ms / 1000) * img_hz)
-    iteration_delay_frames = math.ceil((iteration_delay_ms / 1000) * img_hz)
+#     for i in data.split("\n"):
+#         if "InitialDelay" in i:
+#             initial_delay_ms = int([i][0].split("InitialDelay=")[1].split('"')[1])
+#             interpointdelay_ms = int([i][0].split("InterPointDelay=")[1].split('"')[1])
+#             duration_ms = int([i][0].split("Duration=")[1].split('"')[1])
+#             indices = int([i][0].split("Indices=")[1].split('"')[1].split('-')[1])
+#         elif "Repetitions" in i:
+#             no_repetitions = int([i][0].split("Repetitions=")[1].split('"')[1])
+#         elif "Iterations" in i:
+#             no_iterations = int([i][0].split("Iterations=")[1].split('"')[1])
+#             iteration_delay_ms = int(float([i][0].split("IterationDelay=")[1].split('"')[1]))
 
-    # IMAGE FRAMES
-    img = Image.open(img_path)
-    myArray = np.zeros((np.shape(img)[0], (np.shape(img)[1]), img.n_frames))
+#     full_duration_ms = initial_delay_ms + ((no_repetitions * duration_ms + interpointdelay_ms) * indices)
+#     img_hz = BaseFish.hzReturner(some_baseFish.frametimes_df)
+#     full_duration_frames = math.ceil((full_duration_ms / 1000) * img_hz)
+#     iteration_delay_frames = math.ceil((iteration_delay_ms / 1000) * img_hz)
 
-    # read each frame into the array
-    for i in range(img.n_frames):
-        img.seek(i)
-        myArray[:, :, i] = img
+#     # IMAGE FRAMES
+#     img = Image.open(img_path)
+#     myArray = np.zeros((np.shape(img)[0], (np.shape(img)[1]), img.n_frames))
 
-    # calculate a mean brightness trace
-    brightnessArray = myArray.mean(axis=(0, 1))
+#     # read each frame into the array
+#     for i in range(img.n_frames):
+#         img.seek(i)
+#         myArray[:, :, i] = img
 
-    # use large changes in brightness (due to PMT shutter closure for laser) to do timing
-    diffArray = np.diff(brightnessArray)
+#     # calculate a mean brightness trace
+#     brightnessArray = myArray.mean(axis=(0, 1))
 
-    # identify frames brightness 2 std below the mean of the whole array
-    ids = list(np.squeeze(np.where(diffArray > threshold)))
-    print(ids)
-    n=0
-    while n <= 3: # have to rerun this a few times maybe
-        for x, y in enumerate(ids):
-            if (y != ids[-1]) and ((ids[x + 1] - ids[x]) < (iteration_delay_frames-10)):  # if the next value is less than when the next iteration would be, then we want to keep the larger frame number
-                ids.remove(ids[x + 1])
-                print(ids)
-            elif y > 1100: #after all the iterations
-                ids.remove(y)
-            elif y < 400: #baseline value
-                ids.remove(y)
-            elif x == -1:
-                if (ids[x] - ids[x-1]) < 5:
-                    ids.remove(ids[x])
-        if len(ids) > no_iterations:
-            n =+ 1
-        else:
-            break
-    print(ids)
+#     # use large changes in brightness (due to PMT shutter closure for laser) to do timing
+#     diffArray = np.diff(brightnessArray)
 
-    frames_lst = []
-    for i in ids:
-        frames = np.arange(i, i + full_duration_frames + 1)
-        frames_lst.append(frames)
-    print(frames_lst)
+#     # identify frames brightness 2 std below the mean of the whole array
+#     ids = list(np.squeeze(np.where(diffArray > threshold)))
+#     print(ids)
+#     n=0
+#     while n <= 3: # have to rerun this a few times maybe
+#         for x, y in enumerate(ids):
+#             if (y != ids[-1]) and ((ids[x + 1] - ids[x]) < (iteration_delay_frames-10)):  # if the next value is less than when the next iteration would be, then we want to keep the larger frame number
+#                 ids.remove(ids[x + 1])
+#                 print(ids)
+#             elif y > 1100: #after all the iterations
+#                 ids.remove(y)
+#             elif y < 400: #baseline value
+#                 ids.remove(y)
+#             elif x == -1:
+#                 if (ids[x] - ids[x-1]) < 5:
+#                     ids.remove(ids[x])
+#         if len(ids) > no_iterations:
+#             n =+ 1
+#         else:
+#             break
+#     print(ids)
 
-    badframes = [val for sublist in frames_lst for val in sublist]
-    badframes_arr = np.array(badframes)
+#     frames_lst = []
+#     for i in ids:
+#         frames = np.arange(i, i + full_duration_frames + 1)
+#         frames_lst.append(frames)
+#     print(frames_lst)
 
-    photostim_events = pd.DataFrame(index=range(no_iterations), columns = ['frames'])
-    photostim_events['frames'] = frames_lst
+#     badframes = [val for sublist in frames_lst for val in sublist]
+#     badframes_arr = np.array(badframes)
 
-    np.save(Path(img_path).parents[0].joinpath('bad_frames.npy'), badframes_arr)  # save badframes
-    print('saved bad_frames.npy')
+#     photostim_events = pd.DataFrame(index=range(no_iterations), columns = ['frames'])
+#     photostim_events['frames'] = frames_lst
 
-    return badframes_arr, photostim_events
+#     np.save(Path(img_path).parents[0].joinpath('bad_frames.npy'), badframes_arr)  # save badframes
+#     print('saved bad_frames.npy')
 
-def find_photostimulated_cell(some_baseFish, angle = 90, rois = [6], proximity = 8):
-    from fishy import BaseFish
-    import utilities
+#     return badframes_arr, photostim_events
 
-    img_path = some_baseFish.data_paths['move_corrected_image'].parents[0].joinpath("original_image/img_stack.tif") #original image
-    BaseFish.load_suite2p(some_baseFish) #make sure to load in suite2p
+# def find_photostimulated_cell(some_baseFish, angle = 90, rois = [6], proximity = 8):
+#     from fishy import BaseFish
+#     import utilities
 
-    with os.scandir(Path(img_path).parents[3]) as entries:
-        for entry in entries:
-            if 'MarkPoints' in entry.name:
-                xml_file = Path(entry.path)
+#     img_path = some_baseFish.data_paths['move_corrected_image'].parents[0].joinpath("original_image/img_stack.tif") #original image
+#     BaseFish.load_suite2p(some_baseFish) #make sure to load in suite2p
 
-    img = imread(img_path)
-    # load the photostim xml file
-    with open(xml_file, "r") as f:
-        data = f.read()
+#     with os.scandir(Path(img_path).parents[3]) as entries:
+#         for entry in entries:
+#             if 'MarkPoints' in entry.name:
+#                 xml_file = Path(entry.path)
 
-    coors_lst = []
-    rotated_coors_lst = []
-    # read the x and y percentages
-    for r in rois:
-        for i in data.split("\n"):
-            if f'Point Index="{r}"' in i:
-                myX = i.split('X')[1].split('"')[1]
-                myY = i.split('Y')[1].split('"')[1]
+#     img = imread(img_path)
+#     # load the photostim xml file
+#     with open(xml_file, "r") as f:
+#         data = f.read()
 
-                xCoord = img.shape[1] * float(myX)
-                yCoord = img.shape[2] * float(myY)
-                coors = np.array([xCoord, yCoord])
-                coors_lst.append(coors)
-    if angle == 90:
-        for c in coors_lst:
-            stim_x = c[1]
-            stim_y = img.shape[2] - c[0]
-            _coors = np.array([stim_x, stim_y])
-            rotated_coors_lst.append(_coors)
+#     coors_lst = []
+#     rotated_coors_lst = []
+#     # read the x and y percentages
+#     for r in rois:
+#         for i in data.split("\n"):
+#             if f'Point Index="{r}"' in i:
+#                 myX = i.split('X')[1].split('"')[1]
+#                 myY = i.split('Y')[1].split('"')[1]
 
-    df_data = {'original_coors': coors_lst, 'rotated_coors': rotated_coors_lst}
-    df = pd.DataFrame(df_data)
+#                 xCoord = img.shape[1] * float(myX)
+#                 yCoord = img.shape[2] * float(myY)
+#                 coors = np.array([xCoord, yCoord])
+#                 coors_lst.append(coors)
+#     if angle == 90:
+#         for c in coors_lst:
+#             stim_x = c[1]
+#             stim_y = img.shape[2] - c[0]
+#             _coors = np.array([stim_x, stim_y])
+#             rotated_coors_lst.append(_coors)
 
-    #finding cells based on proximity (in um) to the stimulation site
-    cell_num_lst = []
-    for roi_no, coor in enumerate(df.rotated_coors):
-        x_val, y_val = coor
-        cell_num = some_baseFish.return_cells_by_location(ymin=round(x_val) - proximity, ymax=round(x_val) + proximity,
-                                                     xmin=round(y_val) - proximity, xmax=round(y_val) + proximity)
-        cell_num_lst.append(cell_num)
+#     df_data = {'original_coors': coors_lst, 'rotated_coors': rotated_coors_lst}
+#     df = pd.DataFrame(df_data)
 
-    df['cell_proximity'] = cell_num_lst
-    df['stim_cell'] = np.nan
+#     #finding cells based on proximity (in um) to the stimulation site
+#     cell_num_lst = []
+#     for roi_no, coor in enumerate(df.rotated_coors):
+#         x_val, y_val = coor
+#         cell_num = some_baseFish.return_cells_by_location(ymin=round(x_val) - proximity, ymax=round(x_val) + proximity,
+#                                                      xmin=round(y_val) - proximity, xmax=round(y_val) + proximity)
+#         cell_num_lst.append(cell_num)
 
-    # choosing stimulated cell to be the most responsive cell overall
-    zdiffcells = [utilities.arrutils.zdiffcell(z) for z in some_baseFish.f_cells]
-    for ind, m in enumerate(df.cell_proximity.values):
-        if m.shape[0] == 1:
-            df['stim_cell'].iloc[ind] = m
-        elif m.shape[0] > 1:
-            med_zdiff_lst = []
-            for x in range(m.shape[0]):
-                med_zdiff_lst.append(abs(np.median(zdiffcells[x])))  # collective absolute median activity
-            max_value = max(med_zdiff_lst)
-            max_index = med_zdiff_lst.index(max_value)
-            df['stim_cell'].iloc[ind] = m[max_index]
-        else:
-            df['stim_cell'].iloc[ind] = np.nan
+#     df['cell_proximity'] = cell_num_lst
+#     df['stim_cell'] = np.nan
 
-    return df
+#     # choosing stimulated cell to be the most responsive cell overall
+#     zdiffcells = [utilities.arrutils.zdiffcell(z) for z in some_baseFish.f_cells]
+#     for ind, m in enumerate(df.cell_proximity.values):
+#         if m.shape[0] == 1:
+#             df['stim_cell'].iloc[ind] = m
+#         elif m.shape[0] > 1:
+#             med_zdiff_lst = []
+#             for x in range(m.shape[0]):
+#                 med_zdiff_lst.append(abs(np.median(zdiffcells[x])))  # collective absolute median activity
+#             max_value = max(med_zdiff_lst)
+#             max_index = med_zdiff_lst.index(max_value)
+#             df['stim_cell'].iloc[ind] = m[max_index]
+#         else:
+#             df['stim_cell'].iloc[ind] = np.nan
+
+#     return df
 
 
 # suite2p bruker ops dict
@@ -494,4 +504,5 @@ def run_suite2p_PS(somebasefish, input_tau = 1.5):
     db = {}
     run_s2p(ops=bruker_s2p_ops, db=db)
 
-#%%
+
+

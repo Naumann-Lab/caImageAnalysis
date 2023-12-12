@@ -33,6 +33,12 @@ def norm_fdff(cell_array):
     normed_arr = np.array([np.divide(arr, arr.max()) for arr in zerod_arr])
     return normed_arr
 
+def norm_fdff_new(cell_array, lowPct=15, highPct=95):
+    minVals = np.percentile(cell_array, lowPct, axis=1)
+    zerod_arr = np.array([np.subtract(cell_array[n], i) for n, i in enumerate(minVals)])
+    normed_arr = np.array([np.divide(arr, np.percentile(arr, highPct)) for arr in zerod_arr])
+    return normed_arr
+
 
 def subsection_arrays(input_array, offsets=(-10, 10)):
     a = []

@@ -1,4 +1,4 @@
-from nptdms import TdmsFile
+# from nptdms import TdmsFile
 import numpy as np
 from datetime import datetime as dt
 

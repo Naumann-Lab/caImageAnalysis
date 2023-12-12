@@ -45,8 +45,11 @@ This assumes you are using Anaconda and Python 3:
 
 7. Optional: Download [mimic_alpha](https://github.com/montefra/mimic_alpha) into your new caiman envs - this package converts a list of RGB color that mimic a RGBA on a given background. This is useful for plotting.
 
-
-
+8. If using alignment code, download scopeslip from NaumannLab github and install SimpleITK
+   go to a directory of your choice, then 'git clone https://github.com/Naumann-Lab/scopeslip'
+   pip install SimpleITK
+   pip install SimpleITK-SimpleElastix --user
+   * if using mamba, I had problems with the correct directory
 
 <br>
 

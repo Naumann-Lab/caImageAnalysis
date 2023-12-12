@@ -79,6 +79,12 @@ class BaseFish:
                     elif "ypts" in entry.name:
                         with open(entry.path, "rb") as f:
                             self.x_pts = np.load(f)
+                
+                elif entry.name.endswith("xml"):
+                    if 'MarkPoints' in entry.name:
+                        self.data_paths["mp_xml"] = Path(entry.path)
+                    else:
+                        self.data_paths["xml"] = Path(entry.path)
 
         if "image" in self.data_paths and "move_corrected_image" in self.data_paths:
             if (
@@ -126,12 +132,22 @@ class BaseFish:
             xpix = self.stats[cell]["xpix"]
             mean_y = int(np.mean(ypix))
             mean_x = int(np.mean(xpix))
-            rois.append([mean_y, mean_x])
+            rois.append([mean_x, mean_y])
         return rois
+    
+    def return_singlecell_rois(self, single_cell):
+        single_cell = int(single_cell)
+        ypix = self.stats[single_cell]["ypix"]
+        xpix = self.stats[single_cell]["xpix"]
+        mean_y = int(np.mean(ypix))
+        mean_x = int(np.mean(xpix))
+        roi = ([mean_x, mean_y])
+        
+        return roi
 
     def return_cells_by_location(self, xmin=0, xmax=99999, ymin=0, ymax=99999):
         cell_df = pd.DataFrame(
-            self.return_cell_rois(np.arange(0, len(self.f_cells))), columns=["y", "x"]
+            self.return_cell_rois(np.arange(0, len(self.f_cells))), columns=["x", "y"]
         )
         return cell_df[
             (cell_df.y >= ymin)
@@ -238,8 +254,8 @@ class BaseFish:
         else:
             image = imread(self.data_paths["image"])
 
-        # if self.invert:
-            image = image[:, :, ::-1]
+        # # if self.invert:
+        #     image = image[:, :, ::-1]
 
         return image
 
@@ -454,33 +470,35 @@ class PhotostimFish(BaseFish):
         angle = 90,
         proximity=8,
         stim_offsets=[-20, 30],
-        ind = False,
+        volume = False,
         *args,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
 
         self.load_suite2p()
+        volume = volume
 
         if rotate == True:
             angle = 90
         if baseline == True:
-            self.baseline_frames = bruker_images.find_baseline_frames(self.data_paths['move_corrected_image'].parents[2])
-            baseline_arr = np.array([cell_arr[:self.baseline_frames] for cell_arr in self.f_cells])
-            self.norm_baseline_arr = np.array([np.divide(arr, baseline_arr.mean()) for arr in self.f_cells])
-            self.normcells = arrutils.norm_fdff(self.f_cells)
-            self.zdiffcells = [arrutils.zdiffcell(z) for z in self.norm_baseline_arr]
+            self.baseline_frames = bruker_images.find_baseline_frames(self.data_paths['move_corrected_image'].parents[2], volume = volume)
+            # baseline_arr = np.array([cell_arr[:self.baseline_frames] for cell_arr in self.f_cells])
+            # self.norm_baseline_arr = np.array([np.divide(arr, baseline_arr.mean()) for arr in self.f_cells])
+            # self.normcells = arrutils.norm_fdff(self.f_cells)
+            self.normcells = arrutils.norm_fdff_new(self.f_cells, lowPct=10, highPct=98)
+            # self.zdiffcells = [arrutils.zdiffcell(z) for z in self.norm_baseline_arr]
         else:
             self.normcells = arrutils.norm_fdff(self.f_cells)
             self.zdiffcells = [arrutils.zdiffcell(z) for z in self.f_cells]
 
         self.stim_offsets = stim_offsets
-        self.find_photostim_frames(threshold, save_badframes, ind)
+        self.find_photostim_frames(threshold, save_badframes, volume = volume)
         self.find_photostimulated_cell(angle, proximity)
         self.photostimulation_responses()
         self.rescaled_img()
 
-    def find_photostim_frames(self, threshold, save_badframes, ind):
+    def find_photostim_frames(self, threshold, save_badframes, volume = True):
 
         """
         :param folderpath: path to folder that contains image and xml file with mark points
@@ -505,15 +523,14 @@ class PhotostimFish(BaseFish):
                 initial_delay_ms = int([i][0].split("InitialDelay=")[1].split('"')[1])
                 interpointdelay_ms = int([i][0].split("InterPointDelay=")[1].split('"')[1])
                 duration_ms = int([i][0].split("Duration=")[1].split('"')[1])
-                indices = int([i][0].split("Indices=")[1].split('"')[1].split('-')[1])
+                # indices = int([i][0].split("Indices=")[1].split('"')[1].split('-')[1])
             elif "Repetitions" in i:
                 no_repetitions = int([i][0].split("Repetitions=")[1].split('"')[1])
             elif "Iterations" in i:
                 no_iterations = int([i][0].split("Iterations=")[1].split('"')[1])
                 iteration_delay_ms = int(float([i][0].split("IterationDelay=")[1].split('"')[1]))
-        if ind == True:
-            indices = 1
-        full_duration_ms = initial_delay_ms + ((no_repetitions * duration_ms + interpointdelay_ms)*indices)
+
+        full_duration_ms = initial_delay_ms + ((no_repetitions * duration_ms + interpointdelay_ms))
         img_hz = self.hzReturner(self.frametimes_df)
         full_duration_frames = math.ceil((full_duration_ms / 1000) * img_hz)
         iteration_delay_frames = math.ceil((iteration_delay_ms / 1000) * img_hz)
@@ -535,40 +552,42 @@ class PhotostimFish(BaseFish):
 
             # use large changes in brightness (due to PMT shutter closure for laser) to do timing
             diffArray = np.diff(brightnessArray)
-            # plt.plot(diffArray)
 
             # identify frames brightness 2 std below the mean of the whole array
             ids = list(np.squeeze(np.where(diffArray > threshold)))
             if ~hasattr(self, "baseline_frames"):
-                self.baseline_frames = bruker_images.find_baseline_frames(self.data_paths['move_corrected_image'].parents[2])
+                self.baseline_frames = bruker_images.find_baseline_frames(self.data_paths['move_corrected_image'].parents[2], volume = volume)
             
-            print(iteration_delay_frames)
-            n = 0
-            while n <= 3:  # have to rerun this a few times maybe
-                for x, y in enumerate(ids):
-                    
-                    if (y != ids[-1]) and ((ids[x + 1] - ids[x]) < (
-                            iteration_delay_frames - 40)):  # if the next value is less than when the next iteration would be, then we want to keep the larger frame number
-                        ids.remove(ids[x + 1])
-                    elif y > 1300:  # after all the iterations
-                        ids.remove(y)
-                    elif y < self.baseline_frames:  # baseline value
-                        ids.remove(y)
-                    elif x == -1:
-                        if (ids[x] - ids[x - 1]) < 5:
-                            ids.remove(ids[x])
-                if len(ids) > no_iterations:
-                    n = + 1
-                    print(ids)
-                else:
-                    break
-            print(ids)
-            frames_lst = []
-            for i in ids:
-                frames = np.arange(i, i + full_duration_frames + 1)
-                frames_lst.append(frames)
-            badframes = [val for sublist in frames_lst for val in sublist]
-            self.badframes_arr = np.array(badframes)
+            print(f'full duration of ps event should be {full_duration_frames}')
+            print(f'full duration BETWEEN ps event should be {iteration_delay_frames}')
+
+            # this might be required for more complicated stimulation...
+            # n = 0
+            # while n <= 3:  # have to rerun this a few times maybe
+            #     for x, y in enumerate(ids):
+            #         if (y != ids[-1]) and ((ids[x + 1] - ids[x]) < (
+            #                 iteration_delay_frames)):  # if the next value is less than when the next iteration would be, then we want to keep the larger frame number
+            #             ids.remove(ids[x + 1])
+            #         elif y < self.baseline_frames:  # baseline value
+            #             ids.remove(y)
+            #         elif x == -1:
+            #             if (ids[x] - ids[x - 1]) < 5:
+            #                 ids.remove(ids[x])
+            #     if len(ids) > no_iterations:
+            #         n = + 1
+            #         print(ids)
+            #     else:
+            #         break
+            # print(ids)
+            # frames_lst = []
+            # for i in ids:
+            #     frames = np.arange(i, i + full_duration_frames + 1)
+            #     frames_lst.append(frames)
+            # badframes = [val for sublist in frames_lst for val in sublist]
+
+            # the easy calculation from baseline frames works for slower imaging times in volume!
+            frames_lst = [self.baseline_frames + iteration_delay_frames*m for m in range(no_iterations)]
+            self.badframes_arr = np.array(frames_lst)
             
             self.photostim_events['frames'] = frames_lst
             save_path = Path(img_path).parents[0].joinpath('bad_frames.npy')
@@ -576,11 +595,11 @@ class PhotostimFish(BaseFish):
             print('saved bad frames array')
         else:
             self.badframes_arr = np.array(np.load(Path(img_path).parents[0].joinpath('bad_frames.npy')))
-            frames_lst = []
-            for j in self.badframes_arr[::(full_duration_ms + 1)]:
-                frames = np.arange(j, j + full_duration_ms + 1)
-                frames_lst.append(frames)
-            self.photostim_events['frames'] = frames_lst
+            # frames_lst = []
+            # for j in self.badframes_arr[::(full_duration_ms + 1)]:
+            #     frames = np.arange(j, j + full_duration_ms + 1)
+            #     frames_lst.append(frames)
+            self.photostim_events['frames'] = list(self.badframes_arr)
 
         return self.badframes_arr, self.photostim_events
 
@@ -1078,7 +1097,11 @@ class WorkingFish(VizStimFish):
             for n, nrn in enumerate(self.zdiff_cells):
                 resp_arrs = []
                 for arr in arrs:
-                    resp_arrs.append(arrutils.pretty(nrn[arr], 2))
+                    try:
+                        resp_arrs.append(arrutils.pretty(nrn[arr], 2))
+                    except IndexError:
+                        pass
+                
                 self.extended_responses[stim][n] = resp_arrs
 
     def build_stimdicts_extended2(self):
@@ -1110,17 +1133,15 @@ class WorkingFish(VizStimFish):
 
         for stim in self.stimulus_df.stim_name.unique():
             arrs = arrutils.subsection_arrays(
-                self.stimulus_df[self.stimulus_df.stim_name == stim].frame.values,
+                self.stimulus_df[(self.stimulus_df.stim_name == stim) & (self.stimulus_df.frame > 0)].frame.values,
                 self.offsets,
             )
 
             for n, nrn in enumerate(self.zdiff_cells):
                 resp_arrs = []
-                try:
-                    for arr in arrs:
+                for arr in arrs:
+                    if arr[-1] < len(self.zdiff_cells[0]): # making sure the arr is not longer than the cell trace (frames)
                         resp_arrs.append(nrn[arr])
-                except:  # the indices does not work
-                    pass
 
                 self.stim_dict[stim][n] = np.nanmean(resp_arrs, axis=0)
                 self.err_dict[stim][n] = np.nanstd(resp_arrs, axis=0) / np.sqrt(
@@ -1976,13 +1997,16 @@ class VolumeFish:
         self.last_ind = 0
         self.iter_ind = -1
 
-    def add_volume(self, new_fish, ind=None):
+    def add_volume(self, new_fish, ind=None, fakevol=False):
         assert "fish" in str(
             new_fish
         ), "must be a fish"  #  isinstance sometimes failing??
         # assert isinstance(new_fish, BaseFish), "must be a fish" #  this is randomly buggin out
-
+        
         newKey = new_fish.folder_path.name
+        if fakevol:
+            newKey = new_fish.folder_path.parents[1].name.split('-')[1]
+
         self.volumes[newKey] = new_fish
         if ind:
             self.volume_inds[ind] = newKey

@@ -5,12 +5,11 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="0a2cab2c-7fe4-4ebc-ad9d-622d597d9f7f" name="Changes" comment="added more photostim fxns">
-      <change beforePath="$PROJECT_DIR$/.idea/.name" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/.name" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/caImageAnalysis.iml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/caImageAnalysis.iml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/misc.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/misc.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/angles.py" beforeDir="false" afterPath="$PROJECT_DIR$/angles.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/bruker_images.py" beforeDir="false" afterPath="$PROJECT_DIR$/bruker_images.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/fishy.py" beforeDir="false" afterPath="$PROJECT_DIR$/fishy.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/utilities/arrutils.py" beforeDir="false" afterPath="$PROJECT_DIR$/utilities/arrutils.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/utilities/clustering.py" beforeDir="false" afterPath="$PROJECT_DIR$/utilities/clustering.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -278,6 +277,7 @@
       <workItem from="1693582531044" duration="5120000" />
       <workItem from="1694351898395" duration="34605000" />
       <workItem from="1694869580014" duration="38185000" />
+      <workItem from="1699630768567" duration="11000" />
     </task>
     <task id="LOCAL-00001" summary="changes to bruker organization for PV 5.8">
       <option name="closed" value="true" />
