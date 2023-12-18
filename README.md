@@ -5,9 +5,33 @@
 
 Calcium imaging functional analysis
 
+<br>
 
-Pipeline leverages caiman for image motion correction and suite2p for source extraction (caiman can also be used for this)
+The default class is a BaseFish from fishy.py. We offer a process.py for various analyses.
+The standard implementation runs motion correction via caiman and then source extraction via suite2p, 
+and most of the more advanced classes assume a suite2p folder with contained sources.
 
+
+<br>
+
+
+<br>
+<br>
+We leverage a folder structure that contains all experiment items
+
+### Folder Structure
+
+<img align = "left" width = "500" src="resources\folder_overview.PNG ">
+
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
 <br>
 
 ### Installation
@@ -58,6 +82,8 @@ core: motion correction, source extraction, calculate factors <br>
 utils: ideally things used multiple places, converts timestamps, stimuli, etc into dataframes <br> 
 
 visualize: various visualization of response-classes, barcodes, neuron functions, etc <br> 
+
+
 
 <br><br><br>
 Issues:
