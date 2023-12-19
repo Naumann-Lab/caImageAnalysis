@@ -27,10 +27,10 @@ def tolerant_mean(arrs):
     return arr.mean(axis=-1), arr.std(axis=-1)
 
 
-def norm_fdff(cell_array):
-    minVals = np.percentile(cell_array, 10, axis=1)
+def norm_fdff(cell_array, lowPct=3, highPct=95):
+    minVals = np.percentile(cell_array, lowPct, axis=1)
     zerod_arr = np.array([np.subtract(cell_array[n], i) for n, i in enumerate(minVals)])
-    normed_arr = np.array([np.divide(arr, arr.max()) for arr in zerod_arr])
+    normed_arr = np.array([np.divide(arr, np.percentile(arr, highPct)) for arr in zerod_arr])
     return normed_arr
 
 
@@ -73,3 +73,29 @@ def find_nearest(array, value):
         return array[idx - 1], idx - 1
     else:
         return array[idx], idx
+
+
+# remove values in a list of elements in form [x,y] where the range from element overlaps with range of next element
+def remove_nearest_vals(list_of_some_vals):
+    new_list = []
+    bad_vals = []
+    for a, val in enumerate(list_of_some_vals):
+        try:
+            b = a+1
+            next_val = list_of_some_vals[b]
+            if val[1] >= next_val[0]: #if the y value is less than the x of the previous value
+                new_val = [val[0], next_val[1]] #make a new value that has x of 1, y of 2
+                new_list.append(new_val)
+                bad_vals.append(val)
+                bad_vals.append(next_val)
+            else:
+                new_list.append(val)
+        except:
+            new_list.append(val) #adds the last value in the list
+
+    final_list = new_list
+    for x in final_list:
+        if x in bad_vals:
+            final_list.remove(x) # removing the bad values
+
+    return final_list

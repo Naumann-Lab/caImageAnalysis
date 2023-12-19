@@ -32,7 +32,7 @@ def embed_image(image, default_size=1024):
         print("please input 2D image")
         return
 
-    while max(image.shape) >= default_size:
+    while max(image.shape) > default_size:
         default_size *= 2
         print(f"increasing default size to {default_size}")
 
@@ -582,3 +582,40 @@ def find_best_z_match2(
         maxval = max(results_dictionary.values())
         maxkey = {v: k for k, v in results_dictionary.items()}[maxval]
         return maxkey, results_dictionary
+
+def imageResizer(input_image, scaleFactor):
+    resize_factor = 1/scaleFactor
+
+    sitkImage = sitk.GetImageFromArray(input_image)
+
+    reference_size = [round(sz/resize_factor) for sz in sitkImage.GetSize()]
+    reference_physical_size = np.zeros(sitkImage.GetDimension())
+    reference_physical_size[:] = [(sz-1)*spc if sz*spc>mx  else mx for sz,spc,mx in zip(sitkImage.GetSize(), sitkImage.GetSpacing(), reference_physical_size)]
+
+    reference_spacing = [phys_sz/(sz-1) for sz,phys_sz in zip(reference_size, reference_physical_size) ]
+    reference_origin = sitkImage.GetOrigin()
+    reference_direction = sitkImage.GetDirection()
+
+
+    reference_image = sitk.Image(reference_size, sitkImage.GetPixelIDValue())
+    reference_image.SetOrigin(reference_origin)
+    reference_image.SetSpacing(reference_spacing)
+    reference_image.SetDirection(reference_direction)
+
+    reference_center = np.array(reference_image.TransformContinuousIndexToPhysicalPoint(np.array(reference_image.GetSize())/2.0))
+
+    dimension = sitkImage.GetDimension()
+
+    transform = sitk.AffineTransform(dimension)
+    transform.SetMatrix(sitkImage.GetDirection())
+
+    transform.SetTranslation(np.array(sitkImage.GetOrigin()) - reference_origin)
+
+    centering_transform = sitk.TranslationTransform(dimension)
+    img_center = np.array(sitkImage.TransformContinuousIndexToPhysicalPoint(np.array(sitkImage.GetSize())/2.0))
+    centering_transform.SetOffset(np.array(transform.GetInverse().TransformPoint(img_center) - reference_center))
+    centered_transform = sitk.Transform(transform)
+    centered_transform.AddTransform(centering_transform)
+
+    newSitkImage = sitk.Resample(sitkImage, reference_image, centered_transform, sitk.sitkLinear, 0.0)
+    return sitk.GetArrayFromImage(newSitkImage)

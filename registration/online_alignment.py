@@ -1,3 +1,9 @@
+import sys
+import os.path
+
+sys.path.append(
+    os.path.abspath(os.path.join(os.path.dirname(__file__), os.path.pardir))
+)
 from registration.sitkalignment import register_image2, transform_points
 from utilities import zmqutils
 import traceback
@@ -62,7 +68,7 @@ class OnlineAlign:
 
             cmd = data_msg["cmd"].strip('"')
             msg_src = data_msg["source"].strip('"')
-            msg_id = data_msg["id"].strip('"')
+            msg_id = data_msg["id"].strip('"') if "id" in data_msg.keys() else "noID"
 
             if cmd == "set ref images":
                 self.output(
@@ -498,9 +504,9 @@ class OnlineAlign:
             print("aligned image unavailable")
 
         if not os.path.exists(self.transform_path):
-            os.mkdir(self.transform_path)
+            os.makedirs(self.transform_path)
         if not os.path.exists(self.transform_path_INV):
-            os.mkdir(self.transform_path_INV)
+            os.makedirs(self.transform_path_INV)
 
     def output(
         self,
@@ -530,6 +536,7 @@ class OnlineAlign:
                 self.comp_id.encode(),
             ]
         )
+
         print(
             [
                 "dest",

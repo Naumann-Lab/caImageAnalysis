@@ -3,7 +3,7 @@ from pathlib import Path
 import shutil
 import pandas as pd
 import numpy as np
-from tiffile import imread, imwrite
+from tifffile import imread, imwrite
 from datetime import datetime as dt, timedelta
 
 

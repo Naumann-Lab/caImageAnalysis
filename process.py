@@ -98,7 +98,7 @@ def run_movement_correction(
     imsave(new_path, output)
 
 
-def run_suite2p(base_fish, input_tau=1.5, s2p_ops=None, force=False):
+def run_suite2p(base_fish, input_tau=1.5, s2p_ops=None, force=False, photostim=False):
     try:
         from suite2p import run_s2p, default_ops
     except:
@@ -131,9 +131,14 @@ def run_suite2p(base_fish, input_tau=1.5, s2p_ops=None, force=False):
             "fs": imageHz,
             "tiff_list": [imagepath.name],
         }
+
     ops = default_ops()
     db = {}
     for item in s2p_ops:
         ops[item] = s2p_ops[item]
+        if photostim:
+            print('remember to save bad frames array, update suite2p')
+            ops['two_step_registration'] = True
+            ops['keep_movie_raw'] = True
 
     output_ops = run_s2p(ops=ops, db=db)

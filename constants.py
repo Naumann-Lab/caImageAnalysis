@@ -85,6 +85,17 @@ eva_typesL = {
     "S": [False, False, True, False, False, False, False, False, True, True],
 }
 
+eva_typesR = {
+    "oB" : [False, True, False, False, False, True, True, True, True, True],
+    "B" : [False, False, False, False, False, True, True, True, True, True],
+    "iB" : [True, False, False, False, False, True, True, True, True, True],
+    "ioB" : [True, True, False, False, False, True, True, True, True, True],
+    "iMm" : [True, False, False, False, False, True, True, False, True, False],
+    "Mm" : [False, False, False, False, False, True, True, False, True, False],
+    "oMl" : [False, True, False, False, False, True, False, True, True, True],
+    "S" : [False, False, False, False, False, True, False, False, True, True]
+}
+
 
 velocity_mono_dict = {
     "forward": {0.04: [[0, 1, 0], 0.8], 0.02: [[0, 1, 0], 0.5], 0.01: [[0, 1, 0], 0.2]},
@@ -103,4 +114,36 @@ velocity_mono_dict = {
         0.02: [[1, 0, 1], 0.5],
         0.01: [[1, 0, 1], 0.2],
     },
+}
+
+
+bout_timing_color_dict = {
+    "before": [0, 1, 0],
+    "after": [1, 0.25, 0],
+    "during": [0, 0.25, 1]}
+
+
+
+stim_title_dict = {
+    "right" : r'$\Rightarrow$$\Rightarrow$',
+    "left" : r'$\Leftarrow$$\Leftarrow$',
+    "forward" : r'$\Uparrow$$\Uparrow$',
+    "backward" : r'$\Downarrow$$\Downarrow$',
+    "forward_right" : r'$\Nearrow$$\Nearrow$',
+    "backward_right" : r'$\Searrow$$\Searrow$',
+    "backward_left" : r'$\Swarrow$$\Swarrow$',
+    "forward_left" : r'$\Nwarrow$$\Nwarrow$',
+    "medial_left" : r' ---$\Leftarrow$',
+    "medial_right" : r'$\Rightarrow$--- ',
+    "lateral_left" : r'$\Leftarrow$--- ',
+    "lateral_right" : r' ---$\Rightarrow$',
+    "converging" : r'$\Rightarrow$$\Leftarrow$',
+    "diverging" : r'$\Leftarrow$$\Rightarrow$',
+
+    "forward_backward" : r'$\Uparrow$$\Downarrow$',
+    "backward_forward" : r'$\Downarrow$$\Uparrow$',
+    "x_forward" : r' ---$\Uparrow$',
+    "forward_x" : r'$\Uparrow$--- ',
+    "x_backward" : r' ---$\Downarrow$',
+    "backward_x" : r'$\Downarrow$--- ',
 }
