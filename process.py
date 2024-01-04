@@ -29,6 +29,7 @@ def run_movement_correction(
     caiman_ops=None,
     keep_mmaps=False,
     force=False,
+    cropped = False
 ):
     import caiman as cm
     from tifffile import imsave
@@ -80,11 +81,14 @@ def run_movement_correction(
     )  # use the template obtained before to save in computation (optional)
     mc.motion_correct(save_movie=True, template=mc.total_template_rig)
     m_els = cm.load(mc.fname_tot_els)
-    output = m_els[
-        :,
-        2 * bord_px_rig : -2 * bord_px_rig,
-        2 * bord_px_rig : -2 * bord_px_rig,
-    ]
+    
+    if cropped:
+        output = m_els[
+            :,
+            2 * bord_px_rig : -2 * bord_px_rig,
+            2 * bord_px_rig : -2 * bord_px_rig,
+        ] # this output is actually a cropped image
+
     if not keep_mmaps:
         with os.scandir(original_image_path.parents[0]) as entries:
             for entry in entries:
@@ -95,10 +99,10 @@ def run_movement_correction(
     cm.stop_server()
 
     new_path = base_fish.folder_path.joinpath("movement_corr_img.tif")
-    imsave(new_path, output)
+    imsave(new_path, m_els) # saving the full motion corrected image here
 
 
-def run_suite2p(base_fish, input_tau=1.5, s2p_ops=None, force=False, photostim=False):
+def run_suite2p(base_fish, input_tau=1.5, s2p_ops=None, force=False):
     try:
         from suite2p import run_s2p, default_ops
     except:
@@ -136,9 +140,5 @@ def run_suite2p(base_fish, input_tau=1.5, s2p_ops=None, force=False, photostim=F
     db = {}
     for item in s2p_ops:
         ops[item] = s2p_ops[item]
-        if photostim:
-            print('remember to save bad frames array, update suite2p')
-            ops['two_step_registration'] = True
-            ops['keep_movie_raw'] = True
 
     output_ops = run_s2p(ops=ops, db=db)
