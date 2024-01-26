@@ -21,6 +21,30 @@ invStimDict = {
     "backward_forward": "backward_forward",
 }
 
+# monocular are switched
+bruker_invStimDict = {
+    "medial_right": "lateral_right",
+    "medial_left": "lateral_left",
+    "right": "right",
+    "left": "left",
+    "converging": "diverging",
+    "diverging": "converging",
+    "lateral_left": "medial_left",
+    "lateral_right": "medial_right",
+    "forward": "forward",
+    "backward": "backward",
+    "forward_left": "backward_right",
+    "backward_left": "forward_right",
+    "backward_right": "forward_left",
+    "forward_right": "backward_left",
+    "x_forward": "forward_x",
+    "forward_x": "x_forward",
+    "backward_x": "x_backward",
+    "x_backward": "backward_x",
+    "forward_backward": "backward_forward",
+    "backward_forward": "forward_backward",
+}
+
 monocular_dict = {
     "right": [1, 0.25, 0],
     "left": [0, 0.25, 1],

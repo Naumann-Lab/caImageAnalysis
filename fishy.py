@@ -16,8 +16,9 @@ import matplotlib.pyplot as plt
 import bruker_images
 # local imports
 import constants
-from utilities import pathutils, arrutils
+from utilities import pathutils, arrutils, roiutils
 import stimuli
+import photostimulation
 
 
 class BaseFish:
@@ -25,12 +26,14 @@ class BaseFish:
         self,
         folder_path,
         frametimes_key="frametimes",
-        invert=True,
+        invert=False,
+        bruker_invert = False
     ):
         self.folder_path = Path(folder_path)
         self.frametimes_key = frametimes_key
 
         self.invert = invert
+        self.bruker_invert = bruker_invert # inverts the stim names since bruker projector was displayed differently
 
         self.process_filestructure()  # generates self.data_paths
         try:
@@ -82,9 +85,12 @@ class BaseFish:
                 
                 elif entry.name.endswith("xml"):
                     if 'MarkPoints' in entry.name:
-                        self.data_paths["mp_xml"] = Path(entry.path)
+                        self.data_paths["ps_xml"] = Path(entry.path)
                     else:
-                        self.data_paths["xml"] = Path(entry.path)
+                        self.data_paths["info_xml"] = Path(entry.path)
+                
+                elif entry.name.endswith("env"):
+                    self.data_paths["info_env"] = Path(entry.path)
 
         if "image" in self.data_paths and "move_corrected_image" in self.data_paths:
             if (
@@ -348,6 +354,10 @@ class VizStimFish(BaseFish):
             self.stimulus_df.loc[:, "stim_name"] = self.stimulus_df.stim_name.map(
                 constants.invStimDict
             )
+        if self.bruker_invert:
+            self.stimulus_df.loc[:, "stim_name"] = self.stimulus_df.stim_name.map(
+                constants.bruker_invStimDict
+            )
         self.stim_offset = stim_offset
         self.offsets = used_offsets
         self.diff_image = self.make_difference_image()
@@ -380,14 +390,17 @@ class VizStimFish(BaseFish):
             else:
                 self.stimulus_df = stim_fxn(self.data_paths["stimuli"])
 
-            self.tag_frames()
+            self.tag_frames() 
+            
 
     def tag_frames(self):
         # needed to trim my frametimes and stimulus times to match length of df
         trimmed_frametimes = self.frametimes_df[self.frametimes_df.time > self.stimulus_df.time[0]]
         if len(trimmed_frametimes) == 0:
             trimmed_frametimes = self.frametimes_df
-        self.stimulus_df = self.stimulus_df[self.stimulus_df.time < self.frametimes_df.time.values[-1]]
+
+        # trims the stimulus df, may not need everytime if stimulus is started after imaging
+        self.stimulus_df = self.stimulus_df[self.stimulus_df.time < trimmed_frametimes.time.values[-1]] 
 
         frame_matches = [
             trimmed_frametimes[
@@ -398,6 +411,8 @@ class VizStimFish(BaseFish):
 
         self.stimulus_df.loc[:, "frame"] = frame_matches
         # self.stimulus_df.drop(columns="time", inplace=True) #this needs to be included in the stimulus_df for TailTrackingFish
+        self.stimulus_df = self.stimulus_df[self.stimulus_df['frame'] != 0]
+        self.stimulus_df.reset_index(inplace = True, drop = True)
 
     def make_difference_image(self, selectivityFactor=1.5, brightnessFactor=10):
         image = self.load_image()
@@ -463,226 +478,84 @@ class VizStimFish(BaseFish):
 class PhotostimFish(BaseFish):
     def __init__(
         self,
-        baseline = True,
-        threshold=0.8,
-        save_badframes = False,
-        rotate = True,
         angle = 90,
         proximity=8,
         stim_offsets=[-20, 30],
-        volume = False,
         *args,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
 
         self.load_suite2p()
-        volume = volume
-
-        if rotate == True:
-            angle = 90
-        if baseline == True:
-            self.baseline_frames = bruker_images.find_baseline_frames(self.data_paths['move_corrected_image'].parents[2], volume = volume)
-            # baseline_arr = np.array([cell_arr[:self.baseline_frames] for cell_arr in self.f_cells])
-            # self.norm_baseline_arr = np.array([np.divide(arr, baseline_arr.mean()) for arr in self.f_cells])
-            # self.normcells = arrutils.norm_fdff(self.f_cells)
-            self.normcells = arrutils.norm_fdff_new(self.f_cells, lowPct=10, highPct=98)
-            # self.zdiffcells = [arrutils.zdiffcell(z) for z in self.norm_baseline_arr]
-        else:
-            self.normcells = arrutils.norm_fdff(self.f_cells)
-            self.zdiffcells = [arrutils.zdiffcell(z) for z in self.f_cells]
+        try:
+            self.badframes_arr = np.array(np.load(Path(self.folder_path).joinpath('bad_frames.npy')))
+        except: 
+            print('find bad frames and re run suite2p')
+            photostimulation.save_badframes_arr(self)
+        
+        self.normcells = arrutils.norm_fdff(self.f_cells)
+        self.zdiffcells = [arrutils.zdiffcell(z) for z in self.f_cells]
 
         self.stim_offsets = stim_offsets
-        self.find_photostim_frames(threshold, save_badframes, volume = volume)
-        self.find_photostimulated_cell(angle, proximity)
+        cell_numbers, raw_traces = self.identify_stim_cells(angle, proximity)
         self.photostimulation_responses()
         self.rescaled_img()
 
-    def find_photostim_frames(self, threshold, save_badframes, volume = True):
+    def identify_stim_cells(self, angle, proximity):
 
-        """
-        :param folderpath: path to folder that contains image and xml file with mark points
-                buffer: needed to have a few more frames on the end of this next for loop to accurately capture all frames that are bad
-        :return:
-        """
-        from PIL import Image
-        import math
+        imagepath = self.data_paths["rotated_image"]
+        img = imread(imagepath)
+        self.stim_sites_df = pd.read_hdf(Path(self.folder_path).joinpath("stim_sites.hdf"))
 
-        img_path = self.data_paths['move_corrected_image']
+        original_coordinates = []
+        for l in self.stim_sites_df.index:
+            pt = self.stim_sites_df.iloc[l]
+            original_coordinates.append((pt.x_stim, pt.y_stim))
 
-        with os.scandir(Path(img_path).parents[2]) as entries:
-            for entry in entries:
-                if 'MarkPoints' in entry.name:
-                    self.xml_file = Path(entry.path)
+        new_coordinates = photostimulation.rotate_transform_coors(original_coordinates, angle_degrees=-angle, translation = (0, img.shape[-1]))
 
-        with open(self.xml_file, "r") as f:
-            data = f.read()
-
-        for i in data.split("\n"):
-            if "InitialDelay" in i:
-                initial_delay_ms = int([i][0].split("InitialDelay=")[1].split('"')[1])
-                interpointdelay_ms = int([i][0].split("InterPointDelay=")[1].split('"')[1])
-                duration_ms = int([i][0].split("Duration=")[1].split('"')[1])
-                # indices = int([i][0].split("Indices=")[1].split('"')[1].split('-')[1])
-            elif "Repetitions" in i:
-                no_repetitions = int([i][0].split("Repetitions=")[1].split('"')[1])
-            elif "Iterations" in i:
-                no_iterations = int([i][0].split("Iterations=")[1].split('"')[1])
-                iteration_delay_ms = int(float([i][0].split("IterationDelay=")[1].split('"')[1]))
-
-        full_duration_ms = initial_delay_ms + ((no_repetitions * duration_ms + interpointdelay_ms))
-        img_hz = self.hzReturner(self.frametimes_df)
-        full_duration_frames = math.ceil((full_duration_ms / 1000) * img_hz)
-        iteration_delay_frames = math.ceil((iteration_delay_ms / 1000) * img_hz)
-
-        self.photostim_events = pd.DataFrame(index=range(no_iterations), columns=['frames','extended_arr','average_arr','error_arr'])
-
-        if save_badframes:
-            # IMAGE FRAMES
-            img = Image.open(img_path)
-            myArray = np.zeros((np.shape(img)[0], (np.shape(img)[1]), img.n_frames))
-
-            # read each frame into the array
-            for i in range(img.n_frames):
-                img.seek(i)
-                myArray[:, :, i] = img
-
-            # calculate a mean brightness trace
-            brightnessArray = myArray.mean(axis=(0, 1))
-
-            # use large changes in brightness (due to PMT shutter closure for laser) to do timing
-            diffArray = np.diff(brightnessArray)
-
-            # identify frames brightness 2 std below the mean of the whole array
-            ids = list(np.squeeze(np.where(diffArray > threshold)))
-            if ~hasattr(self, "baseline_frames"):
-                self.baseline_frames = bruker_images.find_baseline_frames(self.data_paths['move_corrected_image'].parents[2], volume = volume)
-            
-            print(f'full duration of ps event should be {full_duration_frames}')
-            print(f'full duration BETWEEN ps event should be {iteration_delay_frames}')
-
-            # this might be required for more complicated stimulation...
-            # n = 0
-            # while n <= 3:  # have to rerun this a few times maybe
-            #     for x, y in enumerate(ids):
-            #         if (y != ids[-1]) and ((ids[x + 1] - ids[x]) < (
-            #                 iteration_delay_frames)):  # if the next value is less than when the next iteration would be, then we want to keep the larger frame number
-            #             ids.remove(ids[x + 1])
-            #         elif y < self.baseline_frames:  # baseline value
-            #             ids.remove(y)
-            #         elif x == -1:
-            #             if (ids[x] - ids[x - 1]) < 5:
-            #                 ids.remove(ids[x])
-            #     if len(ids) > no_iterations:
-            #         n = + 1
-            #         print(ids)
-            #     else:
-            #         break
-            # print(ids)
-            # frames_lst = []
-            # for i in ids:
-            #     frames = np.arange(i, i + full_duration_frames + 1)
-            #     frames_lst.append(frames)
-            # badframes = [val for sublist in frames_lst for val in sublist]
-
-            # the easy calculation from baseline frames works for slower imaging times in volume!
-            frames_lst = [self.baseline_frames + iteration_delay_frames*m for m in range(no_iterations)]
-            self.badframes_arr = np.array(frames_lst)
-            
-            self.photostim_events['frames'] = frames_lst
-            save_path = Path(img_path).parents[0].joinpath('bad_frames.npy')
-            np.save(save_path, self.badframes_arr)  # save badframes
-            print('saved bad frames array')
-        else:
-            self.badframes_arr = np.array(np.load(Path(img_path).parents[0].joinpath('bad_frames.npy')))
-            # frames_lst = []
-            # for j in self.badframes_arr[::(full_duration_ms + 1)]:
-            #     frames = np.arange(j, j + full_duration_ms + 1)
-            #     frames_lst.append(frames)
-            self.photostim_events['frames'] = list(self.badframes_arr)
-
-        return self.badframes_arr, self.photostim_events
-
-    def find_photostimulated_cell(self, angle, proximity):
-
-        img_path = self.data_paths['move_corrected_image'].parents[0].joinpath(
-            "original_image/img_stack.tif")  # original image
-
-        img = imread(img_path)
-        # load the photostim xml file
-        with open(self.xml_file, "r") as f:
-            data = f.read()
-
-        coors_lst = []
-        rotated_coors_lst = []
-        # read the x and y percentages
-        for r in range(data.count("Point Index=") + 1):
-            for i in data.split("\n"):
-                if f'Point Index="{r}"' in i:
-                    myX = i.split('X')[1].split('"')[1]
-                    myY = i.split('Y')[1].split('"')[1]
-
-                    xCoord = img.shape[1] * float(myX)
-                    yCoord = img.shape[2] * float(myY)
-                    coors = np.array([xCoord, yCoord])
-                    coors_lst.append(coors)
-        if angle == 90:
-            for c in coors_lst:
-                stim_x = c[1]
-                stim_y = img.shape[2] - c[0]
-                _coors = np.array([stim_x, stim_y])
-                rotated_coors_lst.append(_coors)
-
-        df_data = {'original_coors': coors_lst, 'rotated_coors': rotated_coors_lst}
-        self.stimulated_cells_df = pd.DataFrame(df_data)
-
-        # finding cells based on proximity (in um) to the stimulation site
         cell_num_lst = []
-        for coor in enumerate(self.stimulated_cells_df.rotated_coors):
+        for coor in new_coordinates:
             x_val, y_val = coor
             x_val = int(x_val)
             y_val = int(y_val)
-            cell_num = self.return_cells_by_location(ymin=round(x_val) - proximity,
-                                                              ymax=round(x_val) + proximity,
-                                                              xmin=round(y_val) - proximity,
-                                                              xmax=round(y_val) + proximity)
+            cell_num = self.return_cells_by_location(ymin=round(y_val) - proximity,
+                                                                ymax=round(y_val) + proximity,
+                                                                xmin=round(x_val) - proximity,
+                                                                xmax=round(x_val) + proximity)
             cell_num_lst.append(cell_num)
 
-        self.stimulated_cells_df['cell_proximity'] = cell_num_lst
-        self.stimulated_cells_df['stim_cell'] = np.nan
+        # finding the raw pixel traces
+        raw_traces = np.zeros((len(self.stim_sites_df), img.shape[0]))
+        for point in range(len(self.stim_sites_df)):
+            pt = self.stim_sites_df.iloc[point]
+            msk = roiutils.create_circular_mask(img.shape[1:], pt.x_stim, pt.y_stim, pt.sp_size/2)
+            msk_trace = np.nanmean(img[:, msk], axis=1)
+            raw_traces[point] = msk_trace
 
-        # choosing stimulated cell to be the most responsive cell overall
-        for ind, m in enumerate(self.stimulated_cells_df.cell_proximity.values):
+        # correlate the cell identified in that area to this stim array
+        cell_numbers = []
+        for ind, m in enumerate(cell_num_lst):
             if m.shape[0] == 1:
-                self.stimulated_cells_df['stim_cell'].iloc[ind] = m
+                cell_numbers.append(m[0])
             elif m.shape[0] > 1:
-                med_zdiff_lst = []
-                for x in m:
-                    med_zdiff_lst.append(abs(np.median(self.zdiffcells[x])))  # collective absolute median activity
-                max_value = max(med_zdiff_lst)
-                max_index = med_zdiff_lst.index(max_value)
-                self.stimulated_cells_df['stim_cell'].iloc[ind] = m[max_index]
+                cell_arrs = [self.normcells[x] for x in m]  # collective normalized average activity for each cell
+                correlations = [round(np.corrcoef(raw_traces[ind], c)[0][1], 3) for c in cell_arrs] # find correlations between stim array and cell array
+                max_ind = correlations.index(max(correlations)) # choose the cell with the max correlation coeff
+                cell_numbers.append(m[max_ind])
             else:
-                self.stimulated_cells_df['stim_cell'].iloc[ind] = np.nan
+                print('increase proximity value')
+        
+        cell_numbers = list(set(cell_numbers)) # remove duplicates
 
-        save_path = Path(self.xml_file).parents[0].joinpath("stimulated_cells.hdf")
-        self.stimulated_cells_df.to_hdf(save_path, key="stim")
-        print('saved stimulated cells df')
+        return cell_numbers, raw_traces
 
-        return self.stimulated_cells_df
 
     def photostimulation_responses(self):
         import scipy
 
         # extended responses for all cells
         cell_lst = list(range(len(self.f_cells)))
-
-        # in case, there was no baseline
-        if baseline == False: # taking off the first events
-            last_ind = len(self.photostim_events)
-            self.photostim_events = self.photostim_events.drop(0, axis = 0) # first ind
-            self.photostim_events = self.photostim_events.drop(last_ind, axis = 0) # last ind
-            self.photostim_events.reset_index(drop = True, inplace = True)
 
         self.photostim_resp_dict = {}
         for num, e in enumerate(self.photostim_events.frames):
@@ -1248,7 +1121,7 @@ class WorkingFish(VizStimFish):
                 fullcolor /= max(fullcolor)
             fullcolor = np.clip(fullcolor, a_min=0, a_max=1.0)
             if np.sum(fullcolor) > colorsumthresh:
-                yloc, xloc = self.return_cell_rois(neuron)[0]
+                xloc, yloc = self.return_cell_rois(neuron)[0]
 
                 xpos.append(xloc)
                 ypos.append(yloc)

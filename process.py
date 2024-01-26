@@ -81,6 +81,7 @@ def run_movement_correction(
     )  # use the template obtained before to save in computation (optional)
     mc.motion_correct(save_movie=True, template=mc.total_template_rig)
     m_els = cm.load(mc.fname_tot_els)
+    output = m_els
     
     if cropped:
         output = m_els[
@@ -99,7 +100,7 @@ def run_movement_correction(
     cm.stop_server()
 
     new_path = base_fish.folder_path.joinpath("movement_corr_img.tif")
-    imsave(new_path, m_els) # saving the full motion corrected image here
+    imsave(new_path, output) # saving the full motion corrected image here
 
 
 def run_suite2p(base_fish, input_tau=1.5, s2p_ops=None, force=False):
@@ -132,6 +133,7 @@ def run_suite2p(base_fish, input_tau=1.5, s2p_ops=None, force=False):
             "preclassify": 0.15,
             "allow_overlap": True,
             "block_size": [32, 32],
+            "threshold_scaling": 0.9,
             "fs": imageHz,
             "tiff_list": [imagepath.name],
         }
