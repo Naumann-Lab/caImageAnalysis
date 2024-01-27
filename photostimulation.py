@@ -2,16 +2,17 @@
 
 import os
 from pathlib import Path
-import shutil
 import pandas as pd
 import numpy as np
 from tifffile import imread, imwrite
-import tifftools
 from datetime import datetime as dt, timedelta
 import xml.etree.ElementTree as ET
-import glob
 import caiman as cm
+from PIL import Image
+import math
+from scipy.signal import find_peaks 
 
+from bruker_images import read_xml_to_str, read_xml_to_root
 
 def find_no_baseline_frames(somefishclass, no_planes = 0):
     '''
@@ -34,17 +35,15 @@ def find_no_baseline_frames(somefishclass, no_planes = 0):
     
     return somefishclass.baseline_frames
 
-def save_badframes_arr(somefishclass, no_planes = 0):
+def collect_stimulation_times(somefishclass):
+    '''
+    Calculating the stimulation times from either the voltage recording output (channel input 2)
+    if not voltage recording, then can finid this based on the mark point xml file (not as exact)
+    Returns the specific times in ms for each stimulation based on the start of the T-series
+    '''
 
-    from PIL import Image
-    import math
-
-    somefishclass.baseline_frames = find_no_baseline_frames(somefishclass, no_planes)
-
-    # collecting stimulation timing based on ms in the file
-    with open(Path(somefishclass.data_paths['ps_xml']), "r") as f:
-        data = f.read()
-
+     # collecting stimulation timing based on ms in the xml file
+    data = read_xml_to_str(somefishclass.data_paths['ps_xml'])
     for i in data.split("\n"):
         if "InitialDelay" in i:
             try:
@@ -59,24 +58,49 @@ def save_badframes_arr(somefishclass, no_planes = 0):
             no_iterations = int([i][0].split("Iterations=")[1].split('"')[1])
             iteration_delay_ms = int(float([i][0].split("IterationDelay=")[1].split('"')[1]))
 
-    full_duration_ms = initial_delay_ms + (no_repetitions * duration_ms) + ((no_repetitions-1) * interpointdelay_ms)
-    stim_times = [(full_duration_ms/1000)*m + (iteration_delay_ms/1000)*m for m in range(no_iterations)]
+    full_duration_per_stim = initial_delay_ms + (no_repetitions * duration_ms) + ((no_repetitions-1) * interpointdelay_ms)
+
+    # if there is a voltage recording, can gather start signals from there
+    if somefishclass.data_paths["voltage_signal"]:
+        volt_csv = pd.read_csv(somefishclass.data_paths["voltage_signal"])
+        monaco_signal = np.array(volt_csv[' Input 2'])
+        time = np.array(volt_csv['Time(ms)'])
+
+        peaks, _ = find_peaks(monaco_signal, height = 0.10) # find peaks in voltage trace that are above 0.10 volts
+        peak_starts = [peaks[i] for i in range(len(peaks)) if i == 0 or peaks[i] - peaks[i-1] > 100] # find only the start of each peak, each rep
+        
+        # grabbing the start of each TRIAL, so have to take into account the repetition number
+        trial_starts = peak_starts[::no_repetitions]
+
+        stim_times = [time[i] for i in trial_starts] # convert the peak start indices to the time in ms
+    
+    else: # if no voltage recording, then calculate from mark points xml file
+        stim_times = [(full_duration_per_stim/1000)*m + (iteration_delay_ms/1000)*m for m in range(no_iterations)]
+
+
+    return full_duration_per_stim, stim_times
+
+
+def save_badframes_arr(somefishclass, no_planes = 0):
+
+    somefishclass.baseline_frames = find_no_baseline_frames(somefishclass, no_planes)
+
+    full_duration_per_stim, stim_times = collect_stimulation_times(somefishclass)
 
     # using the information xml file to calculate the frames and times for each stimulation
-    
-
     if no_planes > 0: # if volume stimulation
         plane_num = int(somefishclass.data_paths['move_corrected_image'].parents[0].name.split('_')[1])
 
         frametimes = []
-        with open(somefishclass.data_paths["info_xml"], "r") as f:
-            info_data = f.read()
+        info_data = read_xml_to_str(somefishclass.data_paths["info_xml"])
+
         for i in info_data.split("\n"):
             if "relativeTime" in i:
                 relative_time = [i.split("relativeTime=")[1].split('"')[1]][0]
                 frametimes.append(float(relative_time))
         
-        # find the index where the stimulation starts in the list of frametimes
+        # find the second occurence where the stimulation starts in the list of frametimes
+        # presuming that you are doing 2 t-series cycles, the first occurence is the baseline recording
         stim_ind = [index for index, value in enumerate(frametimes) if value < 0.01][1] 
 
         # only get the relative frametimes that happen during the stimulation
@@ -86,13 +110,12 @@ def save_badframes_arr(somefishclass, no_planes = 0):
             if p == plane_num:
                 plane_frametimes = stimulation_frametimes[p::no_planes]
                 time_matches = [min(plane_frametimes, key=lambda y: abs(x - y)) for x in stim_times] # list of frametimes values that match with the stim_times
-                frames = [plane_frametimes.index(x)-1 for x in time_matches] # list of frames that match with the stim_times
+                frames = [plane_frametimes.index(x) for x in time_matches] # list of frames that match with the stim_times
 
     else: # if single plane stimulation
         ##TODO: make it simpler code, combine this to just do what I am doing for volumes
         # only looking at stimulation cycle here for the right relative times
-        tree = ET.parse(somefishclass.data_paths["info_xml"])
-        root = tree.getroot()
+        root = read_xml_to_root(somefishclass.data_paths["info_xml"])
         frametimes = []
         for child in root:
             if child.tag == 'Sequence' and child.attrib['cycle'] == '2':
@@ -102,14 +125,12 @@ def save_badframes_arr(somefishclass, no_planes = 0):
 
         # calculate ps events in frame numbers
         time_matches = [min(frametimes, key=lambda y: abs(x - y)) for x in stim_times] # list of frametimes values that match with the stim_times
-        frames = [frametimes.index(x)-1 for x in time_matches] # list of frames that match with the stim_times
-        # subtract 1 since that worked with the graph, I think it's because the first frame is 0 and not 1
+        frames = [frametimes.index(x) for x in time_matches] # list of frames that match with the stim_times
         
         # calculate the duration of one ps event in frame numbers
         frame_dur = min(frametimes, key=lambda y: abs(full_duration_ms/1000 - y))
         duration_in_frames = frametimes.index(frame_dur)
         
-    
     ps_events = [somefishclass.baseline_frames + f for f in frames]
     somefishclass.badframes_arr = np.array(ps_events)
     # saving the bad frames array
@@ -123,23 +144,23 @@ def save_badframes_arr(somefishclass, no_planes = 0):
    
     return somefishclass.badframes_arr
 
-def identify_stim_sites(somebasefish, planes_stimed = [1,2,3,4]):
+def identify_stim_sites(somebasefish, rotate = True, planes_stimed = [1,2,3,4]):
     '''
     planes_stimed is hard coded, not sure how to gather the z plane info with not a clear output file 
     use a base fish, saves a stimulated site dataframe for each unique plane
     '''
+    somebasefish.stim_sites_df = pd.DataFrame(columns = ['plane', 'x_stim', 'y_stim', 'sp_size'])
 
-    og_img = imread(somebasefish.data_paths['image'])
-
-    stim_sites_df = pd.DataFrame(columns = ['plane', 'x_stim', 'y_stim', 'sp_size'])
-
-    pixels_per_line = int(og_img.shape[1])
-    lines_per_frame = int(og_img.shape[2])
-            
-    with open(somebasefish.data_paths['ps_xml'], "r") as f:
-        ps_xml = f.read()
-
-    # get the values for the stim sites in pixels
+    # use the info xml file to get the pixel data
+    pixel_info = read_xml_to_str(somebasefish.data_paths['info_xml'])
+    for i in (pixel_info.split("\n")):
+        if "pixelsPerLine" in i:
+            pixels_per_line = int(i.split('value=')[1].split('"')[1])
+        if "linesPerFrame" in i:
+            lines_per_frame = int(i.split('value=')[1].split('"')[1])
+    
+    # use the ps xml file to get the stim site data
+    ps_xml = read_xml_to_str(somebasefish.data_paths['ps_xml'])
     X_stim_sites = []
     Y_stim_sites = []
     spiral_size_lst = []
@@ -155,10 +176,19 @@ def identify_stim_sites(somebasefish, planes_stimed = [1,2,3,4]):
                 spiral_size = float(i.split('SpiralSizeInMicrons')[1].split('"')[1])
                 spiral_size_lst.append(round(spiral_size))
 
-    # get values for the z here
+    # need to rotate and transform the coordinates if the image is rotated from off the Bruker
+    if rotate:
+        coord_stim_sites = list(zip(X_stim_sites, Y_stim_sites))
+
+        ##TODO: make this cleaner to find the correct y and x coords, i should not have to do this separately
+        correct_y_coords = rotate_transform_coors(coord_stim_sites, 90, translation=(pixels_per_line, 0))
+        correct_x_coords = rotate_transform_coors(coord_stim_sites, -90, translation=(0, pixels_per_line))
+        X_stim_sites = [x[0] for x in correct_x_coords]
+        Y_stim_sites = [y[1] for y in correct_y_coords]
+
+    # get values for the z steps in the info env file
     with open(somebasefish.data_paths['info_env'], "r") as f:
         lines = f.readlines()
-
         for i, line in enumerate(lines):
             if "PVMarkPoints" in line and "active" in line:
                 ind_start = i+2
@@ -166,7 +196,8 @@ def identify_stim_sites(somebasefish, planes_stimed = [1,2,3,4]):
                 ind_end = i
         ind_lines = np.arange(ind_start, ind_end, step=1)
         z_vals = [float(lines[i].split('Z')[1].split('"')[1]) for i in ind_lines]
-
+    
+    # convert z values into planes
     unique_z = np.unique(z_vals)
     map_z = {}
     for _p, p in enumerate(unique_z):
@@ -174,20 +205,20 @@ def identify_stim_sites(somebasefish, planes_stimed = [1,2,3,4]):
 
     z_to_plane = [map_z[z] for z in z_vals]
 
-    stim_sites_df['x_stim'] = X_stim_sites
-    stim_sites_df['y_stim'] = Y_stim_sites
-    stim_sites_df['sp_size'] = spiral_size_lst
-    stim_sites_df['plane'] = z_to_plane
+    somebasefish.stim_sites_df['x_stim'] = X_stim_sites
+    somebasefish.stim_sites_df['y_stim'] = Y_stim_sites
+    somebasefish.stim_sites_df['sp_size'] = spiral_size_lst
+    somebasefish.stim_sites_df['plane'] = z_to_plane
 
     # trim dataframe to only include stim sites for that precise z plane
     this_plane = int(somebasefish.folder_path.name.split('_')[1])
-    stim_sites_df = stim_sites_df[stim_sites_df['plane'] == this_plane]
-    stim_sites_df.reset_index(inplace = True, drop = True)
+    somebasefish.stim_sites_df = somebasefish.stim_sites_df[somebasefish.stim_sites_df['plane'] == this_plane]
+    somebasefish.stim_sites_df.reset_index(inplace = True, drop = True)
 
     save_path = Path(somebasefish.folder_path).joinpath("stim_sites.hdf")
-    stim_sites_df.to_hdf(save_path, key="stim")
+    somebasefish.stim_sites_df.to_hdf(save_path, key="stim")
 
-    return stim_sites_df
+    return somebasefish.stim_sites_df
 
 def run_suite2p_PS(somebasefish, input_tau = 1.5, move_corr = False):
     '''
@@ -226,33 +257,6 @@ def run_suite2p_PS(somebasefish, input_tau = 1.5, move_corr = False):
     run_s2p(ops=ps_s2p_ops, db=db)
 
 
-    def rotate_transform_coors(coordinates, angle_degrees, translation=(0, 0)):
-        """
-        this is necessary for Bruker images that are rotated
-        Rotate, transform, and flip 2D coordinates. 
-
-        - coordinates: List of (x, y) coordinates.
-        - angle_degrees: Rotation angle in degrees.
-        - translation: Tuple (tx, ty) for translation (default is (0, 0)).
-
-        Returns:
-        - List of transformed (x', y') coordinates.
-        """
-        # Convert angle to radians
-        angle_radians = np.radians(angle_degrees)
-
-        # Rotation matrix
-        rotation_matrix = np.array([[np.cos(angle_radians), -np.sin(angle_radians)],
-                                    [np.sin(angle_radians), np.cos(angle_radians)]])
-
-        # Apply rotation
-        rotated_coordinates = np.dot(rotation_matrix, np.array(coordinates).T).T
-
-        # Apply translation
-        translated_coordinates = rotated_coordinates + np.array(translation)
-
-        return translated_coordinates.tolist()
-
 def rotate_transform_coors(coordinates, angle_degrees, translation=(0, 0)):
     """
     Rotate and transform 2D coordinates.
@@ -280,3 +284,36 @@ def rotate_transform_coors(coordinates, angle_degrees, translation=(0, 0)):
 
     return translated_coordinates.tolist()
 
+def create_circular_mask(img_shape, x, y, radius):
+    '''
+    Creating a circular mask given a x, y coordinate point and radius of the spot over a raw pixel image
+    '''
+    h,w = img_shape
+    Y, X = np.ogrid[:h, :w]
+    
+    dist_from_center = np.sqrt((X - x)**2 + (Y-y)**2)
+
+    mask = dist_from_center <= radius
+    return mask
+
+def return_raw_coord_trace(cell_coord, img, s=5):
+    '''
+    returns the ROI location of a specified coordinate in the target fish
+    '''
+    msk = create_circular_mask(img.shape[1:], cell_coord[1], cell_coord[0], s)[:, ::-1]
+
+    return np.nanmean(img[:, msk], axis=1)
+
+def collect_raw_traces(somebasefish):
+    
+    stim_sites_df = pd.read_hdf(Path(somebasefish.folder_path).joinpath("stim_sites.hdf"))
+    img = imread(somebasefish.data_paths["move_corrected_image"])
+
+    raw_traces = np.zeros((len(stim_sites_df), img.shape[0]))
+    for point in range(len(stim_sites_df)):
+        pt = stim_sites_df.iloc[point]
+        msk = create_circular_mask(img.shape[1:], pt.x_stim, pt.y_stim, pt.sp_size*3)
+        msk_trace = np.nanmean(img[:, msk], axis=1)
+        raw_traces[point] = msk_trace
+    
+    return raw_traces

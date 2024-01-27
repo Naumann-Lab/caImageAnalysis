@@ -53,8 +53,7 @@ class BaseFish:
                         self.data_paths["rotated_image"] = Path(entry.path)
                     else:
                         self.data_paths["image"] = Path(entry.path)
-                elif entry.name.endswith(".txt") and "log" in entry.name:
-                    self.data_paths["log"] = Path(entry.path)
+
                 elif entry.name.endswith(".txt") and self.frametimes_key in entry.name:
                     self.data_paths["frametimes"] = Path(entry.path)
 
@@ -67,15 +66,13 @@ class BaseFish:
                 elif os.path.isdir(entry.path):
                     if entry.name == "suite2p":
                         self.data_paths["suite2p"] = Path(entry.path).joinpath("plane0")
-
                     if entry.name == "original_image":
                         with os.scandir(entry.path) as imgdiver:
                             for poss_img in imgdiver:
                                 if poss_img.name.endswith(".tif"):
                                     self.data_paths["image"] = Path(poss_img.path)
 
-                elif entry.name.endswith(".npy"):
-                    # these are mislabeled so just flip here
+                elif entry.name.endswith(".npy"): # these are mislabeled so just flip here
                     if "xpts" in entry.name:
                         with open(entry.path, "rb") as f:
                             self.y_pts = np.load(f)
@@ -83,14 +80,16 @@ class BaseFish:
                         with open(entry.path, "rb") as f:
                             self.x_pts = np.load(f)
                 
+                # bruker information files
                 elif entry.name.endswith("xml"):
                     if 'MarkPoints' in entry.name:
                         self.data_paths["ps_xml"] = Path(entry.path)
-                    else:
+                    elif "Voltage" not in entry.name and 'MarkPoints' not in entry.name:
                         self.data_paths["info_xml"] = Path(entry.path)
-                
                 elif entry.name.endswith("env"):
                     self.data_paths["info_env"] = Path(entry.path)
+                elif entry.name.endswith("csv") and 'Voltage' in entry.name:
+                    self.data_paths["voltage_signal"] = Path(entry.path)
 
         if "image" in self.data_paths and "move_corrected_image" in self.data_paths:
             if (
