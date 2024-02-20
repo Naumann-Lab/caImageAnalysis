@@ -13,13 +13,14 @@ import math
 from scipy.signal import find_peaks 
 
 from bruker_images import read_xml_to_str, read_xml_to_root
+from utilities import arrutils
 
 def find_no_baseline_frames(somefishclass, no_planes = 0):
     '''
     folder_path = path that contains all the data (xml file and original bruker images)
     volume = set to True if this is a volume stack since the baseline frame number is calculated differently
     '''
-    if no_planes < 0:
+    if no_planes < 2:
         original_imgs = Path(somefishclass.folder_path).joinpath("bruker_images")
         with os.scandir(original_imgs) as entries:
             for entry in entries:
@@ -29,7 +30,7 @@ def find_no_baseline_frames(somefishclass, no_planes = 0):
 
         somefishclass.baseline_frames = baseline_img.shape[0]
 
-    elif no_planes > 0:
+    elif no_planes >= 2:
         ps_xml_name = Path(somefishclass.data_paths['ps_xml']).name
         somefishclass.baseline_frames = int(ps_xml_name.split('Cycle')[1].split('_')[0]) # baseline frames number is given in the cycle name for the volume
     
@@ -63,7 +64,7 @@ def collect_stimulation_times(somefishclass):
     # if there is a voltage recording, can gather start signals from there
     if somefishclass.data_paths["voltage_signal"]:
         volt_csv = pd.read_csv(somefishclass.data_paths["voltage_signal"])
-        monaco_signal = np.array(volt_csv[' Input 2'])
+        monaco_signal = np.array(volt_csv[' monaco'])
         time = np.array(volt_csv['Time(ms)'])
 
         peaks, _ = find_peaks(monaco_signal, height = 0.10) # find peaks in voltage trace that are above 0.10 volts
@@ -80,12 +81,12 @@ def collect_stimulation_times(somefishclass):
 
     return full_duration_per_stim, stim_times
 
-
 def save_badframes_arr(somefishclass, no_planes = 0):
 
     somefishclass.baseline_frames = find_no_baseline_frames(somefishclass, no_planes)
 
     full_duration_per_stim, stim_times = collect_stimulation_times(somefishclass)
+    stim_times_secs = [x/1000 for x in stim_times] # needs to be in seconds for comparing with the relative times in the xml file
 
     # using the information xml file to calculate the frames and times for each stimulation
     if no_planes > 0: # if volume stimulation
@@ -100,8 +101,9 @@ def save_badframes_arr(somefishclass, no_planes = 0):
                 frametimes.append(float(relative_time))
         
         # find the second occurence where the stimulation starts in the list of frametimes
-        # presuming that you are doing 2 t-series cycles, the first occurence is the baseline recording
-        stim_ind = [index for index, value in enumerate(frametimes) if value < 0.01][1] 
+        # presuming that you are doing 2 t-series cycles:
+                # the first occurence is the baseline recording, second is the markpoints start, then third value is the frame
+        stim_ind = [index for index, value in enumerate(frametimes) if value < 0.01][2] 
 
         # only get the relative frametimes that happen during the stimulation
         stimulation_frametimes = frametimes[stim_ind:]
@@ -109,7 +111,7 @@ def save_badframes_arr(somefishclass, no_planes = 0):
         for p in range(no_planes):
             if p == plane_num:
                 plane_frametimes = stimulation_frametimes[p::no_planes]
-                time_matches = [min(plane_frametimes, key=lambda y: abs(x - y)) for x in stim_times] # list of frametimes values that match with the stim_times
+                time_matches = [min(plane_frametimes, key=lambda y: abs(x - y)) for x in stim_times_secs] # list of frametimes values that match with the stim_times
                 frames = [plane_frametimes.index(x) for x in time_matches] # list of frames that match with the stim_times
 
     else: # if single plane stimulation
@@ -256,7 +258,6 @@ def run_suite2p_PS(somebasefish, input_tau = 1.5, move_corr = False):
     db = {}
     run_s2p(ops=ps_s2p_ops, db=db)
 
-
 def rotate_transform_coors(coordinates, angle_degrees, translation=(0, 0)):
     """
     Rotate and transform 2D coordinates.
@@ -310,10 +311,71 @@ def collect_raw_traces(somebasefish):
     img = imread(somebasefish.data_paths["move_corrected_image"])
 
     raw_traces = np.zeros((len(stim_sites_df), img.shape[0]))
+    points = np.zeros((len(stim_sites_df), 2))
     for point in range(len(stim_sites_df)):
         pt = stim_sites_df.iloc[point]
         msk = create_circular_mask(img.shape[1:], pt.x_stim, pt.y_stim, pt.sp_size*3)
         msk_trace = np.nanmean(img[:, msk], axis=1)
         raw_traces[point] = msk_trace
+        points[point] = [pt.x_stim, pt.y_stim]
     
-    return raw_traces
+    return raw_traces, points
+
+def identify_stimmed_planes(omr_tseries_folder_path, clst_no):
+    '''
+    folder_path = where the cluster df is located, will be the omr tseries folder path
+    clst_no = cluster that was stimulated in this dataset
+    returns the unique planes that were stimulated in the experiment
+    '''
+    clusters_df = pd.read_hdf(Path(omr_tseries_folder_path).joinpath("clusters.h5"))
+    one_cluster_df = clusters_df[clusters_df['cluster'] == clst_no]
+
+    all_stimmed_planes = []
+    for v in one_cluster_df.plane.unique():
+       all_stimmed_planes.append(int(v.split('_')[1]))
+
+    # stimmed_planes = all_stimmed_planes.unique()
+    stimmed_planes = sorted(all_stimmed_planes)
+
+    
+    return stimmed_planes
+
+def correlations_with_stim_sites(somebasefish, corr_threshold = 0.5, saving = True):
+
+    somebasefish.baseline_frames = find_no_baseline_frames(somebasefish, no_planes = 6)
+    somebasefish.load_suite2p()
+
+    # load in raw pixel traces or run the function again/save the npy file if not
+    if Path(somebasefish.folder_path).joinpath('raw_traces.npy').exists():
+        raw_traces = np.load(Path(somebasefish.folder_path).joinpath('raw_traces.npy'))
+    else:
+        raw_traces, points = collect_raw_traces(somebasefish)
+        np.save(Path(somebasefish.folder_path).joinpath('raw_traces.npy'), raw_traces)
+
+    somebasefish.normcells = arrutils.norm_0to1(somebasefish.f_cells)
+
+    corr_dictionary = {}
+    # for each cell, find the corrleation coefficients for each stim site, not including the baseline period here
+    for cell_id, cell_trace in enumerate(somebasefish.normcells):
+        if cell_id not in corr_dictionary.keys():
+            corr_dictionary[cell_id] = {}  
+        
+        corrs = []
+        cell_trace = cell_trace[somebasefish.baseline_frames:] # trim the cell trace to not include baseline
+        for ind in raw_traces:
+            ind = ind[somebasefish.baseline_frames:] # trim the raw pixel trace to not include baseline
+            corrs.append(round(np.corrcoef(ind, cell_trace)[0][1], 3))
+        corr_dictionary[cell_id] = corrs
+    
+    corr_df = pd.DataFrame.from_dict(corr_dictionary, orient = 'index')
+    corr_df['avg_corr'] = corr_df.mean(axis = 1)
+    if saving:
+        corr_df.to_hdf(Path(somebasefish.folder_path).joinpath('correlation_df.hdf'), key="corr")
+        print('saved correlation_df')
+
+    corr_neurons = corr_df[corr_df.avg_corr > corr_threshold].index.values
+
+    return corr_df, corr_neurons
+
+
+

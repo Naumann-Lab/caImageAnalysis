@@ -27,7 +27,7 @@ def get_frametimes(info_xml_path, voltage_path):
     if voltage_path:
         # use the voltage recording to get the frametimes
         volt_csv = pd.read_csv(voltage_path)
-        frame_signal = np.array(volt_csv[' Input 1'])
+        frame_signal = np.array(volt_csv[' frame_out'])
         time_signal = np.array(volt_csv['Time(ms)'])
 
         frames, _ = find_peaks(frame_signal, height=5) # find peaks in voltage trace
@@ -62,6 +62,9 @@ def bruker_img_organization(folder_path, testkey = 'Cycle', safe=False, single_p
     pstim_file = if you have a stimulus txt file that needs to be moved into each plane folder
     '''
     keyset = set()
+
+    voltage_path = None
+
     with os.scandir(folder_path) as entries:
         for entry in entries:
             if 'companion' in entry.name:
@@ -72,10 +75,6 @@ def bruker_img_organization(folder_path, testkey = 'Cycle', safe=False, single_p
                 )  # make a key for each volume or if single plane, each plane in the t-series
             elif entry.name.endswith(".xml") and "MarkPoints" not in entry.name and "Voltage" not in entry.name:
                 info_xml_path = Path(entry.path)
-            elif entry.name.endswith(".xml") and "MarkPoints" in entry.name:
-                ps_xml_path = Path(entry.path)
-            elif entry.name.endswith(".env"):
-                env_path = Path(entry.path)
             elif 'txt' in entry.name and pstim_file:
                 pstim_path = Path(entry.path)
             elif 'Voltage' in entry.name and entry.name.endswith(".csv"):
@@ -89,7 +88,7 @@ def bruker_img_organization(folder_path, testkey = 'Cycle', safe=False, single_p
         os.mkdir(new_output)
 
     # collect frame times from files
-    frametimes_df = get_frametimes(info_xml_path, voltage_path)
+    frametimes_df = get_frametimes(info_xml_path, voltage_path = None)
 
     if single_plane == True:
 
@@ -114,6 +113,7 @@ def bruker_img_organization(folder_path, testkey = 'Cycle', safe=False, single_p
     else:
         # do everything for volumes here
         volume_path_dict = {k: {} for k in sorted(keyset)}
+        print(sorted(keyset))
 
         # image paths go in this dict for each volume
         for k in volume_path_dict.keys():
@@ -126,6 +126,7 @@ def bruker_img_organization(folder_path, testkey = 'Cycle', safe=False, single_p
         plane_no = imread(volume_path_dict[k]).shape[0]
         planes_dict = {k: [] for k in range(plane_no)}  # dictionary for each plane
 
+        print(sorted(volume_path_dict.keys()))
         for k in sorted(volume_path_dict.keys()):
             vol_img = volume_path_dict[k]
             for n in range(len(planes_dict.keys())):
@@ -162,16 +163,13 @@ def bruker_img_organization(folder_path, testkey = 'Cycle', safe=False, single_p
                     )  # saving frametimes into each specific folder
                     if pstim_file:  # if pstim output exists, save into each folder
                         shutil.copy(pstim_path, Path(fld).joinpath(f"pstim_output.txt"))
-                    
-                    # moves over all the xml files into each output folder
-                    shutil.copy(ps_xml_path, Path(fld).joinpath("MarkPoints.xml"))
-                    shutil.copy(info_xml_path, Path(fld).joinpath("information.xml"))
-                    shutil.copy(env_path, Path(fld).joinpath("env_file.env"))
 
     # move over the original images into a new folder
     moveto_folder = Path(folder_path).joinpath("bruker_images")
     if not os.path.exists(moveto_folder):
         os.mkdir(moveto_folder)
+    
+    move_xml_files(folder_path) # moving xml and env files into output plane folders
 
     with os.scandir(folder_path) as entries:
         for entry in entries:
@@ -212,16 +210,34 @@ def move_xml_files(folder_path):
     folder_path = the master data folder path that contains the xml files and output folders
     A BaseFish will be called so that it will use the data_paths dictionary
     '''
-    from fishy import BaseFish
+    voltage_path = None
+    ps_xml_path = None  
 
-    brukerfish = BaseFish(folder_path = folder_path, frametimes_key = 'frametimes')
-    with os.scandir(Path(brukerfish.folder_path.joinpath('output_folders'))) as entries:
+    with os.scandir(folder_path) as entries:
+        for entry in entries:
+            if 'companion' in entry.name:
+                pass
+            elif entry.name.endswith(".xml") and "MarkPoints" not in entry.name and "Voltage" not in entry.name:
+                info_xml_path = Path(entry.path)
+            elif 'txt' in entry.name:
+                pstim_path = Path(entry.path)
+            elif 'Voltage' in entry.name and entry.name.endswith(".csv"):
+                voltage_path = Path(entry.path)
+            elif entry.name.endswith("xml") and 'MarkPoints' in entry.name:
+                ps_xml_path = Path(entry.path)
+            elif entry.name.endswith("env"):
+                info_env_path = Path(entry.path)
+
+    with os.scandir(Path(folder_path).joinpath('output_folders')) as entries:
         for entry in entries:
             fld = Path(entry.path)
-            shutil.copy(brukerfish.data_paths['info_xml'], Path(fld).joinpath(Path(brukerfish.data_paths['info_xml']).name))
-            shutil.copy(brukerfish.data_paths['ps_xml'], Path(fld).joinpath(Path(brukerfish.data_paths['ps_xml']).name))
-            shutil.copy(brukerfish.data_paths['info_env'], Path(fld).joinpath(Path(brukerfish.data_paths['info_env']).name))
-            print('xml and env files are copied')
+            shutil.copy(info_xml_path, Path(fld).joinpath(Path(info_xml_path).name))
+            shutil.copy(info_env_path, Path(fld).joinpath(Path(info_env_path).name))
+            if ps_xml_path:
+                shutil.copy(ps_xml_path, Path(fld).joinpath(Path(ps_xml_path).name))
+            if voltage_path:
+                shutil.copy(voltage_path, Path(fld).joinpath(Path(voltage_path).name))
+            print('extra files copied to output folders')
 
 def get_micronstopixels_scale(somebaseFish):
     '''

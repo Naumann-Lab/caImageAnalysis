@@ -264,6 +264,13 @@ class BaseFish:
 
         return image
 
+    def rescaled_img(self):
+        self.load_suite2p()
+        self.rescaled_ref = self.ops['refImg']
+        self.rescaled_ref = self.rescaled_ref/ self.rescaled_ref.max()
+        self.rescaled_ref *= 2**12
+        return print('rescaled img made')
+    
     @staticmethod
     def hzReturner(frametimes):
         increment = 15
@@ -393,20 +400,8 @@ class VizStimFish(BaseFish):
             
 
     def tag_frames(self):
-        # needed to trim my frametimes and stimulus times to match length of df
-        trimmed_frametimes = self.frametimes_df[self.frametimes_df.time > self.stimulus_df.time[0]]
-        if len(trimmed_frametimes) == 0:
-            trimmed_frametimes = self.frametimes_df
 
-        # trims the stimulus df, may not need everytime if stimulus is started after imaging
-        self.stimulus_df = self.stimulus_df[self.stimulus_df.time < trimmed_frametimes.time.values[-1]] 
-
-        frame_matches = [
-            trimmed_frametimes[
-                trimmed_frametimes.time >= self.stimulus_df.time.values[i]
-                ].index[0]
-            for i in range(len(self.stimulus_df))
-        ]
+        frame_matches = [self.frametimes_df[self.frametimes_df.time < self.stimulus_df.time.values[i]].index[-1] for i in range(len(self.stimulus_df))]
 
         self.stimulus_df.loc[:, "frame"] = frame_matches
         # self.stimulus_df.drop(columns="time", inplace=True) #this needs to be included in the stimulus_df for TailTrackingFish
@@ -477,6 +472,8 @@ class VizStimFish(BaseFish):
 class PhotostimFish(BaseFish):
     def __init__(
         self,
+        no_planes = 5, # volume
+        planes_stimmed = [0,1,2,3,4],
         angle = 90,
         proximity=8,
         stim_offsets=[-20, 30],
@@ -486,19 +483,28 @@ class PhotostimFish(BaseFish):
         super().__init__(*args, **kwargs)
 
         self.load_suite2p()
+        self.no_planes = no_planes
+        self.planes_stimmed = planes_stimmed
+
+        self.normcells = arrutils.norm_fdff(self.f_cells)
+        self.zdiffcells = [arrutils.zdiffcell(z) for z in self.f_cells]
+
+        # 1 - find bad frames
         try:
             self.badframes_arr = np.array(np.load(Path(self.folder_path).joinpath('bad_frames.npy')))
         except: 
             print('find bad frames and re run suite2p')
             photostimulation.save_badframes_arr(self)
         
-        self.normcells = arrutils.norm_fdff(self.f_cells)
-        self.zdiffcells = [arrutils.zdiffcell(z) for z in self.f_cells]
+        # 2 - id the stim sites
+        photostimulation.identify_stim_sites(self, rotate = True)
+
+        # 3 - get raw traces
+        self.raw_traces, self.points = photostimulation.collect_raw_traces(self)
 
         self.stim_offsets = stim_offsets
         cell_numbers, raw_traces = self.identify_stim_cells(angle, proximity)
         self.photostimulation_responses()
-        self.rescaled_img()
 
     def identify_stim_cells(self, angle, proximity):
 
@@ -583,11 +589,7 @@ class PhotostimFish(BaseFish):
 
         return self.photostim_resp_dict, self.photostim_events
     
-    def rescaled_img(self):
-        self.rescaled_ref = self.ops['refImg']
-        self.rescaled_ref = self.rescaled_ref/ self.rescaled_ref.max()
-        self.rescaled_ref *= 2**12
-        return print('rescaled img made')
+
 
     def correlation_with_photostimulation (self, begin_resp = 4, highest_resp = 12, pscorr_thresh = 0.5):
         self.pscorr_dict = {}

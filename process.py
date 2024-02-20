@@ -133,7 +133,7 @@ def run_suite2p(base_fish, input_tau=1.5, s2p_ops=None, force=False):
             "preclassify": 0.15,
             "allow_overlap": True,
             "block_size": [32, 32],
-            "threshold_scaling": 0.9,
+            # "threshold_scaling": 0.9,
             "fs": imageHz,
             "tiff_list": [imagepath.name],
         }

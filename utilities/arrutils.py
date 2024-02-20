@@ -26,6 +26,9 @@ def tolerant_mean(arrs):
         arr[: len(l), idx] = l
     return arr.mean(axis=-1), arr.std(axis=-1)
 
+def norm_0to1(cell_array):
+    norm_cell_arr = np.array([(c - np.min(c)) / (np.max(c) - np.min(c)) for c in cell_array])
+    return norm_cell_arr
 
 def norm_fdff(cell_array):
     minVals = np.percentile(cell_array, 10, axis=1)

@@ -13,6 +13,11 @@ whit_custom_16stim_order = [
     "forward","backward","forward_backward", "forward_x", "x_backward", "backward_forward", "x_forward", "backward_x",
     ]
 
+barcoding_8stim_order = [
+    "converging","diverging",
+    "left","medial_left","lateral_left",
+    "right","medial_right","lateral_right"]
+
 def groupby(a, b):
     # Get argsort indices, to be used to sort a and b in the next steps
     sidx = b.argsort(kind='mergesort')
@@ -24,19 +29,16 @@ def groupby(a, b):
     out = [a_sorted[i:j] for i,j in zip(cut_idx[:-1],cut_idx[1:])]
     return out
 
-def invert_stims(somefishclass):
-    somefishclass.stimulus_df.loc[:, "stim_name"] = somefishclass.stimulus_df.stim_name.map(
-                constants.invStimDict)
-
-
 def neuron_stim_rep_array(somefishclass, no_repetitions, stim_order = whit_custom_16stim_order):
     '''
     somefishclass -- has to be a VizStimFish
     output -- array of shape: # of neurons, each repetition, and each stim (in the order of the stim_df) 
             array of activity (length of offsets * num of stims) 
     '''
+    # normalize your cell traces, different ways to do this:
     # normcells = arrutils.norm_fdff(somefishclass.f_cells)
-    normcells = arrutils.norm_fdff_new(somefishclass.f_cells, lowPct=10, highPct=98)
+    # normcells = arrutils.norm_fdff_new(somefishclass.f_cells, lowPct=10, highPct=98)
+    normcells = arrutils.norm_0to1(somefishclass.f_cells)
 
     somefishclass.stimulus_df['rep'] = 0
 
@@ -63,8 +65,8 @@ def neuron_stim_rep_array(somefishclass, no_repetitions, stim_order = whit_custo
 
         for st, stim in enumerate(stim_order):
             # finding the frames for each stimuli between the offsets 
-            arrs = arrutils.subsection_arrays(one_rep[one_rep.stim_name == stim].frame.values,
-                                              somefishclass.offsets)
+            df = one_rep[one_rep.stim_name == stim]
+            arrs = arrutils.subsection_arrays(df.frame.values, somefishclass.offsets)
             all_arrs[st] = arrs[0]
 
         # transforming data types of the arr for indexing into neur list
@@ -73,12 +75,22 @@ def neuron_stim_rep_array(somefishclass, no_repetitions, stim_order = whit_custo
 
         # for each neuron in those specific frame arrays    
         for n, nrn in enumerate(normcells): 
-            resp_arr = nrn[_all_arrs]
+            try:
+                resp_arr = nrn[_all_arrs]
+            except IndexError:
+                print(IndexError)
+                # bad_inds = []
+                # for b, a in enumerate(_all_arrs):
+                #     if a not in np.arange(len(nrn)):
+                #         bad_inds.append(b)
+                # trimmed_all_arrs = [_all_arrs[i] for i in range(len(_all_arrs)) if i not in bad_inds]
+                # resp_arr = nrn[trimmed_all_arrs]
+                # nan_array = np.full(len(bad_inds), 0)
+                # resp_arr = np.concatenate((resp_arr, nan_array))
+
             neur_resps[n][r] = resp_arr
     
     return neur_resps
-
-
 
 def various_arrays(o_t, n_stim, n_reps, len_extendedarr = 21, len_pre = 7, len_on = 7):
     '''    
@@ -124,15 +136,13 @@ def various_arrays(o_t, n_stim, n_reps, len_extendedarr = 21, len_pre = 7, len_o
     return o_t_base, o_t_base_std, o_t_on_avg, o_t_on_max, o_t_diff_mean
 
 
-
-
 def general_motion_resp_neurons(o_t, n_stim, n_reps, len_extendedarr = 21, len_pre = 7, len_on = 7, r_val = 0.65):
     '''
     o_t = original traces in shape of [# of neurons, # of repetitions, # of stimuli * length of offsets before/after stimulus]
 
     '''
     
-    o_t_base, o_t_base_std, o_t_on_avg, o_t_on_max, o_t_diff_mean = various_arrays(o_t, n_stim, n_reps, len_extendedarr, len_pre, len_on)
+    o_t_base, o_t_base_std, _, o_t_on_max, _ = various_arrays(o_t, n_stim, n_reps, len_extendedarr, len_pre, len_on)
 
     resp_dict = BCDict()
     coor_dict = BCDict()
