@@ -18,8 +18,7 @@ def get_stim_on_frames(somefishy, stim_set = barcoding_8stim_order, motion_on_fr
     
     return stim_frame_dict
 
-
-def barcode_score_per_stim(stim_on_frame_list, motion_sensitive_pt_cal_act, n_rep = 3):
+def barcode_score_per_stim(stim_on_frame_list, motion_sensitive_pt_cal_act, n_rep = 3, r_thresh = 0.65):
     '''
     this will find the barcode id per stimulus for each neuron, ends up in a 0 if it does not respond or 1 if it does respond to that stimulus
     stim_on_frame_list -- a list of the frames for a stimulus
@@ -28,11 +27,10 @@ def barcode_score_per_stim(stim_on_frame_list, motion_sensitive_pt_cal_act, n_re
     '''
 
     test_regressor = [0,0.15,0.3,0.45,0.6,0.75,0.9]
-    r_thresh = 0.65
 
     counter = 0
     rep_num = 0
-    base_dur = 7
+    base_dur = 4
 
     on_act_test = np.zeros((len(motion_sensitive_pt_cal_act),n_rep,int(len(stim_on_frame_list)/n_rep)))
     base_act_test = np.zeros((len(motion_sensitive_pt_cal_act),n_rep,int(len(stim_on_frame_list)/n_rep)))
@@ -66,10 +64,9 @@ def barcode_score_per_stim(stim_on_frame_list, motion_sensitive_pt_cal_act, n_re
                 thresh_score[i][k] = 1
         r_scores_avg = np.average(r_scores,axis=1)
         if r_scores_avg[i] > r_thresh and sum(thresh_score[i]) == n_rep:
-            pt_m_score[i] = 1
+            pt_m_score[i] = 1 # returns a list of 1s and 0s for each neuron -- 1 if the neuron is sensitive to that motion, 0 if not
 
-    return pt_m_score # returns a list of 1s and 0s for each neuron -- 1 if the neuron is sensitive to that motion, 0 if not
-
+    return pt_m_score, r_scores_avg 
 
 def barcoding(pt_scores, num_stims = 6):
     '''
@@ -86,7 +83,6 @@ def barcoding(pt_scores, num_stims = 6):
     pt_l_right_score = pt_scores['lateral_right']
 
     len_pt_array = len(pt_left_score)
-
 
     # setting up the arrays for each barcode
     pt_bar_stim_count = np.zeros(num_stims + 1) # total amount of stimuli plus another row for one more value
