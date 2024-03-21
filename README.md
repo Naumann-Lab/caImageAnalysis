@@ -59,6 +59,7 @@ This assumes you are using Anaconda and Python 3:
 ### Documentation of fishy.py – main file
 
 - BaseFish = makes a class with folder structure, frametimes, image data, run suite2p 
+
    - self.folder_path = folder path object (Path()), indiciating where to look for the rest of the folders
    - self.data_path = dictionary with paths in the data folder
    -	self.frametimes_key = key word in the frametimes file (default: “frametimes”)
@@ -94,6 +95,7 @@ This assumes you are using Anaconda and Python 3:
       -	frametimes = frametimes dataframe
 
 -	VisStimFish(BaseFish) – makes a class with all of Basefish attributes, added stimulus set
+
    -	self.stim_fxn_args = dictionary for how the stimuli txt file should be processed (defauly empty)
    -	self.r_type = str, the statistical measure you are using to identify a ‘response’ ( “median”, “mean”, “peak”) (default median)
    -	self.stim_offset = int, the number of frames from stim ON (t = 0) to peak of a stim responsive trace
