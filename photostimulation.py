@@ -14,6 +14,8 @@ from scipy.signal import find_peaks
 
 from bruker_images import read_xml_to_str, read_xml_to_root
 from utilities import arrutils
+from utilities.roiutils import create_circular_mask
+from utilities.coordutils import rotate_transform_coors, closest_coordinates
 
 def find_no_baseline_frames(somefishclass, no_planes = 0):
     '''
@@ -21,7 +23,7 @@ def find_no_baseline_frames(somefishclass, no_planes = 0):
     volume = set to True if this is a volume stack since the baseline frame number is calculated differently
     '''
     if no_planes < 2:
-        original_imgs = Path(somefishclass.folder_path).joinpath("bruker_images")
+        original_imgs = Path(somefishclass.folder_path).parents[1].joinpath("bruker_images")
         with os.scandir(original_imgs) as entries:
             for entry in entries:
                 if 'Cycle' in entry.name and 'tif' in entry.name:
@@ -81,7 +83,7 @@ def collect_stimulation_times(somefishclass):
 
     return full_duration_per_stim, stim_times
 
-def save_badframes_arr(somefishclass, no_planes = 0):
+def save_badframes_arr(somefishclass, no_planes = 1):
 
     somefishclass.baseline_frames = find_no_baseline_frames(somefishclass, no_planes)
 
@@ -89,7 +91,7 @@ def save_badframes_arr(somefishclass, no_planes = 0):
     stim_times_secs = [x/1000 for x in stim_times] # needs to be in seconds for comparing with the relative times in the xml file
 
     # using the information xml file to calculate the frames and times for each stimulation
-    if no_planes > 0: # if volume stimulation
+    if no_planes > 1: # if volume stimulation
         plane_num = int(somefishclass.data_paths['move_corrected_image'].parents[0].name.split('_')[1])
 
         frametimes = []
@@ -117,7 +119,7 @@ def save_badframes_arr(somefishclass, no_planes = 0):
                 time_matches = [min(plane_frametimes, key=lambda y: abs(x - y)) for x in stim_times_secs] # list of frametimes values that match with the stim_times
                 frames = [plane_frametimes.index(x) for x in time_matches] # list of frames that match with the stim_times
 
-    else: # if single plane stimulation
+    elif no_planes == 1: # if single plane stimulation
         ##TODO: make it simpler code, combine this to just do what I am doing for volumes
         # only looking at stimulation cycle here for the right relative times
         root = read_xml_to_root(somefishclass.data_paths["info_xml"])
@@ -133,7 +135,7 @@ def save_badframes_arr(somefishclass, no_planes = 0):
         frames = [frametimes.index(x) for x in time_matches] # list of frames that match with the stim_times
         
         # calculate the duration of one ps event in frame numbers
-        frame_dur = min(frametimes, key=lambda y: abs(full_duration_ms/1000 - y))
+        frame_dur = min(frametimes, key=lambda y: abs(full_duration_per_stim/1000 - y))
         duration_in_frames = frametimes.index(frame_dur)
         
     ps_events = [somefishclass.baseline_frames + f for f in frames]
@@ -192,24 +194,30 @@ def identify_stim_sites(somebasefish, rotate = True, planes_stimed = [1,2,3,4]):
         X_stim_sites = [x[0] for x in correct_x_coords]
         Y_stim_sites = [-y[1] + pixels_per_line for y in correct_y_coords]
 
-    # get values for the z steps in the info env file
-    with open(somebasefish.data_paths['info_env'], "r") as f:
-        lines = f.readlines()
-        for i, line in enumerate(lines):
-            if "PVMarkPoints" in line and "active" in line:
-                ind_start = i+2
-            if "PVGalvoPointGroup" in line:
-                ind_end = i
-        ind_lines = np.arange(ind_start, ind_end, step=1)
-        z_vals = [float(lines[i].split('Z')[1].split('"')[1]) for i in ind_lines]
-    
-    # convert z values into planes
-    unique_z = np.unique(z_vals)
-    map_z = {}
-    for _p, p in enumerate(unique_z):
-        map_z[p] = planes_stimed[_p]
+    if len(planes_stimed) > 1:
+        # get values for the z steps in the info env file
+        with open(somebasefish.data_paths['info_env'], "r") as f:
+            lines = f.readlines()
+            for i, line in enumerate(lines):
+                if "PVMarkPoints" in line and "active" in line:
+                    ind_start = i+2
+                if "PVGalvoPointGroup" in line:
+                    ind_end = i
+            ind_lines = np.arange(ind_start, ind_end, step=1)
+            z_vals = [float(lines[i].split('Z')[1].split('"')[1]) for i in ind_lines]
+        
+        # convert z values into planes
+        unique_z = np.unique(z_vals)
+        map_z = {}
+        for _p, p in enumerate(unique_z):
+            map_z[p] = planes_stimed[_p]
 
-    z_to_plane = [map_z[z] for z in z_vals]
+        z_to_plane = [map_z[z] for z in z_vals]
+
+        this_plane = int(somebasefish.folder_path.name.split('_')[1])
+    else:
+        z_to_plane = 0 # just the plane that you recorded from
+        this_plane = 0
 
     somebasefish.stim_sites_df['x_stim'] = X_stim_sites
     somebasefish.stim_sites_df['y_stim'] = Y_stim_sites
@@ -222,7 +230,6 @@ def identify_stim_sites(somebasefish, rotate = True, planes_stimed = [1,2,3,4]):
         somebasefish.stim_sites_df.to_hdf(master_save_path, key="volume_stim")
 
     # trim dataframe to only include stim sites for that precise z plane to keep into that folder
-    this_plane = int(somebasefish.folder_path.name.split('_')[1])
     somebasefish.stim_sites_df = somebasefish.stim_sites_df[somebasefish.stim_sites_df['plane'] == this_plane]
     somebasefish.stim_sites_df.reset_index(inplace = True, drop = True)
 
@@ -267,45 +274,6 @@ def run_suite2p_PS(somebasefish, input_tau = 1.5, move_corr = False):
     db = {}
     run_s2p(ops=ps_s2p_ops, db=db)
 
-def rotate_transform_coors(coordinates, angle_degrees, translation=(0, 0)):
-    """
-    Rotate and transform 2D coordinates.
-
-    Parameters:
-    - coordinates: List of (x, y) coordinates.
-    - angle_degrees: Rotation angle in degrees.
-    - translation: Tuple (tx, ty) for translation (default is (0, 0)).
-
-    Returns:
-    - List of transformed (x', y') coordinates.
-    """
-    # Convert angle to radians
-    angle_radians = np.radians(angle_degrees)
-
-    # Rotation matrix
-    rotation_matrix = np.array([[np.cos(angle_radians), -np.sin(angle_radians)],
-                                [np.sin(angle_radians), np.cos(angle_radians)]])
-
-    # Apply rotation
-    rotated_coordinates = np.dot(rotation_matrix, np.array(coordinates).T).T
-
-    # Apply translation
-    translated_coordinates = rotated_coordinates + np.array(translation)
-
-    return translated_coordinates.tolist()
-
-def create_circular_mask(img_shape, x, y, radius):
-    '''
-    Creating a circular mask given a x, y coordinate point and radius of the spot over a raw pixel image
-    '''
-    h,w = img_shape
-    Y, X = np.ogrid[:h, :w]
-    
-    dist_from_center = np.sqrt((X - x)**2 + (Y-y)**2)
-
-    mask = dist_from_center <= radius
-    return mask
-
 def return_raw_coord_trace(cell_coord, img, s=5):
     '''
     returns the ROI location of a specified coordinate in the target fish
@@ -316,7 +284,10 @@ def return_raw_coord_trace(cell_coord, img, s=5):
 
 def collect_raw_traces(somebasefish):
     
-    stim_sites_df = pd.read_hdf(Path(somebasefish.folder_path).joinpath("stim_sites.hdf"))
+    stim_sites_df_path = Path(somebasefish.folder_path).joinpath("stim_sites.hdf")
+    if not stim_sites_df_path.exists():
+        identify_stim_sites(somebasefish)
+    stim_sites_df = pd.read_hdf(stim_sites_df_path)
     img = imread(somebasefish.data_paths["move_corrected_image"])
 
     raw_traces = np.zeros((len(stim_sites_df), img.shape[0]))
@@ -373,22 +344,23 @@ def identify_stimmed_planes(omr_tseries_folder_path, clst_label):
 
     return stimmed_planes
 
-def correlations_with_stim_sites(somebasefish, raw_traces = None, corr_threshold = 0.5, normalizing = 1, saving = True):
+def correlations_with_stim_sites(somebasefish, traces_array = None, corr_threshold = 0.5, normalizing = 1, saving = True):
     '''
-    raw_traces - an array of raw pixel traces of the stimulation sites
+    for each cell, find the corrleation coefficients for each stim site, withput including the baseline period here
+    traces_array = the array of traces that you are using to calculate the correlation coefficients, if you want this to be for a volume, input the array
     '''
     somebasefish.baseline_frames = find_no_baseline_frames(somebasefish, no_planes = 6)
     somebasefish.load_suite2p()
 
     somebasefish.stim_sites_df = pd.read_hdf(Path(somebasefish.folder_path).joinpath("stim_sites.hdf"))
 
-    if raw_traces is None:
+    if traces_array is None:
         # load in raw pixel traces or run the function again/save the npy file if not
         if Path(somebasefish.folder_path).joinpath('raw_traces.npy').exists():
-            raw_traces = np.load(Path(somebasefish.folder_path).joinpath('raw_traces.npy'))
+            traces_array = np.load(Path(somebasefish.folder_path).joinpath('raw_traces.npy'))
         else:
-            raw_traces, points = collect_raw_traces(somebasefish)
-            np.save(Path(somebasefish.folder_path).joinpath('raw_traces.npy'), raw_traces)
+            traces_array, points = collect_raw_traces(somebasefish)
+            np.save(Path(somebasefish.folder_path).joinpath('raw_traces.npy'), traces_array)
 
     somebasefish.normcells = arrutils.norm_0to1(somebasefish.f_cells)
 
@@ -400,7 +372,7 @@ def correlations_with_stim_sites(somebasefish, raw_traces = None, corr_threshold
         
         corrs = []
         cell_trace = cell_trace[somebasefish.baseline_frames:] # trim the cell trace to not include baseline
-        for ind in raw_traces:
+        for ind in traces_array:
             ind = ind[somebasefish.baseline_frames:] # trim the raw pixel trace to not include baseline
             corrs.append(round(np.corrcoef(ind, cell_trace)[0][1], 3))
         corr_dictionary[cell_id] = corrs
@@ -409,7 +381,7 @@ def correlations_with_stim_sites(somebasefish, raw_traces = None, corr_threshold
 
     avg_corr_lst = []
     for i in range(len(corr_df)):
-        value = (corr_df.iloc[i].mean())/normalizing
+        value = (corr_df.iloc[i].mean())/normalizing # normalizing to the positive control of the stimulated group
         avg_corr_lst.append(value)
 
     corr_df['avg_corr'] = avg_corr_lst

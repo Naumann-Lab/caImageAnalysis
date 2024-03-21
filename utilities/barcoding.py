@@ -173,3 +173,127 @@ def barcoding(pt_scores, num_stims = 6):
     
     return pt_bi_left_score, pt_med_left_score, pt_lat_left_score, pt_bi_right_score, pt_med_right_score, pt_lat_right_score, pt_misc_score, pt_bar_stim_count
     # return pt_bi_left_score, pt_med_left_score, pt_lat_left_score, pt_bi_right_score, pt_med_right_score, pt_lat_right_score, pt_inward_score, pt_outward_score, pt_forward_score, pt_backward_score, pt_coherent_score, pt_misc_score, pt_bar_stim_count
+
+
+
+
+'''
+# Example of how to use barcoding analysis:
+
+all_scores = []
+plot_individual = False
+n_reps = 3
+my_stim_order = clustering.whit_custom_16stim_order
+n_stims = len(my_stim_order)
+
+motion_on = 7
+baseline = motion_on
+length_of_array = motion_on*3
+
+corr_threshold = 0.5 
+
+num_top_neurons = 10
+
+df_lst = []
+
+for plane_no, f in fishvolume.volumes.items():
+    
+    normcells = arrutils.norm_0to1(f.f_cells)
+    f.offsets = (-motion_on, motion_on*2)
+
+    f_neur_resps = clustering.neuron_stim_rep_array(f, n_reps, stim_order = my_stim_order)
+    # print(f_neur_resps.shape)
+
+    base_arr, base_std_arr, on_avg_arr, on_max_arr, diff_mean_arr = clustering.various_arrays(f_neur_resps, n_stims, n_reps, 
+                                                                                                        len_extendedarr = length_of_array, 
+                                                                                                        len_pre = baseline, len_on = motion_on)
+
+    general_resp_neurons = clustering.general_motion_resp_neurons(f_neur_resps, n_stims, n_reps, 
+                                                                  len_extendedarr = length_of_array,
+                                                                  len_pre = baseline, len_on = motion_on,
+                                                                  r_val = corr_threshold)
+    
+    #only Pt neurons
+    general_resp_neur_coords = BaseFish.return_cell_rois(f, general_resp_neurons)
+    pt_neurs = [] # neuron ids in terms of the general responsive neurons 
+    pt_neurs_coords = [] # neurons coodinates 
+    for b, c in enumerate(general_resp_neur_coords):
+        if (pt_roi['top_left_x'] < c[0] <= (pt_roi['top_left_x'] + pt_roi['width'])):
+            if (pt_roi['top_left_y'] < c[1] <= (pt_roi['top_left_y'] + pt_roi['height'])):
+                pt_neurs.append(b)
+                pt_neurs_coords.append(c)
+    # print(len(pt_neurs))
+
+    pt_resp_neurons = [general_resp_neurons[p] for p in pt_neurs] # getting correct index of Pt neurons from og neuron list
+    
+    stim_frame_dict = barcoding.get_stim_on_frames(f)
+    score_dict = {}
+    corr_scores_dict = {}
+    for stim_name, stim_frames_lst in stim_frame_dict.items():
+        score, corr_scores = barcoding.barcode_score_per_stim(stim_frames_lst, normcells[pt_resp_neurons], r_thresh = corr_threshold)
+        score_dict[stim_name] = score
+        corr_scores_dict[stim_name] = corr_scores
+
+    pt_bi_left_score, pt_med_left_score, pt_lat_left_score, pt_bi_right_score, pt_med_right_score, pt_lat_right_score, pt_misc_score, pt_bar_stim_count = barcoding.barcoding(score_dict)
+    all_scores.append(pt_bar_stim_count)
+
+    barcoding_labels = [] # labeling barcoding clusters for dataframe
+    corr_values = [] # correlation values for each neuron in their respective barcoding cluster
+    for i in range(len(pt_bi_left_score)):
+        if pt_bi_left_score[i] == 1:
+            barcoding_labels.append('left')
+            corr_values.append(corr_scores_dict['left'][i])
+        if pt_med_left_score[i] == 1:
+            barcoding_labels.append('medial_left')
+            corr_values.append(corr_scores_dict['medial_left'][i])
+        if pt_lat_left_score[i] == 1:    
+            barcoding_labels.append('lateral_left')
+            corr_values.append(corr_scores_dict['lateral_left'][i])
+        if pt_bi_right_score[i] == 1:
+            barcoding_labels.append('right')
+            corr_values.append(corr_scores_dict['right'][i])
+        if pt_med_right_score[i] == 1:
+            barcoding_labels.append('medial_right')
+            corr_values.append(corr_scores_dict['medial_right'][i])
+        if pt_lat_right_score[i] == 1:
+            barcoding_labels.append('lateral_right')
+            corr_values.append(corr_scores_dict['lateral_right'][i])
+        if pt_misc_score[i] == 1:
+            barcoding_labels.append('misc')
+            corr_values.append(np.nan)
+
+    # making the dataframe for one plane
+    barcoding_df = pd.DataFrame(columns = ['plane','neur_ids', 'neur_coords', 'barcoding', 'barcode_corr', 'photostimulated'])
+    barcoding_df['plane'] = [f.data_paths['suite2p'].parents[1].name] * len(pt_resp_neurons) 
+    barcoding_df['neur_ids'] = pt_resp_neurons
+    barcoding_df['neur_coords'] = pt_neurs_coords
+    barcoding_df['barcoding'] = barcoding_labels
+    barcoding_df['barcode_corr'] = corr_values
+    df_lst.append(barcoding_df)
+
+    if plot_individual:
+        labels = ['left', 'med_left', 'lat_left', 'right', 'med_right', 'lat_right', 'misc']
+        num_bars = pt_bar_stim_count.shape[0]
+        for x, y in zip(range(num_bars), pt_bar_stim_count):
+            plt.bar(x, height = y)
+        plt.xticks(ticks = range(num_bars), labels = labels)
+        plt.title(f'Plane {plane_no}')
+        plt.ylabel('Count')
+        plt.show()
+
+volume_barcoding_df = pd.concat(df_lst)
+volume_barcoding_df.reset_index(inplace = True, drop = True)
+
+num_bars = pt_bar_stim_count.shape[0]
+all_scores_arr = np.array(all_scores)
+sum_all_scores = np.sum(all_scores_arr, axis=0)
+labels = ['left', 'med_left', 'lat_left', 'right', 'med_right', 'lat_right', 'misc']
+for x, y in zip(range(num_bars), sum_all_scores):
+    plt.bar(x, height = y)
+plt.xticks(ticks = range(num_bars), labels = labels)
+plt.ylabel('Count')
+plt.title('Full volume counts')
+plt.show()
+print(sum_all_scores)
+
+'''

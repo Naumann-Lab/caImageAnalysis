@@ -27,7 +27,10 @@ def tolerant_mean(arrs):
     return arr.mean(axis=-1), arr.std(axis=-1)
 
 def norm_0to1(cell_array):
-    norm_cell_arr = np.array([(c - np.min(c)) / (np.max(c) - np.min(c)) for c in cell_array])
+    if len(cell_array.shape) == 1:
+        norm_cell_arr = np.array((cell_array - np.min(cell_array)) / (np.max(cell_array) - np.min(cell_array)))
+    else:
+        norm_cell_arr = np.array([(c - np.min(c)) / (np.max(c) - np.min(c)) for c in cell_array])
     return norm_cell_arr
 
 def norm_fdff(cell_array):
@@ -41,7 +44,6 @@ def norm_fdff_new(cell_array, lowPct=15, highPct=95):
     zerod_arr = np.array([np.subtract(cell_array[n], i) for n, i in enumerate(minVals)])
     normed_arr = np.array([np.divide(arr, np.percentile(arr, highPct)) for arr in zerod_arr])
     return normed_arr
-
 
 def subsection_arrays(input_array, offsets=(-10, 10)):
     a = []

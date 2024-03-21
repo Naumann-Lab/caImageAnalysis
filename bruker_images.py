@@ -208,7 +208,6 @@ def move_xml_files(folder_path):
     '''
     Moving xml and env files into output plane folders
     folder_path = the master data folder path that contains the xml files and output folders
-    A BaseFish will be called so that it will use the data_paths dictionary
     '''
     voltage_path = None
     ps_xml_path = None  
@@ -239,13 +238,13 @@ def move_xml_files(folder_path):
                 shutil.copy(voltage_path, Path(fld).joinpath(Path(voltage_path).name))
             print('extra files copied to output folders')
 
-def get_micronstopixels_scale(somebaseFish):
+def get_micronstopixels_scale(info_xml_file_path):
     '''
-    If you have a Bruker fish with all the xml files moved over, you can get the scale microns per pixel from the xml file
-    somebasefish = a Bruker based BaseFish
+    Getting the scale microns per pixel from the xml file
+    info_xml_file_path = info xml file path
     Will return pixel_size = microns/pixel
     '''
-    with open(somebaseFish.data_paths['info_xml'], "r") as f:
+    with open(info_xml_file_path, "r") as f:
         lines = f.readlines()
 
         for i, line in enumerate(lines):
