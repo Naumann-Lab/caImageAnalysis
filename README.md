@@ -133,9 +133,13 @@ This assumes you are using Anaconda and Python 3:
       -	take subset of neural traces of the self.used_offsets frame time window, 
       -	align each trace to individual stim on
       -	get all neurons to relative time to compare at only the time after stimulus presentation
-   <img align = "center" width = "240" src="images/build_stimdicts_README.png ">
+   
+   <br>
+   <img align = "center" width = "500" src="images/build_stimdicts_README.png ">
+   <br>
+   
    -	self.build_booldf_corr() = determine if the average zdiff cell traces is correlated with an ideal trace in response to each stimuli, results stored in self.zdiff_corr_booldf and self.zdiff_corrdf. Note that the section that is commented out allowed for selection of neuron based on each presentation of the stimuli rather than the average of all presentations.
-      -	corr_threshold: the correlation threshold between an ideal peak response and an unknown neuron that needs to be reached to affirm that the neuron is responsive (default: 0.65)
+   -	corr_threshold: the correlation threshold between an ideal peak response and an unknown neuron that needs to be reached to affirm that the neuron is responsive (default: 0.65)
    -	self.build_booldf_baseline() = determine if the average normalized cell traces is above the average baseline trace for each cell. Baseline frames are determined by self.baseline_offset. Results stored in self.normf_baseline_booldf. Note that the section that is commented out allowed for selection of neuron based on each presentation of the stimuli rather than the average of all presentations.
    -	self.build_booldf_cluster() = A bimodal clustering is forced on the fluorscence magnitude of the entire cell traces. And only if the cell’s mean normalized in the responding window is larger than the boundary of the “silent” cluster, the cell is determined to be responsive. A cell to be overall responsive if it always respond to the stimuli during each presentation. Responding window is determined by self.used_offsets. Results stored in self.normf_cluster_booldf. Note that the section that is commented out allowed for selection of neuron based the average trace of all presentations to the stimuli rather than each presentation.
    -	self.make_computed_image_data(neuron_dict, booldf, colorsumthresh, booltrim) = output the neurons that are stimuli-tuned according to self.bool_df with their x, y, and stimuli-corresponding colors. 
