@@ -13,11 +13,6 @@ whit_custom_16stim_order = [
     "forward","backward","forward_backward", "forward_x", "x_backward", "backward_forward", "x_forward", "backward_x",
     ]
 
-barcoding_8stim_order = [
-    "converging","diverging",
-    "left","medial_left","lateral_left",
-    "right","medial_right","lateral_right"]
-
 def groupby(a, b):
     # Get argsort indices, to be used to sort a and b in the next steps
     sidx = b.argsort(kind='mergesort')
@@ -29,7 +24,7 @@ def groupby(a, b):
     out = [a_sorted[i:j] for i,j in zip(cut_idx[:-1],cut_idx[1:])]
     return out
 
-def neuron_stim_rep_array(somefishclass, no_repetitions, stim_order = whit_custom_16stim_order):
+def neuron_each_stim_rep_arrays(somefishclass, no_repetitions = 3, stim_order = whit_custom_16stim_order):
     '''
     somefishclass -- has to be a VizStimFish
     output -- array of shape: # of neurons, each repetition, and each stim (in the order of the stim_df) 
@@ -56,12 +51,12 @@ def neuron_stim_rep_array(somefishclass, no_repetitions, stim_order = whit_custo
     neur_resps = np.zeros(shape=(
         len(normcells),
         somefishclass.stimulus_df.rep.nunique(),
-        np.diff(somefishclass.offsets)[0] * somefishclass.stimulus_df.stim_name.nunique()
+        np.diff(somefishclass.offsets)[0] * len(stim_order)
         ))
 
     for r in somefishclass.stimulus_df.rep.unique():
         one_rep = somefishclass.stimulus_df[somefishclass.stimulus_df.rep == r]
-        all_arrs = np.zeros(shape=(one_rep.stim_name.nunique(),np.diff(somefishclass.offsets)[0]))
+        all_arrs = np.zeros(shape=(len(stim_order),np.diff(somefishclass.offsets)[0]))
 
         for st, stim in enumerate(stim_order):
             # finding the frames for each stimuli between the offsets 

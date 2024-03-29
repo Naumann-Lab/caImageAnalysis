@@ -40,7 +40,10 @@ class BaseFish:
             self.raw_text_frametimes_to_df()  # generates self.frametimes_df
         except:
             print("failed to process frametimes from text")
-        # self.load_suite2p() # loads in suite2p paths
+        
+        if 'suite2p' in self.data_paths.keys():
+            self.load_suite2p() # loads in suite2p paths
+            self.rescaled_img()
 
     def process_filestructure(self):
         self.data_paths = {}
@@ -415,9 +418,9 @@ class VizStimFish(BaseFish):
                 self.stimulus_df = stim_fxn(self.data_paths["stimuli"])
             
             # might not need this - depends on how the data was gathered! #
-            # self.unchop_stimulus_df  = self.stimulus_df# chop stimulus that are outside of frametime
-            # self.stimulus_df = self.stimulus_df[(self.stimulus_df.time > self.frametimes_df.time.values[0]) &
-            #                                     (self.stimulus_df.time < self.frametimes_df.time.values[-1])]
+            self.unchop_stimulus_df  = self.stimulus_df # chop stimulus that are outside of frametime
+            self.stimulus_df = self.stimulus_df[(self.stimulus_df.time > self.frametimes_df.time.values[0]) &
+                                                (self.stimulus_df.time < self.frametimes_df.time.values[-1])]
 
             self.tag_frames() 
             
@@ -880,21 +883,25 @@ class TailTrackedFish(VizStimFish):
 
 
 class WorkingFish(VizStimFish):
-    def __init__(self, corr_threshold=0.65, ref_image=None, *args, **kwargs):
+    def __init__(self, corr_threshold=0.65, stim_order = None, ref_image=None, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
         if "move_corrected_image" not in self.data_paths:
             raise TankError
         self.corr_threshold = corr_threshold
+        self.load_suite2p()
+
+        # create different fluorescence arrays
+        self.zdiff_cells = [arrutils.zdiffcell(i) for i in self.f_cells]
+        self.normcells = arrutils.norm_0to1(self.f_cells)
 
         if ref_image is not None:
             self.reference_image = ref_image
-
-        # self.diff_image = self.make_difference_image()
-        self.load_suite2p()
-
-        self.zdiff_cells = [arrutils.zdiffcell(i) for i in self.f_cells]
-        self.normcells = arrutils.norm_0to1(self.f_cells)
+        
+        self.stim_order = stim_order # order to stimuli for average trace plots
+        if self.stim_order is None:
+            self.stim_order = self.stimulus_df.stim_name.unique()
+        self.neuron_each_stim_rep_arrays(stim_order)
 
         self.zdiff_stim_dict, self.zdiff_err_dict, self.zdiff_neuron_dict = self.build_stimdicts(self.zdiff_cells)
         self.normf_stim_dict, self.normf_err_dict, self.normf_neuron_dict = self.build_stimdicts(self.normcells)
@@ -906,6 +913,70 @@ class WorkingFish(VizStimFish):
         self.build_booldf_corr()
         self.build_booldf_baseline()
         self.build_booldf_cluster()
+
+    def neuron_each_stim_rep_arrays(self, stim_order):
+        '''
+        output -- array of shape: # of neurons, each repetition, and each stim (in the order of the stim_order) 
+                array of activity (length of offsets * num of stims) 
+        '''
+
+        self.stimulus_df['rep'] = 0
+        # get the number of reps for each stim, choose number of reps based on the minimum value
+        all_reps = []
+        for each_stim in self.stimulus_df.stim_name.unique():
+            all_reps.append(len(self.stimulus_df[self.stimulus_df.stim_name == each_stim]))
+        no_repetitions = min(all_reps)
+
+        # set the rep value into a new column in the stimulus df
+        n_stims = self.stimulus_df.stim_name.nunique()
+        for i in range(no_repetitions):
+            self.stimulus_df.iloc[(n_stims*i):(n_stims*i+n_stims)]['rep'] = i
+
+        # do not want incomplete reps, so drop the ones that are more than the minimum
+        last_rep = int(self.stimulus_df.rep.iloc[-1])
+        if len(self.stimulus_df[self.stimulus_df['rep'] == last_rep]) < n_stims:
+            drop_rows = self.stimulus_df[self.stimulus_df['rep'] == last_rep].index
+            self.stimulus_df.drop(drop_rows, axis=0, inplace = True)
+
+        # set up the array
+        self.neur_resps_each_stim_rep = np.zeros(shape=(
+            len(self.normcells),
+            self.stimulus_df.rep.nunique(),
+            np.diff(self.offsets)[0] * len(stim_order)
+            ))
+
+        for r in range(no_repetitions):
+            one_rep = self.stimulus_df[self.stimulus_df.rep == r]
+            all_arrs = np.zeros(shape=(len(stim_order),np.diff(self.offsets)[0]))
+
+            for st, stim in enumerate(stim_order):
+                # finding the frames for each stimuli between the offsets 
+                df = one_rep[one_rep.stim_name == stim]
+                arrs = arrutils.subsection_arrays(df.frame.values, self.offsets)
+                all_arrs[st] = arrs[0]
+
+            # transforming data types of the arr for indexing into neur list
+            _all_arrs = [item for sublist in all_arrs for item in sublist]
+            _all_arrs = [int(i) for i in _all_arrs]
+
+            # for each neuron in those specific frame arrays    
+            for n, nrn in enumerate(self.normcells): 
+                try:
+                    resp_arr = nrn[_all_arrs]
+                except IndexError:
+                    print(IndexError)
+                    # bad_inds = []
+                    # for b, a in enumerate(_all_arrs):
+                    #     if a not in np.arange(len(nrn)):
+                    #         bad_inds.append(b)
+                    # trimmed_all_arrs = [_all_arrs[i] for i in range(len(_all_arrs)) if i not in bad_inds]
+                    # resp_arr = nrn[trimmed_all_arrs]
+                    # nan_array = np.full(len(bad_inds), 0)
+                    # resp_arr = np.concatenate((resp_arr, nan_array))
+
+                self.neur_resps_each_stim_rep[n][r] = resp_arr
+        
+        return self.neur_resps_each_stim_rep
 
     def build_stimdicts_extended_zdiff(self):
         # makes an array of z-scored calcium responses for each stim (not median)
@@ -1071,11 +1142,11 @@ class WorkingFish(VizStimFish):
             self.normf_baseline_booldf = pd.DataFrame(bool_dict)
 
     def build_booldf_cluster(self):
-        import sklearn.mixture.GaussianMixture as GaussianMixture
+        from sklearn import mixture
 
         boundary = np.zeros(self.normcells.shape[0])
         for nrn in range(0, self.normcells.shape[0]):
-            gm = GaussianMixture(n_components=2, random_state=0).fit(pd.DataFrame(self.normcells[nrn]))
+            gm = mixture.GaussianMixture(n_components=2, random_state=0).fit(pd.DataFrame(self.normcells[nrn]))
             if gm.means_[0] > gm.means_[1]:
                 calm = 1
             else:
@@ -1097,19 +1168,19 @@ class WorkingFish(VizStimFish):
 
     def make_computed_image_data(self, colorsumthresh=1, booltrim=False):
         if not hasattr(self, "neuron_dict"):
-            self.build_stimdicts()
+            self.build_stimdicts(self.normcells)
         xpos = []
         ypos = []
         colors = []
         neurons = []
 
-        for neuron in self.neuron_dict.keys():
+        for neuron in self.normf_neuron_dict.keys():
             if booltrim:
                 if not hasattr(self, "booldf"):
                     self.build_booldf()
                 if neuron not in self.booldf.index:
                     continue
-            myneuron = self.neuron_dict[neuron]
+            myneuron = self.normf_neuron_dict[neuron]
             clr_longform = [
                 stimval * np.clip(i, a_min=0, a_max=99)
                 for stimname, stimval in zip(myneuron.keys(), myneuron.values())

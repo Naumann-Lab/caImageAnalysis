@@ -1,12 +1,19 @@
 import numpy as np
-from utilities.clustering import barcoding_8stim_order
+import constants
+from utilities import arrutils, clustering
+
+barcoding_8stim_order = [
+    "converging","diverging",
+    "left","medial_left","lateral_left",
+    "right","medial_right","lateral_right"]
 
 def get_stim_on_frames(somefishy, stim_set = barcoding_8stim_order, motion_on_frames = 7):
     '''
     somefishy -- has to be a VizStimFish with a stimulus_df
     stim_set -- a list of the stimuli you want to get the frames for
     motion_on_frames -- the number of frames the motion is on for (7 frames typicallY)
-    getting all the frames for motion on into a dictionary
+
+    getting all the frames for motion on into a dictionary, necessary for Whit's barcoding
     '''
     stim_frame_dict = {}
     for q in stim_set:
@@ -18,6 +25,68 @@ def get_stim_on_frames(somefishy, stim_set = barcoding_8stim_order, motion_on_fr
     
     return stim_frame_dict
 
+def stimulus_start_frames_for_plots(frames_motion_on = 7, length_of_total_frame_arr = 21, number_of_stims_in_set = 8):
+    '''
+    frames_motion_on -- the number of frames the motion is on for (7 frames typically)
+    length_of_total_frame_arr -- the total number of frames that is taken from the neural trace before and after the stimulus is on (typically diff between offsets, i.e. 21)
+    number_of_stims_in_set -- the number of stimuli in the experiment (8 for the 8 barcoded stimuli)
+
+    returns a list of the starting frames for each stimulus in the set, this is what starts the shading in the plots
+    '''
+    stim_start_frames = []
+    start_value = frames_motion_on - 1
+    for _ in range(number_of_stims_in_set):
+        stim_start_frames.append(start_value)
+        start_value += length_of_total_frame_arr
+
+    return stim_start_frames
+
+
+def barcode_with_ideal_trace(vizstimfish, barcode_dict = constants.eva_typesL, n_reps = 3, stim_order = barcoding_8stim_order, 
+                             frames_motion_on = 7, length_of_total_frame_arr = None, r_thresh = 0.65):
+    '''
+    Identifying barcoded neurons with correlations to the 'ideal' trace
+    vizstimfish -- a VizStimFish class object
+    barcode_dict -- a dictionary with the barcode labels as keys and their binary codes as items (i.e. list of False or True in the order of the stimuli)
+    n_reps -- the number of repetitions of the experiment
+    stim_order -- the order of the stimuli in the average responses and then average array traces
+    frames_motion_on -- the number of frames the motion is on for (7 frames typically)
+    r_thresh -- the threshold for the correlation coefficient
+
+    '''
+    # getting the responses of each cell to each repetition of every stimulus
+    stim_resp_each_cell_arr = clustering.neuron_stim_rep_array(vizstimfish, n_reps, stim_order)
+    
+    if length_of_total_frame_arr is None:
+        length_of_total_frame_arr = -vizstimfish.offsets[0] + vizstimfish.offsets[1]
+
+    # define and correlate ideal fake traces for each barcode:
+    corr_dict = {}
+    bool_dict = {}
+
+    for type, binary_code in barcode_dict.items():
+        if type not in bool_dict.keys():
+            bool_dict[type] = {}
+            corr_dict[type] = {}
+        ideal_arr = np.zeros(length_of_total_frame_arr*len(stim_order))
+        for h, i in enumerate(binary_code):
+            if i == True:
+                ideal_arr[h*length_of_total_frame_arr + -vizstimfish.offsets[0] + 2: h*length_of_total_frame_arr + -vizstimfish.offsets[0] + frames_motion_on + 2] = 1
+        ideal_arr = arrutils.pretty(ideal_arr, 3)
+
+        for n, neuron_arr in enumerate(stim_resp_each_cell_arr):
+            corr = np.corrcoef(ideal_arr, np.nanmean(neuron_arr, axis = 0))[0, 1]
+            corr_dict[type][n] = corr
+            bool_dict[type][n] = corr >= r_thresh
+
+    neurons_per_barcode_dict = {}
+    for type, bools in bool_dict.items():
+        if type not in neurons_per_barcode_dict.keys():
+            neurons_per_barcode_dict[type] = [key for key, value in bools.items() if value] # selected neurons
+
+    return neurons_per_barcode_dict, bool_dict, corr_dict
+
+# whit's version of barcoding
 def barcode_score_per_stim(stim_on_frame_list, motion_sensitive_pt_cal_act, n_rep = 3, r_thresh = 0.65):
     '''
     this will find the barcode id per stimulus for each neuron, ends up in a 0 if it does not respond or 1 if it does respond to that stimulus
@@ -173,7 +242,6 @@ def barcoding(pt_scores, num_stims = 6):
     
     return pt_bi_left_score, pt_med_left_score, pt_lat_left_score, pt_bi_right_score, pt_med_right_score, pt_lat_right_score, pt_misc_score, pt_bar_stim_count
     # return pt_bi_left_score, pt_med_left_score, pt_lat_left_score, pt_bi_right_score, pt_med_right_score, pt_lat_right_score, pt_inward_score, pt_outward_score, pt_forward_score, pt_backward_score, pt_coherent_score, pt_misc_score, pt_bar_stim_count
-
 
 
 
