@@ -13,7 +13,6 @@ from tifffile import imread
 from tqdm.auto import tqdm
 import matplotlib.pyplot as plt
 
-import bruker_images
 # local imports
 import constants
 from utilities import pathutils, arrutils, roiutils, coordutils
@@ -41,10 +40,13 @@ class BaseFish:
         except:
             print("failed to process frametimes from text")
         
-        if 'suite2p' in self.data_paths.keys():
-            self.load_suite2p() # loads in suite2p paths
-            self.rescaled_img()
-
+        # if 'suite2p' in self.data_paths.keys():
+        #     self.load_suite2p() # loads in suite2p paths 
+        #     self.rescaled_img()   
+        # if 'caiman' in self.data_paths.keys():
+        #     self.load_caiman() # load in caiman data 
+        #     self.rescaled_img()
+        
     def process_filestructure(self):
         self.data_paths = {}
         with os.scandir(self.folder_path) as entries:
@@ -59,7 +61,7 @@ class BaseFish:
 
                 elif entry.name.endswith(".txt") and self.frametimes_key in entry.name:
                     self.data_paths["frametimes"] = Path(entry.path)
-
+                
                 elif entry.name == "frametimes.h5":
                     self.frametimes_df = pd.read_hdf(entry.path)
                     print("found and loaded frametimes h5")
@@ -69,6 +71,8 @@ class BaseFish:
                 elif os.path.isdir(entry.path):
                     if entry.name == "suite2p":
                         self.data_paths["suite2p"] = Path(entry.path).joinpath("plane0")
+                    if entry.name == 'caiman':
+                        self.data_paths["caiman"] = Path(entry.path)
                     if entry.name == "original_image":
                         with os.scandir(entry.path) as imgdiver:
                             for poss_img in imgdiver:
@@ -129,6 +133,22 @@ class BaseFish:
             self.data_paths["suite2p"].joinpath("stat.npy"), allow_pickle=True
         )
         self.f_cells = np.load(self.data_paths["suite2p"].joinpath("F.npy"))
+
+    def load_caiman(self):
+        # make a ops['refImg'] to be used later, like with suite2p data
+        mean_img = np.nanmean(self.load_image(), axis = 0)
+        self.ops = {'refImg': mean_img}
+
+        self.iscell = np.load(
+            self.data_paths["caiman"].joinpath("iscell.npy"), allow_pickle=True
+        ).astype(bool)
+
+        self.stats = np.load(
+            self.data_paths["caiman"].joinpath("coordinates_dict.npy"), allow_pickle=True
+        )
+
+        self.f_cells = np.load(self.data_paths["caiman"].joinpath("C.npy"))
+        self.df_f_cells = np.load(self.data_paths["caiman"].joinpath("F_dff.npy"))
 
     def return_cell_rois(self, cells):
         if isinstance(cells, int):
@@ -268,7 +288,6 @@ class BaseFish:
         return image
 
     def rescaled_img(self):
-        self.load_suite2p()
         self.rescaled_ref = self.ops['refImg']
         self.rescaled_ref = self.rescaled_ref/ self.rescaled_ref.max()
         self.rescaled_ref *= 2**12
@@ -312,10 +331,25 @@ class BaseFish:
             for f in frametimes.loc[:, "time"].values[test0:test1]
         ]
         return 1 / np.mean(np.diff(times))
+    
+    @staticmethod
+    def tag_frames_to_df(frametimes_df, df, datetime_col_name = 'time'):
+        '''
+        static method to tag frames with any dataframe
+        frametimes_df: the dataframe with your frametimes
+        df: the target dataframe that you want matching frametimes with, needs to have one column with a datetime object
+        datetime_col_name: the name of the datetime object column
+        '''
+        frame_matches = [frametimes_df[frametimes_df.time < df[datetime_col_name].values[i]].index[-1] for i in range(len(df))]
+
+        df.loc[:, "frame"] = frame_matches
+        df = df[df['frame'] != 0]
+        df.reset_index(inplace = True, drop = True)
+        
+        return df
 
     def __str__(self):
         return f"fish {self.folder_path.name}"
-
 
 class PurgeFish(BaseFish):
     def __init__(self, *args, **kwargs):
@@ -335,7 +369,6 @@ class PurgeFish(BaseFish):
         except:
             pass
         self.process_filestructure()
-
 
 class VizStimFish(BaseFish):
     def __init__(
@@ -366,8 +399,11 @@ class VizStimFish(BaseFish):
         super().__init__(*args, **kwargs)
         if stim_fxn_args is None:
             stim_fxn_args = {}
-        if 'suite2p' in self.data_paths.keys():
-            self.load_suite2p() # loads in suite2p paths
+        if ~hasattr(self, "f_cells"):
+            if 'suite_2p' in self.data_paths.keys():
+                self.load_suite2p()
+            if 'caiman' in self.data_paths.keys():
+                self.load_caiman()
         self.stim_fxn_args = stim_fxn_args
         self.add_stims(stim_key, stim_fxn, legacy)
 
@@ -422,27 +458,27 @@ class VizStimFish(BaseFish):
             self.stimulus_df = self.stimulus_df[(self.stimulus_df.time > self.frametimes_df.time.values[0]) &
                                                 (self.stimulus_df.time < self.frametimes_df.time.values[-1])]
 
-            self.tag_frames() 
-            
-    def tag_frames(self):
+            self.stimulus_df = self.tag_frames_to_df(self.frametimes_df, self.stimulus_df, 'time') 
 
-        frame_matches = [self.frametimes_df[self.frametimes_df.time < self.stimulus_df.time.values[i]].index[-1] for i in range(len(self.stimulus_df))]
+    # made a new generic tag frames function, but keeping this in case  
+    # def tag_frames(self):
 
-        self.stimulus_df.loc[:, "frame"] = frame_matches
-        # self.stimulus_df.drop(columns="time", inplace=True) #this needs to be included in the stimulus_df for TailTrackingFish
-        self.stimulus_df = self.stimulus_df[self.stimulus_df['frame'] != 0]
-        self.stimulus_df.reset_index(inplace = True, drop = True)
+    #     frame_matches = [self.frametimes_df[self.frametimes_df.time < self.stimulus_df.time.values[i]].index[-1] for i in range(len(self.stimulus_df))]
+
+    #     self.stimulus_df.loc[:, "frame"] = frame_matches
+    #     # self.stimulus_df.drop(columns="time", inplace=True) #this needs to be included in the stimulus_df for TailTrackingFish
+    #     self.stimulus_df = self.stimulus_df[self.stimulus_df['frame'] != 0]
+    #     self.stimulus_df.reset_index(inplace = True, drop = True)
 
     def make_difference_image(self, selectivityFactor=1.5, brightnessFactor=10):
         image = self.load_image()
 
         diff_imgs = {}
-        # for stimulus_name in constants.monocular_dict.keys():
         for stimulus_name in [
             i
             for i in self.stimulus_df.stim_name.values.unique()
             if i in constants.monocular_dict.keys()
-        ]:  # KF edit, only have relevant stims
+        ]: 
             stim_occurences = self.stimulus_df[
                 self.stimulus_df.stim_name == stimulus_name
             ].frame.values
@@ -493,6 +529,65 @@ class VizStimFish(BaseFish):
         final_image /= np.max(final_image)
 
         return final_image * brightnessFactor
+    
+    def make_specific_difference_image(self, stim_list, color_dict, brightnessFactor = 7.5, selectivityFactor = 2):
+        '''
+        Make a specific pixel brightness difference image for a list of stimuli
+        stim_list: list of stimuli to color in the image
+        color_dict: dictionary of color values for each stimulus
+        '''
+        image = self.load_image()
+        diff_imgs = {}
+
+        for stimulus_name in stim_list: 
+            stim_occurences = self.stimulus_df[self.stimulus_df.stim_name == stimulus_name].frame.values
+
+            stim_diff_imgs = []
+            for ind in stim_occurences:
+                peak = np.nanmean(image[ind : ind + self.offsets[1]], axis=0)
+                background = np.nanmean(image[ind + self.offsets[0] : ind], axis=0)
+                stim_diff_imgs.append(peak - background)
+
+            diff_imgs[stimulus_name] = np.nanmean(
+                stim_diff_imgs, axis=0, dtype=np.float64
+            )
+        max_value = np.max([np.max(i) for i in diff_imgs.values()])  # for scaling
+        
+        color_images = []
+        for stimulus_name, diff_image in diff_imgs.items():
+            diff_image[diff_image < 0] = 0
+
+            red_val = diff_image * color_dict[stimulus_name][0]
+            green_val = diff_image * color_dict[stimulus_name][1]
+            blue_val = diff_image * color_dict[stimulus_name][2]
+
+            red_val /= max_value
+            green_val /= max_value
+            blue_val /= max_value
+
+            red_val -= red_val.min()
+            green_val -= green_val.min()
+            blue_val -= blue_val.min()
+
+            color_images.append(
+                np.dstack(
+                    (
+                        red_val**selectivityFactor,
+                        green_val**selectivityFactor,
+                        blue_val**selectivityFactor,
+                    )
+                )
+            )
+            
+        new_max_value = np.max(color_images)
+        _all_img = []
+        for img in color_images:
+            _all_img.append(img / new_max_value)
+
+        final_image = np.sum(_all_img, axis=0)
+        final_image /= np.max(final_image)
+
+        return final_image * brightnessFactor
 
 class PhotostimFish(BaseFish):
     def __init__(
@@ -511,7 +606,11 @@ class PhotostimFish(BaseFish):
         super().__init__(*args, **kwargs)
 
         # 0 - prep the cell traces
-        self.load_suite2p()
+        if ~hasattr(self, "f_cells"):
+            if 'suite_2p' in self.data_paths.keys():
+                self.load_suite2p()
+            if 'caiman' in self.data_paths.keys():
+                self.load_caiman()
         self.normcells = arrutils.norm_fdff(self.f_cells)
         self.zdiffcells = [arrutils.zdiffcell(z) for z in self.f_cells]
 
@@ -604,12 +703,10 @@ class PhotostimFish(BaseFish):
 
         return self.activity_dist_df
 
-class TailTrackedFish(VizStimFish):
+class TailTrackedFish(BaseFish):
     def __init__(
         self,
-        tail_key="tail",  # need to have 'tail' in the tail output file
-        tail_fxn=None,  # tail_fxn is a variable for a fxn that is in the tailtracking.py
-        tail_fxn_args=None,
+        tail_key="tail",  # key to find tail data
         tail_offset=2,
         thresh=0.7,
         *args,
@@ -617,154 +714,27 @@ class TailTrackedFish(VizStimFish):
     ):
         super().__init__(*args, **kwargs)
 
-        if tail_fxn_args is None:
-            tail_fxn_args = []
-        self.tail_fxn_args = tail_fxn_args
-        self.add_tail(tail_key, tail_fxn)
+        self.add_tail_paths(tail_key)
+        self.tail_df = pd.read_hdf(self.data_paths["tail"])
 
-        if "tail_df" not in self.data_paths:
-            self.tail_df, self.tail_stimulus_df = self.stim_tail_frame_alignment()
-        else:
-            self.tail_df = pd.read_hdf(self.data_paths["tail_df"])
-            # self.tail_df.set_index(self.tail_df.iloc[:, 0].values, inplace=True)
-            # self.tail_df.drop(columns="index", inplace=True)
+        if 'frame' not in self.tail_df.columns:
+            self.tail_df = self.tail_df[(self.tail_df.t_dt > self.frametimes_df.time.values[0]) &
+                                                (self.tail_df.t_dt < self.frametimes_df.time.values[-1])]
+            self.tail_df = self.tag_frames_to_df(self.frametimes_df, self.tail_df, 't_dt')
+            self.tail_df.to_hdf(self.data_paths['tail'], key='tail')
 
-            self.tail_stimulus_df = pd.read_feather(self.data_paths["tail_stimulus_df"])
-            print("found tail df and tail stimulus df")
+        # self.bout_finder(sig=5, width=None, prominence=7)
 
-        self.bout_finder(sig=5, width=None, prominence=7)
-
-        if hasattr(self, "f_cells"):
-            self.bout_responsive_neurons(tail_offset, thresh)
-        else:
-            pass
-
-    def add_tail(self, tail_key, tail_fxn):
-        with os.scandir(self.folder_path) as entries:
-            for entry in entries:
-                if tail_key in entry.name:
-                    self.data_paths["tail"] = Path(entry.path)
-                elif entry.name == "tail_df.h5":
-                    self.data_paths["tail_df"] = Path(entry.path)
-                elif entry.name == "tail_stimulus_df.ftr":
-                    self.data_paths["tail_stimulus_df"] = Path(entry.path)
+    def add_tail_paths(self, tail_key):
         try:
-            _ = self.data_paths["tail"]
+            with os.scandir(self.folder_path) as entries:
+                for entry in entries:
+                    if tail_key in entry.name:
+                        self.data_paths["tail"] = Path(entry.path)
         except KeyError:
             print("failed to find tail data")
-            return
-
-        if tail_fxn:
-            if self.tail_fxn_args:
-                self.tail_df = tail_fxn(self.data_paths["tail"], **self.tail_fxn_args)
-            else:
-                self.tail_df = tail_fxn(self.data_paths["tail"])
-
-    def stim_tail_frame_alignment(self):
-        # trimming tail df to match the size of the imaging times
-        try:
-            self.tail_df = self.tail_df[
-                (
-                    self.tail_df.conv_t >= self.frametimes_df.values[0][0]
-                )  # this frametimes needs to be original data
-                & (self.tail_df.conv_t <= self.frametimes_df.values[-1][0])
-            ]
-
-            for frameN in tqdm(
-                range(len(self.frametimes_df.values)),
-                "aligning frametimes to tail data",
-            ):
-                try:
-                    indices = self.tail_df[
-                        (self.tail_df.conv_t >= self.frametimes_df.values[frameN][0])
-                        & (
-                            self.tail_df.conv_t
-                            <= self.frametimes_df.values[frameN + 1][0]
-                        )
-                    ].index
-                except IndexError:
-                    pass
-                self.tail_df.loc[indices, "frame"] = frameN
-        except:
-            print("failed to align frame times with tail data")
-
-        self.tail_df.reset_index(inplace=True)
-        self.tail_df.drop(columns="index", inplace=True)
-        taildf_save_path = Path(self.folder_path).joinpath("tail_df.h5")
-        self.tail_df.to_hdf(taildf_save_path, key="t")
-        print("saved tail_df")
-
-        # making a stimulus df with tail index and image index values for each stim
-        final_t = self.frametimes_df["time"].iloc[-1]  # last time in imaging
-        image_infos = []
-        tail_infos = []
-        self.tail_stimulus_df = self.stimulus_df.copy()
-        for i in range(len(self.tail_stimulus_df)):
-            if i == len(self.tail_stimulus_df) - 1:
-                tail_infos.append(
-                    self.tail_df[
-                        (self.tail_df.conv_t >= self.tail_stimulus_df.time.values[i])
-                        & (self.tail_df.conv_t <= final_t)
-                    ].index
-                )
-                break
-            else:
-                tail_infos.append(
-                    self.tail_df[
-                        (self.tail_df.conv_t >= self.tail_stimulus_df.time.values[i])
-                        & (
-                            self.tail_df.conv_t
-                            <= self.tail_stimulus_df.time.values[i + 1]
-                        )
-                    ].index
-                )
-        # self.tail_stimulus_df.loc[:, "tail_index"] = tail_infos
-        for n, tail_index in enumerate(tail_infos):
-            self.tail_stimulus_df.loc[n, "tail_ind_start"] = tail_index[0]
-            self.tail_stimulus_df.loc[n, "tail_ind_end"] = tail_index[-1]
-
-        for j in range(len(self.tail_stimulus_df)):
-            if j == len(self.tail_stimulus_df) - 1:
-                image_infos.append(
-                    self.frametimes_df[
-                        (
-                            self.frametimes_df["time"]
-                            >= self.tail_stimulus_df.time.values[j]
-                        )
-                        & (self.frametimes_df["time"] <= final_t)
-                    ].index
-                )
-            else:
-                image_infos.append(
-                    self.frametimes_df[
-                        (
-                            self.frametimes_df["time"]
-                            >= self.tail_stimulus_df.time.values[j]
-                        )
-                        & (
-                            self.frametimes_df["time"]
-                            <= self.tail_stimulus_df.time.values[j + 1]
-                        )
-                    ].index
-                )
-
-        # self.tail_stimulus_df.loc[:, "img_stacks"] = image_infos
-        for m, img_index in enumerate(image_infos):
-            self.tail_stimulus_df.loc[m, "img_ind_start"] = img_index[0]
-            self.tail_stimulus_df.loc[m, "img_ind_end"] = img_index[-1]
-
-        if (
-            self.tail_stimulus_df.velocity.dtype == "O"
-        ):  # don't need velocity here for analysis
-            self.tail_stimulus_df.drop(["velocity"], axis=1, inplace=True)
-        else:
-            pass
-
-        save_path = Path(self.folder_path).joinpath("tail_stimulus_df.ftr")
-        self.tail_stimulus_df.to_feather(save_path)
-        print("saved tail_stimulus_df")
-
-        return self.tail_df, self.tail_stimulus_df
+        
+        return
 
     def bout_finder(
         self, sig=5, width=None, prominence=7
@@ -883,13 +853,17 @@ class TailTrackedFish(VizStimFish):
 
 
 class WorkingFish(VizStimFish):
-    def __init__(self, corr_threshold=0.65, stim_order = None, ref_image=None, *args, **kwargs):
+    def __init__(self, corr_threshold=0.65, bool_data_type = 'normf', stim_order = None, ref_image=None, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
         if "move_corrected_image" not in self.data_paths:
             raise TankError
         self.corr_threshold = corr_threshold
-        self.load_suite2p()
+        if ~hasattr(self, "f_cells"):
+            if 'suite_2p' in self.data_paths.keys():
+                self.load_suite2p()
+            if 'caiman' in self.data_paths.keys():
+                self.load_caiman()
 
         # create different fluorescence arrays
         self.zdiff_cells = [arrutils.zdiffcell(i) for i in self.f_cells]
@@ -903,9 +877,18 @@ class WorkingFish(VizStimFish):
             self.stim_order = self.stimulus_df.stim_name.unique()
         self.neuron_each_stim_rep_arrays(stim_order)
 
+        self.bool_data_type = bool_data_type # type of data to compute boolean df and correlation values on
+
         self.zdiff_stim_dict, self.zdiff_err_dict, self.zdiff_neuron_dict = self.build_stimdicts(self.zdiff_cells)
         self.normf_stim_dict, self.normf_err_dict, self.normf_neuron_dict = self.build_stimdicts(self.normcells)
         self.f_stim_dict, self.f_err_dict, self.f_neuron_dict = self.build_stimdicts(self.f_cells)
+
+        if self.bool_data_type == 'zdiff':
+            self.analysis_stim_dict = self.zdiff_stim_dict
+        elif self.bool_data_type == 'normf':
+            self.analysis_stim_dict = self.normf_stim_dict
+        elif self.bool_data_type == 'f':
+            self.analysis_stim_dict = self.f_stim_dict
 
         self.build_stimdicts_extended_zdiff()
         self.build_stimdicts_extended_normf()
@@ -1085,12 +1068,12 @@ class WorkingFish(VizStimFish):
 
         corr_dict = {}
         bool_dict = {}
-        for stim in self.zdiff_stim_dict.keys():
+        for stim in self.analysis_stim_dict.keys():
             if stim not in bool_dict.keys():
                 bool_dict[stim] = {}
                 corr_dict[stim] = {}
-            for nrn in self.zdiff_stim_dict[stim].keys():
-                cell_array = self.zdiff_stim_dict[stim][nrn]
+            for nrn in self.analysis_stim_dict[stim].keys():
+                cell_array = self.analysis_stim_dict[stim][nrn]
                 if zero_arr:
                     cell_array = np.clip(cell_array, a_min=0, a_max=99)
                 if not provided:
@@ -1103,24 +1086,11 @@ class WorkingFish(VizStimFish):
 
                 corr_dict[stim][nrn] = corrVal
                 bool_dict[stim][nrn] = corrVal >= self.corr_threshold
-            # for nrn in self.extended_responses_zdiff[stim].keys():
-            #     acc = np.zeros(len(self.extended_responses_zdiff[stim][nrn]))
-            #     for occurance in range(0, len(self.extended_responses_zdiff[stim][nrn])):
-            #         cell_array = self.extended_responses_zdiff[stim][nrn][occurance]
-            #         if zero_arr:
-            #             cell_array = np.clip(cell_array, a_min=0, a_max=99)
-            #         if not provided:
-            #             stim_arr = np.zeros(len(cell_array))
-            #             stim_arr[-self.offsets[0] + 1 : -self.offsets[0] + self.stim_offset - 2] = 3
-            #             stim_arr = arrutils.pretty(stim_arr, 3)
-            #         acc[occurance] = round(np.corrcoef(stim_arr, cell_array)[0][1], 3)
-            #     corr_dict[stim][nrn] = np.mean(acc)
-            #     bool_dict[stim][nrn] = np.sum([x >= self.corr_threshold for x in acc]) > len(self.extended_responses_zdiff[stim][nrn]) * 0.5
-        self.zdiff_corr_booldf = pd.DataFrame(bool_dict)
-        self.zdiff_corrdf = pd.DataFrame(corr_dict)
 
-        #booldf_allneuron = self.booldf
-        #self.booldf = self.booldf.loc[self.booldf.sum(axis=1) > 0]
+        self.booldf = pd.DataFrame(bool_dict)
+        self.corrdf = pd.DataFrame(corr_dict)
+
+        return self.corrdf, self.booldf
 
     def build_booldf_baseline(self):
             baseline_frames = sorted(np.array([np.add(self.stimulus_df['frame'], subtract) for subtract in
@@ -1167,20 +1137,20 @@ class WorkingFish(VizStimFish):
         self.normf_cluster_booldf = pd.DataFrame(bool_dict)
 
     def make_computed_image_data(self, colorsumthresh=1, booltrim=False):
-        if not hasattr(self, "neuron_dict"):
-            self.build_stimdicts(self.normcells)
+        if not hasattr(self, "analysis_stim_dict"):
+            self.build_stimdicts(self.normcells) # default is normalized cell traces
         xpos = []
         ypos = []
         colors = []
         neurons = []
 
-        for neuron in self.normf_neuron_dict.keys():
+        for neuron in self.analysis_stim_dict.keys():
             if booltrim:
                 if not hasattr(self, "booldf"):
-                    self.build_booldf()
+                    self.corrdf, self.booldf = self.build_booldf_corr()
                 if neuron not in self.booldf.index:
                     continue
-            myneuron = self.normf_neuron_dict[neuron]
+            myneuron = self.analysis_stim_dict[neuron]
             clr_longform = [
                 stimval * np.clip(i, a_min=0, a_max=99)
                 for stimname, stimval in zip(myneuron.keys(), myneuron.values())
@@ -1204,6 +1174,78 @@ class WorkingFish(VizStimFish):
                 colors.append(fullcolor)
                 neurons.append(neuron)
         return xpos, ypos, colors, neurons
+    
+    def make_wholefield_stims_boolean_image_data(self, thresh, n_percent, selected_neurons = None):
+        import angles
+        from math import radians
+
+        continuous_colors = angles.make_clr_array()
+        colors = []
+        xpos = []
+        ypos = []
+        neur_ids_lst = []
+
+        if not hasattr(self, "analysis_stim_dict"):
+            self.build_stimdicts(self.normcells) # default is normalized cell traces
+
+        self.build_booldf_corr() # create correlation (not interested in the booldf) dataframes
+        data = self.corrdf
+
+        if selected_neurons is not None: # choosing selected neurons
+            data = data.loc[selected_neurons]
+
+        wholefield_stims_boolean = pd.DataFrame(index = data.index, columns = data.columns) # looking at only wholefield stimuli
+        for stim in data.columns:
+            for nrn in data.index:
+                if data[stim][nrn] >= thresh:
+                    wholefield_stims_boolean[stim][nrn] = True
+                else:
+                    wholefield_stims_boolean[stim][nrn] = False
+
+        wholefield_stims_trimmed = data[constants.monocular_dict.keys()].loc[wholefield_stims_boolean.index]
+        
+        sorted_degs_dict = dict.fromkeys(constants.monocular_dict.keys())
+        sorted_vals_dict = dict.fromkeys(constants.monocular_dict.keys())
+        for stim in constants.monocular_dict.keys():
+            stim_bool = wholefield_stims_boolean[wholefield_stims_boolean[stim]==True]
+            used_booldf = wholefield_stims_trimmed.copy()
+            used_booldf = used_booldf.loc[stim_bool.index]
+            used_booldf.fillna(0, inplace = True) # fill nan's with 0's 
+            used_booldf = used_booldf.sort_values(by=stim, ascending=False)
+            used_booldf = used_booldf.iloc[:int(len(used_booldf)*(n_percent/100))]
+            neur_ids_lst.append(list(used_booldf.index))
+
+            # degrees and values for polar plots, using median values in bool df
+            comp = used_booldf.median(axis=0)
+            degs = [radians(constants.deg_dict[i]) for i in comp.keys()]
+            vals = [i for i in comp]
+            sort_index = np.argsort(degs)
+            sorted_degs = [degs[i] for i in sort_index]
+            sorted_vals = [vals[i] for i in sort_index]
+            sorted_degs.append(sorted_degs[0])
+            sorted_vals.append(sorted_vals[0])
+            sorted_degs_dict[stim] = sorted_degs
+            sorted_vals_dict[stim] = sorted_vals
+
+            for nrn in range(len(used_booldf)):
+                k = used_booldf.iloc[nrn].keys()
+                keys = [constants.deg_dict[_] for _ in k]
+                vals = used_booldf.iloc[nrn].values
+                theta = angles.weighted_mean_angle(keys, vals)
+                dsi = angles.calc_dsi(used_booldf.iloc[nrn])
+                clr = angles.continuous_clr_array(dsi, theta, continuous_colors)
+                
+                full_info = data.loc[used_booldf.iloc[nrn].name]
+
+                roi = self.return_singlecell_rois(full_info.name)
+                
+                xpos.append(roi[0])
+                ypos.append(roi[1])
+                colors.append(clr)
+        
+        neur_ids_lst = [item for sublist in neur_ids_lst for item in sublist]
+        
+        return xpos, ypos, colors, neur_ids_lst, sorted_degs_dict, sorted_vals_dict
 
     def make_computed_image_data_ref(self, colorsumthresh=1, booltrim=False):
         if not hasattr(self, "neuron_dict"):
@@ -1287,6 +1329,7 @@ class WorkingFish(VizStimFish):
         elif type == 'zdiff_corr':
             booldf = self.zdiff_corr_booldf
             neuron_dict = self.zdiff_neuron_dict
+
         bool_monoc = booldf[constants.monocular_dict.keys()]
         monoc_bool_neurons = bool_monoc.loc[bool_monoc.sum(axis=1) > 0].index.values
         valid_neurons = [i for i in monoc_bool_neurons if i in neurons]
@@ -1353,7 +1396,11 @@ class WorkingFish_Tail(WorkingFish, TailTrackedFish):
 
         # self.diff_image = self.make_difference_image()
 
-        self.load_suite2p()
+        if ~hasattr(self, "f_cells"):
+            if 'suite_2p' in self.data_paths.keys():
+                self.load_suite2p()
+            if 'caiman' in self.data_paths.keys():
+                self.load_caiman()
         if hasattr(self, "tail_stimulus_df"):
             self.stimulus_df = stimuli.validate_stims(self.stimulus_df, self.f_cells)
             self.build_stimdicts()
@@ -1965,7 +2012,7 @@ class VolumeFish:
         
         newKey = new_fish.folder_path.name
         if fakevol:
-            newKey = new_fish.folder_path.parents[1].name.split('-')[1]
+            newKey = new_fish.folder_path.parents[1].name.split('-')[0].split('_')[1]
 
         self.volumes[newKey] = new_fish
         if ind:

@@ -33,7 +33,6 @@ def pandastim_to_df(pstimpath, minimode=False, addvelocity=True):
     else:
         return stimulus_df
 
-
 def legacy_struct_pandastim_to_df(folderPath, stim_key, *args, **kwargs):
     import os
 
@@ -45,7 +44,6 @@ def legacy_struct_pandastim_to_df(folderPath, stim_key, *args, **kwargs):
     if stimPath:
         df = pandastim_to_df(stimPath, *args, **kwargs)
         return df
-
 
 def stim_shader(some_fish_class):
     """
@@ -155,10 +153,30 @@ def stim_shader(some_fish_class):
                     begin, midpt, color=constants.monocular_dict["forward"], alpha=0.4
                 )
 
+def stimulus_start_frames_for_plots(frames_motion_on = 7, length_of_total_frame_arr = 21, number_of_stims_in_set = 8):
+    '''
+    frames_motion_on -- the number of frames the motion is on for (7 frames typically)
+    length_of_total_frame_arr -- the total number of frames that is taken from the neural trace before and after the stimulus is on (typically diff between offsets, i.e. 21)
+    number_of_stims_in_set -- the number of stimuli in the experiment (8 for the 8 barcoded stimuli)
 
-def flexible_stim_shader(frames, stimmies, frames_motion_on):
+    returns a list of the starting frames for each stimulus in the set, this is what starts the shading in the plots
+    '''
+    stim_start_frames = []
+    start_value = frames_motion_on - 1
+    for _ in range(number_of_stims_in_set):
+        stim_start_frames.append(start_value)
+        start_value += length_of_total_frame_arr
+
+    return stim_start_frames
+
+def flexible_stim_shader(frames, stimmies, frames_motion_on, subplot = None):
     import constants
     import matplotlib.pyplot as plt
+
+    if subplot == None:
+        ax_n = plt
+    else:
+        ax_n = subplot
 
     for s, stimmy in zip(frames, stimmies):
 
@@ -167,7 +185,7 @@ def flexible_stim_shader(frames, stimmies, frames_motion_on):
         midpt = begin + (end - begin) // 2
 
         if stimmy in constants.monocular_dict.keys():
-            plt.axvspan(
+            ax_n.axvspan(
                 begin,
                 end,
                 color=constants.monocular_dict[stimmy],
@@ -177,81 +195,81 @@ def flexible_stim_shader(frames, stimmies, frames_motion_on):
         elif stimmy in constants.baseBinocs:
 
             if stimmy == "lateral_left":
-                plt.axvspan(
+                ax_n.axvspan(
                     begin, midpt, color=constants.monocular_dict["left"], alpha=0.4
                 )
-                plt.axvspan(midpt, end, color="gray", alpha=0.4, hatch=r"\\\\")
+                ax_n.axvspan(midpt, end, color="gray", alpha=0.4, hatch=r"\\\\")
             if stimmy == "medial_left":
-                plt.axvspan(begin, midpt, color="gray", alpha=0.4, hatch=r"\\\\")
-                plt.axvspan(
+                ax_n.axvspan(begin, midpt, color="gray", alpha=0.4, hatch=r"\\\\")
+                ax_n.axvspan(
                     midpt, end, color=constants.monocular_dict["left"], alpha=0.4
                 )
 
             if stimmy == "lateral_right":
-                plt.axvspan(begin, midpt, color="gray", alpha=0.4, hatch=r"\\\\")
-                plt.axvspan(
+                ax_n.axvspan(begin, midpt, color="gray", alpha=0.4, hatch=r"\\\\")
+                ax_n.axvspan(
                     midpt, end, color=constants.monocular_dict["right"], alpha=0.4
                 )
             if stimmy == "medial_right":
-                plt.axvspan(
+                ax_n.axvspan(
                     begin, midpt, color=constants.monocular_dict["right"], alpha=0.4
                 )
-                plt.axvspan(midpt, end, color="gray", alpha=0.4, hatch=r"\\\\")
+                ax_n.axvspan(midpt, end, color="gray", alpha=0.4, hatch=r"\\\\")
 
             if stimmy == "converging":
-                plt.axvspan(
+                ax_n.axvspan(
                     begin, midpt, color=constants.monocular_dict["right"], alpha=0.4
                 )
-                plt.axvspan(
+                ax_n.axvspan(
                     midpt, end, color=constants.monocular_dict["left"], alpha=0.4
                 )
 
             if stimmy == "diverging":
-                plt.axvspan(
+                ax_n.axvspan(
                     begin, midpt, color=constants.monocular_dict["left"], alpha=0.4
                 )
-                plt.axvspan(
+                ax_n.axvspan(
                     midpt, end, color=constants.monocular_dict["right"], alpha=0.4
                 )
         else:
 
             if stimmy == "x_forward":
-                plt.axvspan(begin, midpt, color="gray", alpha=0.4, hatch=r"\\\\")
-                plt.axvspan(
+                ax_n.axvspan(begin, midpt, color="gray", alpha=0.4, hatch=r"\\\\")
+                ax_n.axvspan(
                     midpt, end, color=constants.monocular_dict["forward"], alpha=0.4
                 )
 
             if stimmy == "forward_x":
-                plt.axvspan(midpt, end, color="gray", alpha=0.4, hatch=r"\\\\")
-                plt.axvspan(
+                ax_n.axvspan(midpt, end, color="gray", alpha=0.4, hatch=r"\\\\")
+                ax_n.axvspan(
                     begin, midpt, color=constants.monocular_dict["forward"], alpha=0.4
                 )
 
             if stimmy == "x_backward":
-                plt.axvspan(begin, midpt, color="gray", alpha=0.4, hatch=r"\\\\")
-                plt.axvspan(
+                ax_n.axvspan(begin, midpt, color="gray", alpha=0.4, hatch=r"\\\\")
+                ax_n.axvspan(
                     midpt, end, color=constants.monocular_dict["backward"], alpha=0.4
                 )
 
             if stimmy == "backward_x":
-                plt.axvspan(midpt, end, color="gray", alpha=0.4, hatch=r"\\\\")
-                plt.axvspan(
+                ax_n.axvspan(midpt, end, color="gray", alpha=0.4, hatch=r"\\\\")
+                ax_n.axvspan(
                     begin, midpt, color=constants.monocular_dict["backward"], alpha=0.4
                 )
 
             if stimmy == "backward_forward":
-                plt.axvspan(
+                ax_n.axvspan(
                     midpt, end, color=constants.monocular_dict["forward"], alpha=0.4
                 )
-                plt.axvspan(
+                ax_n.axvspan(
                     begin, midpt, color=constants.monocular_dict["backward"], alpha=0.4
                 )
 
             if stimmy == "forward_backward":
-                plt.axvspan(
+                ax_n.axvspan(
                     midpt, end, color=constants.monocular_dict["backward"], alpha=0.4
                 )
-                plt.axvspan(
+                ax_n.axvspan(
                     begin, midpt, color=constants.monocular_dict["forward"], alpha=0.4
                 )
 

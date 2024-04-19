@@ -109,6 +109,36 @@ eva_typesL = {
     "S": [False, False, True, False, False, False, False, False, True, True],
 }
 
+eva_typesR = {
+    "oB": [False, True, False, False, True, True, True, False, True, True],
+    "B": [False, False, False, False, False, True, True, True, True, True],
+    "iB": [True, False, False, False, False, True, True, True, True, True],
+    "ioB": [True, True, False, False, False, True, True, True, True, True],
+    "iMm": [True, False, False, False, False, True, True, False, True, True],
+    "Mm": [False, False, False, False, False, True, True, False, True, False],
+    "oMl": [False, True, False, False, False, True, False, True, True, True],
+    "S": [False, False, False, False, False, True, False, False, True, True],
+}
+
+
+eva_types_all = {
+    "oB_L": [False, True, True, True, True, False, False, False, True, True],
+    "B_L": [False, False, True, True, True, False, False, False, True, True],
+    "iB_L": [True, False, True, True, True, False, False, False, True, True],
+    "ioB_L": [True, True, True, True, True, False, False, False, True, True],
+    "iMm_L": [True, False, True, True, False, False, False, False, True, True],
+    "Mm_L": [False, False, True, True, False, False, False, False, True, False],
+    "oMl_L": [False, True, True, False, True, False, False, False, True, True],
+    "S_L": [False, False, True, False, False, False, False, False, True, True],
+    "oB_R": [False, True, False, False, True, True, True, False, True, True],
+    "B_R": [False, False, False, False, False, True, True, True, True, True],
+    "iB_R": [True, False, False, False, False, True, True, True, True, True],
+    "ioB_R": [True, True, False, False, False, True, True, True, True, True],
+    "iMm_R": [True, False, False, False, False, True, True, False, True, True],
+    "Mm_R": [False, False, False, False, False, True, True, False, True, False],
+    "oMl_R": [False, True, False, False, False, True, False, True, True, True],
+    "S_R": [False, False, False, False, False, True, False, False, True, True],
+}
 
 velocity_mono_dict = {
     "forward": {0.04: [[0, 1, 0], 0.8], 0.02: [[0, 1, 0], 0.5], 0.01: [[0, 1, 0], 0.2]},

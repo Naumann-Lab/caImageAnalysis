@@ -53,7 +53,7 @@ def collect_stimulation_times(somefishclass):
                 initial_delay_ms = int([i][0].split("InitialDelay=")[1].split('"')[1].split('.')[1]) # weird format in the xml file for this value, should not be a decimal
             except:
                 initial_delay_ms = int([i][0].split("InitialDelay=")[1].split('"')[1])*10 # should be times 10 for ms
-            interpointdelay_ms = int([i][0].split("InterPointDelay=")[1].split('"')[1])
+            interpointdelay_ms = int(float([i][0].split("InterPointDelay=")[1].split('"')[1]))
             duration_ms = float([i][0].split("Duration=")[1].split('"')[1])
         elif "Repetitions" in i:
             no_repetitions = int([i][0].split("Repetitions=")[1].split('"')[1])
@@ -238,10 +238,11 @@ def identify_stim_sites(somebasefish, rotate = True, planes_stimed = [1,2,3,4]):
 
     return somebasefish.stim_sites_df
 
-def run_suite2p_PS(somebasefish, input_tau = 1.5, move_corr = False):
+def run_suite2p_PS(somebasefish, input_tau = 1.5, spatial_scale = 0, move_corr = False):
     '''
     somebasefish = the data you want to have suite2p run on
     input_tau = decay value for gcamp indicator (6s = 1.5, m = 1.0, f = 0.7)
+    spatial_scale = the predicted pixel size of a ROI (2 - 12 pixels, 1 - 6 pixels)
     move_corr = binary, if you want the motion corrected image to be run as the main image or not
     '''
     from suite2p import run_s2p, default_ops
@@ -270,6 +271,7 @@ def run_suite2p_PS(somebasefish, input_tau = 1.5, move_corr = False):
     ps_s2p_ops['tiff_list'] = [imagepath.name]
     ps_s2p_ops['two_step_registration'] = True
     ps_s2p_ops['keep_movie_raw'] = True
+    ps_s2p_ops['spatial_scale'] = spatial_scale
 
     db = {}
     run_s2p(ops=ps_s2p_ops, db=db)
