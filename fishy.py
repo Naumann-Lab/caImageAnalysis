@@ -40,12 +40,12 @@ class BaseFish:
         except:
             print("failed to process frametimes from text")
         
-        # if 'suite2p' in self.data_paths.keys():
-        #     self.load_suite2p() # loads in suite2p paths 
-        #     self.rescaled_img()   
-        # if 'caiman' in self.data_paths.keys():
-        #     self.load_caiman() # load in caiman data 
-        #     self.rescaled_img()
+        if 'suite2p' in self.data_paths.keys():
+            self.load_suite2p() # loads in suite2p paths 
+            self.rescaled_img()   
+        if 'caiman' in self.data_paths.keys():
+            self.load_caiman() # load in caiman data 
+            self.rescaled_img()
         
     def process_filestructure(self):
         self.data_paths = {}
@@ -895,7 +895,7 @@ class WorkingFish(VizStimFish):
 
         self.build_booldf_corr()
         self.build_booldf_baseline()
-        self.build_booldf_cluster()
+        # self.build_booldf_cluster()
 
     def neuron_each_stim_rep_arrays(self, stim_order):
         '''

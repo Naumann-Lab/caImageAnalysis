@@ -7,6 +7,7 @@ import pandas as pd
 import pathlib as Path
 
 
+
 def bhvr_log_to_df(bhvr_log_path, metadata_log_path):
     '''
     turning stytra behavior log into a pandas dataframe with datetime stamps
@@ -37,14 +38,10 @@ def tail_df_creator(bhvr_data_folder, saving = True):
     bhvr_data_folder: path to the folder with the behavior data
     saving: whether to save the dataframe or not, will be saved in the parents folder path
     '''
-    behavior_log_paths = []
-    metadata_paths = []
-    with os.scandir(bhvr_data_folder) as entries:
-        for entry in entries:
-            if "behavior_log" in entry.name:
-                behavior_log_paths.append(Path(entry.path))
-            if 'metadata' in entry.name:
-                metadata_paths.append(Path(entry.path))
+    from utilities import pathutils
+
+    behavior_log_paths = pathutils.pathcrawler(bhvr_data_folder, set(), [], mykey = 'behavior_log')
+    metadata_paths = pathutils.pathcrawler(bhvr_data_folder, set(), [], mykey = 'metadata')
             
     bhvr_df_lst = []
     for r in range(len(behavior_log_paths)):
@@ -78,7 +75,7 @@ def tail_df_creator(bhvr_data_folder, saving = True):
         all_tail_data = bhvr_df
     
     if saving:
-        all_tail_data.to_hdf(Path(bhvr_data_folder).parents[0].joinpath('tail_df'), key='tail')
+        all_tail_data.to_hdf(bhvr_data_folder.joinpath('tail_df.h5'), key='tail')
         print('saved tail dataframe')
 
 def dateToMillisec(datetime):
