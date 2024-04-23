@@ -11,13 +11,17 @@ from pathlib import Path
 from datetime import datetime as dt
 from tifffile import imread
 from tqdm.auto import tqdm
-import matplotlib.pyplot as plt
+from shapely.geometry import Polygon, Point
+from scipy.stats import norm
+from sklearn.mixture import GaussianMixture
 
+import bruker_images
 # local imports
 import constants
 from utilities import pathutils, arrutils, roiutils, coordutils
 import stimuli
 import photostimulation
+
 
 
 class BaseFish:
@@ -39,20 +43,21 @@ class BaseFish:
             self.raw_text_frametimes_to_df()  # generates self.frametimes_df
         except:
             print("failed to process frametimes from text")
-        
+
         if 'suite2p' in self.data_paths.keys():
-            self.load_suite2p() # loads in suite2p paths 
-            self.rescaled_img()   
-        if 'caiman' in self.data_paths.keys():
-            self.load_caiman() # load in caiman data 
+            self.load_suite2p()  # loads in suite2p paths
             self.rescaled_img()
-        
+        if 'caiman' in self.data_paths.keys():
+            self.load_caiman()  # load in caiman data
+            self.rescaled_img()
+        # self.load_suite2p() # loads in suite2p paths
+
     def process_filestructure(self):
         self.data_paths = {}
         with os.scandir(self.folder_path) as entries:
             for entry in entries:
                 if entry.name.endswith(".tif"):
-                    if "movement_corr" in entry.name:
+                    if "img" in entry.name:
                         self.data_paths["move_corrected_image"] = Path(entry.path)
                     elif "rotated" in entry.name:
                         self.data_paths["rotated_image"] = Path(entry.path)
@@ -61,7 +66,7 @@ class BaseFish:
 
                 elif entry.name.endswith(".txt") and self.frametimes_key in entry.name:
                     self.data_paths["frametimes"] = Path(entry.path)
-                
+
                 elif entry.name == "frametimes.h5":
                     self.frametimes_df = pd.read_hdf(entry.path)
                     print("found and loaded frametimes h5")
@@ -69,7 +74,7 @@ class BaseFish:
                         self.frametimes_df.reset_index(inplace=True)
 
                 elif os.path.isdir(entry.path):
-                    if entry.name == "suite2p":
+                    if entry.name == "suite_2p":
                         self.data_paths["suite2p"] = Path(entry.path).joinpath("plane0")
                     if entry.name == 'caiman':
                         self.data_paths["caiman"] = Path(entry.path)
@@ -78,6 +83,11 @@ class BaseFish:
                             for poss_img in imgdiver:
                                 if poss_img.name.endswith(".tif"):
                                     self.data_paths["image"] = Path(poss_img.path)
+                    elif entry.name == "ROIs":
+                        self.roi_dict = {}
+                        with os.scandir(entry.path) as rois:
+                            for roi in rois:
+                                self.roi_dict[roi.name[:-4]] = pd.read_csv(roi.path)
 
                 elif entry.name.endswith(".npy"): # these are mislabeled so just flip here
                     if "xpts" in entry.name:
@@ -86,6 +96,7 @@ class BaseFish:
                     elif "ypts" in entry.name:
                         with open(entry.path, "rb") as f:
                             self.x_pts = np.load(f)
+
                 
                 # bruker information files
                 elif entry.name.endswith("xml"):
@@ -158,8 +169,12 @@ class BaseFish:
         for cell in cells:
             ypix = self.stats[cell]["ypix"]
             xpix = self.stats[cell]["xpix"]
-            mean_y = int(np.mean(ypix))
-            mean_x = int(np.mean(xpix))
+            try:
+                mean_y = int(np.mean(ypix))
+                mean_x = int(np.mean(xpix))
+            except ValueError:
+                mean_y = np.nan
+                mean_x = np.nan
             rois.append([mean_x, mean_y])
         return rois
     
@@ -210,7 +225,7 @@ class BaseFish:
                         thickness=3,
                     )
 
-                self.ptlist.append((x, y))
+                self.ptlist.append((y, x))
             if event == 2:  # right click
                 cv2.destroyAllWindows()
 
@@ -276,6 +291,17 @@ class BaseFish:
         except:
             pass
 
+    def return_cells_by_location_imagej(self, roi):
+        cell_df = pd.DataFrame(
+            self.return_cell_rois(np.arange(0, len(self.f_cells))), columns=["x", "y"]
+        )
+        roi = Polygon(roi)
+        return_index = []
+        for index, cell in cell_df.iterrows():
+            if Point(cell).within(roi):
+                return_index.append(index)
+        return return_index
+
     def load_image(self):
         if "move_corrected_image" in self.data_paths.keys():
             image = imread(self.data_paths["move_corrected_image"])
@@ -331,7 +357,7 @@ class BaseFish:
             for f in frametimes.loc[:, "time"].values[test0:test1]
         ]
         return 1 / np.mean(np.diff(times))
-    
+
     @staticmethod
     def tag_frames_to_df(frametimes_df, df, datetime_col_name = 'time'):
         '''
@@ -345,11 +371,12 @@ class BaseFish:
         df.loc[:, "frame"] = frame_matches
         df = df[df['frame'] != 0]
         df.reset_index(inplace = True, drop = True)
-        
+
         return df
 
     def __str__(self):
         return f"fish {self.folder_path.name}"
+
 
 class PurgeFish(BaseFish):
     def __init__(self, *args, **kwargs):
@@ -370,6 +397,7 @@ class PurgeFish(BaseFish):
             pass
         self.process_filestructure()
 
+
 class VizStimFish(BaseFish):
     def __init__(
         self,
@@ -379,7 +407,7 @@ class VizStimFish(BaseFish):
         legacy=False,
         stim_offset=5,
         used_offsets=(-10, 14),
-        baseline_offset=-4, # adding a baseline number of frames 
+        baseline_offset=-4, # adding a baseline number of frames
         r_type="median",  # response type - can be median, mean, peak of the stimulus response, default is median
         *args,
         **kwargs,
@@ -452,15 +480,13 @@ class VizStimFish(BaseFish):
                         print("failed to generate stimulus df")
             else:
                 self.stimulus_df = stim_fxn(self.data_paths["stimuli"])
-            
-            # might not need this - depends on how the data was gathered! #
-            self.unchop_stimulus_df  = self.stimulus_df # chop stimulus that are outside of frametime
+            self.unchop_stimulus_df  = self.stimulus_df# chop stimulus that are outside of frametime
             self.stimulus_df = self.stimulus_df[(self.stimulus_df.time > self.frametimes_df.time.values[0]) &
                                                 (self.stimulus_df.time < self.frametimes_df.time.values[-1])]
 
-            self.stimulus_df = self.tag_frames_to_df(self.frametimes_df, self.stimulus_df, 'time') 
+            self.stimulus_df = self.tag_frames_to_df(self.frametimes_df, self.stimulus_df, 'time')
 
-    # made a new generic tag frames function, but keeping this in case  
+    # made a new generic tag frames function, but keeping this in case
     # def tag_frames(self):
 
     #     frame_matches = [self.frametimes_df[self.frametimes_df.time < self.stimulus_df.time.values[i]].index[-1] for i in range(len(self.stimulus_df))]
@@ -474,17 +500,19 @@ class VizStimFish(BaseFish):
         image = self.load_image()
 
         diff_imgs = {}
+        # for stimulus_name in constants.monocular_dict.keys():
         for stimulus_name in [
             i
             for i in self.stimulus_df.stim_name.values.unique()
             if i in constants.monocular_dict.keys()
-        ]: 
+        ]:  # KF edit, only have relevant stims
             stim_occurences = self.stimulus_df[
                 self.stimulus_df.stim_name == stimulus_name
             ].frame.values
 
             stim_diff_imgs = []
             for ind in stim_occurences:
+                ind = int(ind)
                 peak = np.nanmean(image[ind : ind + self.offsets[1]], axis=0)
                 background = np.nanmean(image[ind + self.offsets[0] : ind], axis=0)
                 stim_diff_imgs.append(peak - background)
@@ -529,72 +557,13 @@ class VizStimFish(BaseFish):
         final_image /= np.max(final_image)
 
         return final_image * brightnessFactor
-    
-    def make_specific_difference_image(self, stim_list, color_dict, brightnessFactor = 7.5, selectivityFactor = 2):
-        '''
-        Make a specific pixel brightness difference image for a list of stimuli
-        stim_list: list of stimuli to color in the image
-        color_dict: dictionary of color values for each stimulus
-        '''
-        image = self.load_image()
-        diff_imgs = {}
-
-        for stimulus_name in stim_list: 
-            stim_occurences = self.stimulus_df[self.stimulus_df.stim_name == stimulus_name].frame.values
-
-            stim_diff_imgs = []
-            for ind in stim_occurences:
-                peak = np.nanmean(image[ind : ind + self.offsets[1]], axis=0)
-                background = np.nanmean(image[ind + self.offsets[0] : ind], axis=0)
-                stim_diff_imgs.append(peak - background)
-
-            diff_imgs[stimulus_name] = np.nanmean(
-                stim_diff_imgs, axis=0, dtype=np.float64
-            )
-        max_value = np.max([np.max(i) for i in diff_imgs.values()])  # for scaling
-        
-        color_images = []
-        for stimulus_name, diff_image in diff_imgs.items():
-            diff_image[diff_image < 0] = 0
-
-            red_val = diff_image * color_dict[stimulus_name][0]
-            green_val = diff_image * color_dict[stimulus_name][1]
-            blue_val = diff_image * color_dict[stimulus_name][2]
-
-            red_val /= max_value
-            green_val /= max_value
-            blue_val /= max_value
-
-            red_val -= red_val.min()
-            green_val -= green_val.min()
-            blue_val -= blue_val.min()
-
-            color_images.append(
-                np.dstack(
-                    (
-                        red_val**selectivityFactor,
-                        green_val**selectivityFactor,
-                        blue_val**selectivityFactor,
-                    )
-                )
-            )
-            
-        new_max_value = np.max(color_images)
-        _all_img = []
-        for img in color_images:
-            _all_img.append(img / new_max_value)
-
-        final_image = np.sum(_all_img, axis=0)
-        final_image /= np.max(final_image)
-
-        return final_image * brightnessFactor
 
 class PhotostimFish(BaseFish):
     def __init__(
         self,
-        no_planes = 5, 
+        no_planes = 5,
         stimmed_planes = [1, 2, 3, 4, 5],
-        rotate = True, 
+        rotate = True,
         *args,
         **kwargs,
     ):
@@ -611,8 +580,8 @@ class PhotostimFish(BaseFish):
                 self.load_suite2p()
             if 'caiman' in self.data_paths.keys():
                 self.load_caiman()
-        self.normcells = arrutils.norm_fdff(self.f_cells)
-        self.zdiffcells = [arrutils.zdiffcell(z) for z in self.f_cells]
+        self.norm_fcells = arrutils.norm_fdff(self.f_cells)
+        self.zdiff_cells = [arrutils.zdiffcell(z) for z in self.f_cells]
 
         # 1 - find bad frames, make sure this exists first
         try:
@@ -632,14 +601,14 @@ class PhotostimFish(BaseFish):
     def identify_stim_cells(self):
         '''
         Identify the suite2p cells that are stimulated in the dataset from coordinates of stim sites
-        Returns: 
+        Returns:
         closest_coord_list = coordinates of the closest cell to the stim site
         closest_cell_id_list = the cell id of the closest cell to the stim site
         '''
 
-        points_stim = [[int(self.stim_sites_df.x_stim.iloc[i]), int(self.stim_sites_df.y_stim.iloc[i])] 
+        points_stim = [[int(self.stim_sites_df.x_stim.iloc[i]), int(self.stim_sites_df.y_stim.iloc[i])]
                        for i in range(len(self.stim_sites_df))] # stimulated points
-        
+
         closest_coord_list = []
         closest_cell_id_list = []
         all_points = self.return_cell_rois(range(len(self.f_cells)))
@@ -653,7 +622,7 @@ class PhotostimFish(BaseFish):
         
 ### THESE FXNS DO NOT WORK WELL but keeping for future iterations ###
     def activity_distances(self, single_cell):
-        cell_nums = [c for c in range(len(self.normcells))]
+        cell_nums = [c for c in range(len(self.normf_cells))]
         cell_rois = self.return_cell_rois(c for c in cell_nums)
         
         self.activity_dist_df = pd.DataFrame({'cell_num': cell_nums, 'cell_rois': cell_rois})
@@ -733,7 +702,7 @@ class TailTrackedFish(BaseFish):
                         self.data_paths["tail"] = Path(entry.path)
         except KeyError:
             print("failed to find tail data")
-        
+
         return
 
     def bout_finder(
@@ -867,99 +836,18 @@ class WorkingFish(VizStimFish):
 
         # create different fluorescence arrays
         self.zdiff_cells = [arrutils.zdiffcell(i) for i in self.f_cells]
-        self.normcells = arrutils.norm_0to1(self.f_cells)
-
-        if ref_image is not None:
-            self.reference_image = ref_image
-        
-        self.stim_order = stim_order # order to stimuli for average trace plots
-        if self.stim_order is None:
-            self.stim_order = self.stimulus_df.stim_name.unique()
-        self.neuron_each_stim_rep_arrays(stim_order)
-
-        self.bool_data_type = bool_data_type # type of data to compute boolean df and correlation values on
+        self.normf_cells = arrutils.norm_0to1(self.f_cells)
 
         self.zdiff_stim_dict, self.zdiff_err_dict, self.zdiff_neuron_dict = self.build_stimdicts(self.zdiff_cells)
-        self.normf_stim_dict, self.normf_err_dict, self.normf_neuron_dict = self.build_stimdicts(self.normcells)
+        self.normf_stim_dict, self.normf_err_dict, self.normf_neuron_dict = self.build_stimdicts(self.normf_cells)
         self.f_stim_dict, self.f_err_dict, self.f_neuron_dict = self.build_stimdicts(self.f_cells)
-
-        if self.bool_data_type == 'zdiff':
-            self.analysis_stim_dict = self.zdiff_stim_dict
-        elif self.bool_data_type == 'normf':
-            self.analysis_stim_dict = self.normf_stim_dict
-        elif self.bool_data_type == 'f':
-            self.analysis_stim_dict = self.f_stim_dict
 
         self.build_stimdicts_extended_zdiff()
         self.build_stimdicts_extended_normf()
 
         self.build_booldf_corr()
         self.build_booldf_baseline()
-        # self.build_booldf_cluster()
-
-    def neuron_each_stim_rep_arrays(self, stim_order):
-        '''
-        output -- array of shape: # of neurons, each repetition, and each stim (in the order of the stim_order) 
-                array of activity (length of offsets * num of stims) 
-        '''
-
-        self.stimulus_df['rep'] = 0
-        # get the number of reps for each stim, choose number of reps based on the minimum value
-        all_reps = []
-        for each_stim in self.stimulus_df.stim_name.unique():
-            all_reps.append(len(self.stimulus_df[self.stimulus_df.stim_name == each_stim]))
-        no_repetitions = min(all_reps)
-
-        # set the rep value into a new column in the stimulus df
-        n_stims = self.stimulus_df.stim_name.nunique()
-        for i in range(no_repetitions):
-            self.stimulus_df.iloc[(n_stims*i):(n_stims*i+n_stims)]['rep'] = i
-
-        # do not want incomplete reps, so drop the ones that are more than the minimum
-        last_rep = int(self.stimulus_df.rep.iloc[-1])
-        if len(self.stimulus_df[self.stimulus_df['rep'] == last_rep]) < n_stims:
-            drop_rows = self.stimulus_df[self.stimulus_df['rep'] == last_rep].index
-            self.stimulus_df.drop(drop_rows, axis=0, inplace = True)
-
-        # set up the array
-        self.neur_resps_each_stim_rep = np.zeros(shape=(
-            len(self.normcells),
-            self.stimulus_df.rep.nunique(),
-            np.diff(self.offsets)[0] * len(stim_order)
-            ))
-
-        for r in range(no_repetitions):
-            one_rep = self.stimulus_df[self.stimulus_df.rep == r]
-            all_arrs = np.zeros(shape=(len(stim_order),np.diff(self.offsets)[0]))
-
-            for st, stim in enumerate(stim_order):
-                # finding the frames for each stimuli between the offsets 
-                df = one_rep[one_rep.stim_name == stim]
-                arrs = arrutils.subsection_arrays(df.frame.values, self.offsets)
-                all_arrs[st] = arrs[0]
-
-            # transforming data types of the arr for indexing into neur list
-            _all_arrs = [item for sublist in all_arrs for item in sublist]
-            _all_arrs = [int(i) for i in _all_arrs]
-
-            # for each neuron in those specific frame arrays    
-            for n, nrn in enumerate(self.normcells): 
-                try:
-                    resp_arr = nrn[_all_arrs]
-                except IndexError:
-                    print(IndexError)
-                    # bad_inds = []
-                    # for b, a in enumerate(_all_arrs):
-                    #     if a not in np.arange(len(nrn)):
-                    #         bad_inds.append(b)
-                    # trimmed_all_arrs = [_all_arrs[i] for i in range(len(_all_arrs)) if i not in bad_inds]
-                    # resp_arr = nrn[trimmed_all_arrs]
-                    # nan_array = np.full(len(bad_inds), 0)
-                    # resp_arr = np.concatenate((resp_arr, nan_array))
-
-                self.neur_resps_each_stim_rep[n][r] = resp_arr
-        
-        return self.neur_resps_each_stim_rep
+        self.build_booldf_cluster()
 
     def build_stimdicts_extended_zdiff(self):
         # makes an array of z-scored calcium responses for each stim (not median)
@@ -979,7 +867,7 @@ class WorkingFish(VizStimFish):
                         pass
                 
                 self.extended_responses_zdiff[stim][n] = resp_arrs
-    
+
     def build_stimdicts_extended_normf(self):
         # makes an array of normalized calcium responses for each stim (not median)
         self.extended_responses_normf = {i: {} for i in self.stimulus_df.stim_name.unique()}
@@ -989,7 +877,7 @@ class WorkingFish(VizStimFish):
                 self.offsets,
             )
             #normcells = arrutils.norm_fdff(self.f_cells)
-            for n, nrn in enumerate(self.normcells):
+            for n, nrn in enumerate(self.normf_cells):
                 resp_arrs = []
                 try:
                     for arr in arrs:
@@ -1068,12 +956,12 @@ class WorkingFish(VizStimFish):
 
         corr_dict = {}
         bool_dict = {}
-        for stim in self.analysis_stim_dict.keys():
+        for stim in self.zdiff_stim_dict.keys():
             if stim not in bool_dict.keys():
                 bool_dict[stim] = {}
                 corr_dict[stim] = {}
-            for nrn in self.analysis_stim_dict[stim].keys():
-                cell_array = self.analysis_stim_dict[stim][nrn]
+            for nrn in self.zdiff_stim_dict[stim].keys():
+                cell_array = self.zdiff_stim_dict[stim][nrn]
                 if zero_arr:
                     cell_array = np.clip(cell_array, a_min=0, a_max=99)
                 if not provided:
@@ -1086,37 +974,38 @@ class WorkingFish(VizStimFish):
 
                 corr_dict[stim][nrn] = corrVal
                 bool_dict[stim][nrn] = corrVal >= self.corr_threshold
+        self.zdiff_corr_booldf = pd.DataFrame(bool_dict)
+        self.zdiff_corrdf = pd.DataFrame(corr_dict)
 
-        self.booldf = pd.DataFrame(bool_dict)
-        self.corrdf = pd.DataFrame(corr_dict)
-
-        return self.corrdf, self.booldf
+        #booldf_allneuron = self.booldf
+        #self.booldf = self.booldf.loc[self.booldf.sum(axis=1) > 0]
 
     def build_booldf_baseline(self):
-            baseline_frames = sorted(np.array([np.add(self.stimulus_df['frame'], subtract) for subtract in
-                                            range(self.baseline_offset, 0)]).flatten().tolist())
-            baseline_normf = pd.DataFrame(self.normcells).iloc[:, baseline_frames]
-            baseline_boundary_normf = np.add(baseline_normf.mean(axis=1), np.multiply(baseline_normf.std(axis=1), 1.8))
-            bool_dict = {}
-            for stim in self.normf_stim_dict.keys():
-                if stim not in bool_dict.keys():
-                    bool_dict[stim] = {}
-                for nrn in self.normf_stim_dict[stim].keys():
-                    cell_array = self.normf_stim_dict[stim][nrn]
-                    bool_dict[stim][nrn] = np.mean(cell_array) > baseline_boundary_normf[nrn]
-                # for nrn in self.extended_responses_normf[stim].keys():
-                #     acc = np.zeros(len(self.extended_responses_normf[stim][nrn]))
-                #     for occurance in range(0, len(self.extended_responses_normf[stim][nrn])):
-                #         acc[occurance] = np.mean(self.extended_responses_normf[stim][nrn][occurance]) > baseline_boundary_normf[nrn]
-                #     bool_dict[stim][nrn] = np.sum(acc) > len(self.extended_responses_normf[stim][nrn]) * 0.5
-            self.normf_baseline_booldf = pd.DataFrame(bool_dict)
+        baseline_frames = sorted(np.array([np.add(self.stimulus_df['frame'], subtract) for subtract in
+                                           range(self.baseline_offset, 0)]).flatten().tolist())
+        baseline_normf = pd.DataFrame(self.normf_cells).iloc[:, baseline_frames]
+        baseline_boundary_normf = np.add(baseline_normf.mean(axis=1), np.multiply(baseline_normf.std(axis=1), 1.8))
+        bool_dict = {}
+        for stim in self.normf_stim_dict.keys():
+            if stim not in bool_dict.keys():
+                bool_dict[stim] = {}
+            for nrn in self.normf_stim_dict[stim].keys():
+                cell_array = self.normf_stim_dict[stim][nrn]
+                bool_dict[stim][nrn] = np.mean(cell_array) > baseline_boundary_normf[nrn]
+            # for nrn in self.extended_responses_normf[stim].keys():
+            #     acc = np.zeros(len(self.extended_responses_normf[stim][nrn]))
+            #     for occurance in range(0, len(self.extended_responses_normf[stim][nrn])):
+            #         acc[occurance] = np.mean(self.extended_responses_normf[stim][nrn][occurance]) > baseline_boundary_normf[nrn]
+            #     bool_dict[stim][nrn] = np.sum(acc) > len(self.extended_responses_normf[stim][nrn]) * 0.5
+        self.normf_baseline_booldf = pd.DataFrame(bool_dict)
 
     def build_booldf_cluster(self):
         from sklearn import mixture
 
-        boundary = np.zeros(self.normcells.shape[0])
-        for nrn in range(0, self.normcells.shape[0]):
-            gm = mixture.GaussianMixture(n_components=2, random_state=0).fit(pd.DataFrame(self.normcells[nrn]))
+        boundary = np.zeros(self.normf_cells.shape[0])
+        for nrn in range(0, self.normf_cells.shape[0]):
+            neuron = np.nan_to_num(self.normf_cells[nrn])
+            gm = mixture.GaussianMixture(n_components=2, random_state=0).fit(pd.DataFrame(neuron))
             if gm.means_[0] > gm.means_[1]:
                 calm = 1
             else:
@@ -1136,21 +1025,21 @@ class WorkingFish(VizStimFish):
                 bool_dict[stim][nrn] = np.sum(acc) == len(self.extended_responses_normf[stim][nrn])
         self.normf_cluster_booldf = pd.DataFrame(bool_dict)
 
-    def make_computed_image_data(self, colorsumthresh=1, booltrim=False):
-        if not hasattr(self, "analysis_stim_dict"):
-            self.build_stimdicts(self.normcells) # default is normalized cell traces
+    def make_computed_image_data(self, neuron_dict, booldf, colorsumthresh=1, booltrim=False):
+        #if not hasattr(self, "neuron_dict"):
+        #    self.build_stimdicts()
         xpos = []
         ypos = []
         colors = []
         neurons = []
 
-        for neuron in self.analysis_stim_dict.keys():
+        for neuron in neuron_dict.keys():
             if booltrim:
                 if not hasattr(self, "booldf"):
-                    self.corrdf, self.booldf = self.build_booldf_corr()
+                    self.build_booldf()
                 if neuron not in self.booldf.index:
                     continue
-            myneuron = self.analysis_stim_dict[neuron]
+            myneuron = neuron_dict[neuron]
             clr_longform = [
                 stimval * np.clip(i, a_min=0, a_max=99)
                 for stimname, stimval in zip(myneuron.keys(), myneuron.values())
@@ -1174,78 +1063,6 @@ class WorkingFish(VizStimFish):
                 colors.append(fullcolor)
                 neurons.append(neuron)
         return xpos, ypos, colors, neurons
-    
-    def make_wholefield_stims_boolean_image_data(self, thresh, n_percent, selected_neurons = None):
-        import angles
-        from math import radians
-
-        continuous_colors = angles.make_clr_array()
-        colors = []
-        xpos = []
-        ypos = []
-        neur_ids_lst = []
-
-        if not hasattr(self, "analysis_stim_dict"):
-            self.build_stimdicts(self.normcells) # default is normalized cell traces
-
-        self.build_booldf_corr() # create correlation (not interested in the booldf) dataframes
-        data = self.corrdf
-
-        if selected_neurons is not None: # choosing selected neurons
-            data = data.loc[selected_neurons]
-
-        wholefield_stims_boolean = pd.DataFrame(index = data.index, columns = data.columns) # looking at only wholefield stimuli
-        for stim in data.columns:
-            for nrn in data.index:
-                if data[stim][nrn] >= thresh:
-                    wholefield_stims_boolean[stim][nrn] = True
-                else:
-                    wholefield_stims_boolean[stim][nrn] = False
-
-        wholefield_stims_trimmed = data[constants.monocular_dict.keys()].loc[wholefield_stims_boolean.index]
-        
-        sorted_degs_dict = dict.fromkeys(constants.monocular_dict.keys())
-        sorted_vals_dict = dict.fromkeys(constants.monocular_dict.keys())
-        for stim in constants.monocular_dict.keys():
-            stim_bool = wholefield_stims_boolean[wholefield_stims_boolean[stim]==True]
-            used_booldf = wholefield_stims_trimmed.copy()
-            used_booldf = used_booldf.loc[stim_bool.index]
-            used_booldf.fillna(0, inplace = True) # fill nan's with 0's 
-            used_booldf = used_booldf.sort_values(by=stim, ascending=False)
-            used_booldf = used_booldf.iloc[:int(len(used_booldf)*(n_percent/100))]
-            neur_ids_lst.append(list(used_booldf.index))
-
-            # degrees and values for polar plots, using median values in bool df
-            comp = used_booldf.median(axis=0)
-            degs = [radians(constants.deg_dict[i]) for i in comp.keys()]
-            vals = [i for i in comp]
-            sort_index = np.argsort(degs)
-            sorted_degs = [degs[i] for i in sort_index]
-            sorted_vals = [vals[i] for i in sort_index]
-            sorted_degs.append(sorted_degs[0])
-            sorted_vals.append(sorted_vals[0])
-            sorted_degs_dict[stim] = sorted_degs
-            sorted_vals_dict[stim] = sorted_vals
-
-            for nrn in range(len(used_booldf)):
-                k = used_booldf.iloc[nrn].keys()
-                keys = [constants.deg_dict[_] for _ in k]
-                vals = used_booldf.iloc[nrn].values
-                theta = angles.weighted_mean_angle(keys, vals)
-                dsi = angles.calc_dsi(used_booldf.iloc[nrn])
-                clr = angles.continuous_clr_array(dsi, theta, continuous_colors)
-                
-                full_info = data.loc[used_booldf.iloc[nrn].name]
-
-                roi = self.return_singlecell_rois(full_info.name)
-                
-                xpos.append(roi[0])
-                ypos.append(roi[1])
-                colors.append(clr)
-        
-        neur_ids_lst = [item for sublist in neur_ids_lst for item in sublist]
-        
-        return xpos, ypos, colors, neur_ids_lst, sorted_degs_dict, sorted_vals_dict
 
     def make_computed_image_data_ref(self, colorsumthresh=1, booltrim=False):
         if not hasattr(self, "neuron_dict"):
@@ -1329,10 +1146,11 @@ class WorkingFish(VizStimFish):
         elif type == 'zdiff_corr':
             booldf = self.zdiff_corr_booldf
             neuron_dict = self.zdiff_neuron_dict
-
         bool_monoc = booldf[constants.monocular_dict.keys()]
         monoc_bool_neurons = bool_monoc.loc[bool_monoc.sum(axis=1) > 0].index.values
-        valid_neurons = [i for i in monoc_bool_neurons if i in neurons]
+        monoc_valid_neurons = [i for i in monoc_bool_neurons if i in neurons]
+        bool_neurons = booldf.loc[booldf.sum(axis=1) > 0].index.values
+        valid_neurons = [i for i in bool_neurons if i in neurons]
 
         thetas = []
         thetavals = []
@@ -1340,29 +1158,31 @@ class WorkingFish(VizStimFish):
         degree_responses_dict = {key: None for key in valid_neurons}
         for n in valid_neurons:
             neuron_response_dict = neuron_dict[n]
-            monoc_neuron_response_dict = {
-                k: v
-                for k, v in neuron_response_dict.items()
-                if k in constants.monocular_dict.keys()
-            }
-
-            degree_ids = [
-                constants.deg_dict[i] for i in monoc_neuron_response_dict.keys()
-            ]
+            degree_ids = [constants.deg_dict[i] for i in neuron_response_dict.keys()]
             degree_responses = [
                 np.clip(i, a_min=0, a_max=999)
-                for i in monoc_neuron_response_dict.values()
-            ]
-
-            theta = angles.weighted_mean_angle(degree_ids, degree_responses)
-            thetaval = np.nanmean(degree_responses)
-
-            thetas.append(theta)
-            thetavals.append(thetaval)
+                for i in neuron_response_dict.values()]
             degree_ids_dict[n] = degree_ids
             degree_responses_dict[n] = degree_responses
-            
+            if n in monoc_valid_neurons:
+                mononeuron_response_dict = {
+                k: v
+                for k, v in neuron_response_dict.items()
+                if k in constants.monocular_dict.keys()}
+                monoc_degree_ids = [constants.deg_dict[i] for i in mononeuron_response_dict.keys()]
+                monoc_degree_responses = [
+                    np.clip(i, a_min=0, a_max=999)
+                    for i in mononeuron_response_dict.values()]
+                theta = angles.weighted_mean_angle(monoc_degree_ids, monoc_degree_responses)
+                thetaval = np.nanmean(monoc_degree_responses)
+            else:
+                theta = np.nan
+                thetaval = np.nan
+            thetas.append(theta)
+            thetavals.append(thetaval)
+
         return thetas, thetavals, degree_ids_dict, degree_responses_dict
+
 
 
 class WorkingFish_Tail(WorkingFish, TailTrackedFish):
