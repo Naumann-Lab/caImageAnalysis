@@ -46,14 +46,14 @@ bruker_invStimDict = {
 }
 
 monocular_dict = {
-    "right": [1, 0.25, 0],
-    "left": [0, 0.25, 1],
     "forward": [0, 1, 0],
-    "backward": [1, 0, 1],
-    "forward_left": [0, 0.75, 1],
     "forward_right": [0.75, 1, 0],
-    "backward_left": [0.25, 0, 1],
+    "right": [1, 0.25, 0],
     "backward_right": [1, 0, 0.25],
+    "backward": [1, 0, 1],
+    "backward_left": [0.25, 0, 1],
+    "left": [0, 0.25, 1],
+    "forward_left": [0, 0.75, 1],
 }
 
 nulldict = {
@@ -85,6 +85,12 @@ deg_dict = {
     "backward_left": 215,
     "backward": 180,
     "backward_right": 135,
+    "medial_left": 999,
+    "lateral_left": 999,
+    "medial_right": 999,
+    "lateral_right": 999,
+    "diverging": 999,
+    "converging": 999
 }
 eva_stims = [
     "converging",
@@ -109,36 +115,6 @@ eva_typesL = {
     "S": [False, False, True, False, False, False, False, False, True, True],
 }
 
-eva_typesR = {
-    "oB": [False, True, False, False, True, True, True, False, True, True],
-    "B": [False, False, False, False, False, True, True, True, True, True],
-    "iB": [True, False, False, False, False, True, True, True, True, True],
-    "ioB": [True, True, False, False, False, True, True, True, True, True],
-    "iMm": [True, False, False, False, False, True, True, False, True, True],
-    "Mm": [False, False, False, False, False, True, True, False, True, False],
-    "oMl": [False, True, False, False, False, True, False, True, True, True],
-    "S": [False, False, False, False, False, True, False, False, True, True],
-}
-
-
-eva_types_all = {
-    "oB_L": [False, True, True, True, True, False, False, False, True, True],
-    "B_L": [False, False, True, True, True, False, False, False, True, True],
-    "iB_L": [True, False, True, True, True, False, False, False, True, True],
-    "ioB_L": [True, True, True, True, True, False, False, False, True, True],
-    "iMm_L": [True, False, True, True, False, False, False, False, True, True],
-    "Mm_L": [False, False, True, True, False, False, False, False, True, False],
-    "oMl_L": [False, True, True, False, True, False, False, False, True, True],
-    "S_L": [False, False, True, False, False, False, False, False, True, True],
-    "oB_R": [False, True, False, False, True, True, True, False, True, True],
-    "B_R": [False, False, False, False, False, True, True, True, True, True],
-    "iB_R": [True, False, False, False, False, True, True, True, True, True],
-    "ioB_R": [True, True, False, False, False, True, True, True, True, True],
-    "iMm_R": [True, False, False, False, False, True, True, False, True, True],
-    "Mm_R": [False, False, False, False, False, True, True, False, True, False],
-    "oMl_R": [False, True, False, False, False, True, False, True, True, True],
-    "S_R": [False, False, False, False, False, True, False, False, True, True],
-}
 
 velocity_mono_dict = {
     "forward": {0.04: [[0, 1, 0], 0.8], 0.02: [[0, 1, 0], 0.5], 0.01: [[0, 1, 0], 0.2]},
@@ -165,3 +141,50 @@ bout_timing_color_dict = {
     "after": [1, 0.25, 0],
     "during": [0, 0.25, 1]}
 
+allcolor_dict = {
+    "right": [[1, 0.25, 0], [1, 0.25, 0]],
+    "left": [[0, 0.25, 1], [0, 0.25, 1]],
+    "forward": [[0, 1, 0], [0, 1, 0]],
+    "backward": [[1, 0, 1], [1, 0, 1]],
+    #"forward_backward": [[0, 1, 0], [1, 0, 1]],
+    #"backward_forward": [[1, 0, 1], [0, 1, 0]],
+    #"x_backward": [[0, 0, 0], [1, 0, 1]],
+    #"x_forward": [[0, 0, 0], [0, 1, 0]],
+    #"forward_x": [[0, 1, 0], [0, 0, 0]],
+    #"backward_x": [[1, 0, 1], [0, 0, 0]],
+    "forward_left": [[0, 0.75, 1], [0, 0.75, 1]],
+    "forward_right": [[0.75, 1, 0], [0.75, 1, 0]],
+    "backward_left": [[0.25, 0, 1], [0.25, 0, 1]],
+    "backward_right": [[1, 0, 0.25], [1, 0, 0.25]],
+    'diverging': [[0, 0.25, 1], [1, 0.25, 0]],
+    'converging': [[1, 0.25, 0], [0, 0.25, 1]],
+    'lateral_left': [[0, 0.25, 1], [0, 0, 0]],
+    'medial_left': [[0, 0, 0], [0, 0.25, 1]],
+    'lateral_right': [[0, 0, 0], [1, 0.25, 0]],
+    'medial_right': [[1, 0.25, 0], [0, 0, 0]]
+}
+
+import cmasher as cmr
+cmaplist = {'telencephalon': cmr.get_sub_cmap('spring', 0.3, 0.8),
+            'PT': cmr.get_sub_cmap('Purples', 0.3, 0.8),
+            'OT': cmr.get_sub_cmap('Blues', 0.3, 0.8),
+            'tectum': cmr.get_sub_cmap('Blues', 0.3, 0.8),
+            'tegmentum': cmr.get_sub_cmap('summer', 0.3, 0.8),
+            'HBr': cmr.get_sub_cmap('Oranges', 0.3, 0.8),
+            'anteriorHBr': cmr.get_sub_cmap('Wistia', 0.1, 0.5),
+            'posteriorHBr': cmr.get_sub_cmap('Oranges', 0.3, 0.8)}
+
+from matplotlib.colors import ListedColormap
+import numpy as np
+vals = np.ones((360, 4))
+vals[:, 0] = np.concatenate((np.linspace(0, 1, 90), np.linspace(1, 1, 90), np.linspace(1, 0, 90), np.linspace(0, 0, 90)))
+vals[:, 1] = np.concatenate((np.linspace(1, 0.25, 90), np.linspace(0.25, 0, 90), np.linspace(0, 0.25, 90), np.linspace(0.25, 1, 90)))
+vals[:, 2] = np.concatenate((np.linspace(0, 0, 90), np.linspace(0, 1, 90), np.linspace(1, 1, 90), np.linspace(1, 0, 90)))
+circmp = ListedColormap(vals)
+
+dir_sort = ['forward', #'x_forward', 'forward_x',
+            'forward_right', 'right', 'lateral_right', 'medial_right',
+           'backward_right', 'backward', #'x_backward', 'backward_x',
+            'backward_left',  'left', 'medial_left', 'lateral_left', 'forward_left',
+           'converging', 'diverging'#, 'forward_backward', 'backward_forward'
+            ]
