@@ -98,6 +98,10 @@ class BaseFish:
                 elif entry.name.endswith("csv") and 'Voltage' in entry.name:
                     self.data_paths["voltage_signal"] = Path(entry.path)
 
+                #this will use Owen custom photostim output from Bruker2pControl in lieu of MarkPoints xml
+                elif entry.name.endswith("json") and 'photostim' in entry.name:
+                    self.data_paths["ps_json"] = Path(entry.path)
+
         if "image" in self.data_paths and "move_corrected_image" in self.data_paths:
             if (
                 self.data_paths["image"].parents[0]

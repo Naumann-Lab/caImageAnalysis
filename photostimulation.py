@@ -7,6 +7,7 @@ import numpy as np
 from tifffile import imread, imwrite
 from datetime import datetime as dt, timedelta
 import xml.etree.ElementTree as ET
+import json
 import caiman as cm
 from PIL import Image
 import math
@@ -17,6 +18,11 @@ from utilities import arrutils
 from utilities.roiutils import create_circular_mask
 from utilities.coordutils import rotate_transform_coors, closest_coordinates
 
+
+from utilities.pstim_cpmmand_parser import parse_command
+
+ARBITRARY_MERGE_PHOTOSTIM_EVENTS = 1000 #any photostim events within 1000 ms of each other will be merged together
+
 def find_no_baseline_frames(somefishclass, no_planes = 0):
     '''
     folder_path = path that contains all the data (xml file and original bruker images)
@@ -25,6 +31,7 @@ def find_no_baseline_frames(somefishclass, no_planes = 0):
     if no_planes < 2:
         original_imgs = Path(somefishclass.folder_path).parents[1].joinpath("bruker_images")
         with os.scandir(original_imgs) as entries:
+            #won't this just return the number of frames for the last seen baseline image?
             for entry in entries:
                 if 'Cycle' in entry.name and 'tif' in entry.name:
                     baseline_img = imread(entry.path)
@@ -44,24 +51,51 @@ def collect_stimulation_times(somefishclass):
     if not voltage recording, then can finid this based on the mark point xml file (not as exact)
     Returns the specific times in ms for each stimulation based on the start of the T-series
     '''
+    try:
+         # collecting stimulation timing based on ms in the xml file
+        data = read_xml_to_str(somefishclass.data_paths['ps_xml'])
+        for i in data.split("\n"):
+            if "InitialDelay" in i:
+                try:
+                    initial_delay_ms = int([i][0].split("InitialDelay=")[1].split('"')[1].split('.')[1]) # weird format in the xml file for this value, should not be a decimal
+                except:
+                    initial_delay_ms = int([i][0].split("InitialDelay=")[1].split('"')[1])*10 # should be times 10 for ms
+                interpointdelay_ms = int(float([i][0].split("InterPointDelay=")[1].split('"')[1]))
+                duration_ms = float([i][0].split("Duration=")[1].split('"')[1])
+            elif "Repetitions" in i:
+                no_repetitions = int([i][0].split("Repetitions=")[1].split('"')[1])
+            elif "Iterations" in i:
+                no_iterations = int([i][0].split("Iterations=")[1].split('"')[1])
+                iteration_delay_ms = int(float([i][0].split("IterationDelay=")[1].split('"')[1]))
 
-     # collecting stimulation timing based on ms in the xml file
-    data = read_xml_to_str(somefishclass.data_paths['ps_xml'])
-    for i in data.split("\n"):
-        if "InitialDelay" in i:
-            try:
-                initial_delay_ms = int([i][0].split("InitialDelay=")[1].split('"')[1].split('.')[1]) # weird format in the xml file for this value, should not be a decimal
-            except:
-                initial_delay_ms = int([i][0].split("InitialDelay=")[1].split('"')[1])*10 # should be times 10 for ms
-            interpointdelay_ms = int(float([i][0].split("InterPointDelay=")[1].split('"')[1]))
-            duration_ms = float([i][0].split("Duration=")[1].split('"')[1])
-        elif "Repetitions" in i:
-            no_repetitions = int([i][0].split("Repetitions=")[1].split('"')[1])
-        elif "Iterations" in i:
-            no_iterations = int([i][0].split("Iterations=")[1].split('"')[1])
-            iteration_delay_ms = int(float([i][0].split("IterationDelay=")[1].split('"')[1]))
+        full_duration_per_stim = initial_delay_ms + (no_repetitions * duration_ms) + ((no_repetitions-1) * interpointdelay_ms)
 
-    full_duration_per_stim = initial_delay_ms + (no_repetitions * duration_ms) + ((no_repetitions-1) * interpointdelay_ms)
+    #this error will be raised if there is no xml for photostim, which occurs if you used prairieLink to send photostim
+    #commands
+    except KeyError:
+        #this will load an alternative photostim information class
+        data = json.load(open(somefishclass.data_paths['ps_json']))
+        summary_command = data['summary_command']
+        command_sent = data['command']
+
+        photostim_record = parse_command(summary_command)
+
+        photostim_block_indices = []
+
+        addNextRepetition = True
+        for record in photostim_record:
+            if record['delay_type'] == 'repetition':
+                if(addNextRepetition):
+                    photostim_block_indices.append(record['photostimulation_count'])
+                    addNextRepetition = False
+            else:
+                addNextRepetition = True
+
+
+
+        variableStimLength = True
+
+
 
     # if there is a voltage recording, can gather start signals from there
     if "voltage_signal" in somefishclass.data_paths.keys():
@@ -73,7 +107,10 @@ def collect_stimulation_times(somefishclass):
         peak_starts = [peaks[i] for i in range(len(peaks)) if i == 0 or peaks[i] - peaks[i-1] > 100] # find only the start of each peak, each rep
         
         # grabbing the start of each TRIAL, so have to take into account the repetition number
-        trial_starts = peak_starts[::no_repetitions]
+        if not variableStimLength:
+            trial_starts = peak_starts[::no_repetitions]
+        else:
+            trial_starts = [peak_starts[index] for index in  photostim_block_indices]
 
         stim_times = [time[i] for i in trial_starts] # convert the peak start indices to the time in ms
     

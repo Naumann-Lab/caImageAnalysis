@@ -74,7 +74,7 @@ def run_movement_correction(
         is3D=False,
     )
     mc.motion_correct(save_movie=True)
-    bord_px_rig = np.ceil(np.max(mc.shifts_rig)).astype(np.int)
+    bord_px_rig = np.ceil(np.max(mc.shifts_rig)).astype(int)
     mc.pw_rigid = True  # turn the flag to True for pw-rigid motion correction
     mc.template = (
         mc.mmap_file
