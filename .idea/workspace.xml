@@ -5,15 +5,12 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="0a2cab2c-7fe4-4ebc-ad9d-622d597d9f7f" name="Changes" comment="bouts are now not overlapping, made an array function too">
-      <change afterPath="$PROJECT_DIR$/examples/photostim_processing_plotting_examples01.ipynb" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/utilities/pstim_cpmmand_parser.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/caImageAnalysis.iml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/caImageAnalysis.iml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/misc.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/misc.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/examples/photostim_processing_plotting_examples.ipynb" beforeDir="false" afterPath="$PROJECT_DIR$/examples/photostim_processing_plotting_examples.ipynb" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/fishy.py" beforeDir="false" afterPath="$PROJECT_DIR$/fishy.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/examples/photostim_processing_plotting_examples01.ipynb" beforeDir="false" afterPath="$PROJECT_DIR$/examples/photostim_processing_plotting_examples01.ipynb" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/photostimulation.py" beforeDir="false" afterPath="$PROJECT_DIR$/photostimulation.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/process.py" beforeDir="false" afterPath="$PROJECT_DIR$/process.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/utilities/pstim_cpmmand_parser.py" beforeDir="false" afterPath="$PROJECT_DIR$/utilities/pstim_cpmmand_parser.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -72,7 +69,7 @@
     "node.js.selected.package.eslint": "(autodetect)",
     "node.js.selected.package.tslint": "(autodetect)",
     "nodejs_package_manager_path": "npm",
-    "settings.editor.selected.configurable": "preferences.keymap",
+    "settings.editor.selected.configurable": "com.jetbrains.python.configuration.PyActiveSdkModuleConfigurable",
     "vue.rearranger.settings.migration": "true"
   }
 }]]></component>
@@ -177,11 +174,6 @@
           <url>file://$PROJECT_DIR$/registration/online_alignment.py</url>
           <line>297</line>
           <option name="timeStamp" value="4" />
-        </line-breakpoint>
-        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
-          <url>file://$PROJECT_DIR$/registration/sitkalignment.py</url>
-          <line>326</line>
-          <option name="timeStamp" value="5" />
         </line-breakpoint>
       </breakpoints>
     </breakpoint-manager>

@@ -1,5 +1,5 @@
-# functions to preprocess photostimulation data 
-
+# functions to preprocess photostimulation data
+import copy
 import os
 from pathlib import Path
 import pandas as pd
@@ -18,7 +18,7 @@ from utilities import arrutils
 from utilities.roiutils import create_circular_mask
 from utilities.coordutils import rotate_transform_coors, closest_coordinates
 
-
+import xmltodict
 from utilities.pstim_cpmmand_parser import parse_command
 
 ARBITRARY_MERGE_PHOTOSTIM_EVENTS = 1000 #any photostim events within 1000 ms of each other will be merged together
@@ -81,17 +81,35 @@ def collect_stimulation_times(somefishclass):
         photostim_record = parse_command(summary_command)
 
         photostim_block_indices = []
+        #each block of repetitions may have a different duration so this will replace full_duration_per_stim
+        durations_for_stims = []
 
         addNextRepetition = True
-        for record in photostim_record:
+
+        currentDuration = 0
+        for recordIndex, record in enumerate(photostim_record):
             if record['delay_type'] == 'repetition':
                 if(addNextRepetition):
+                    #in this case, we have just entered another block of repetitions and the current duration we know of
+                    #is just the duration of this laser on
+                    currentDuration = record['duration']
                     photostim_block_indices.append(record['photostimulation_count'])
                     addNextRepetition = False
+
+                else:
+                    #in this case, we're within a block of repetitions, so we add the duration of the laser on and
+                    #the delay after the prior repetition
+                    currentDuration += record['duration'] + photostim_record[recordIndex-1]['delay']
+
             else:
+                #this will be the end of a repetition block
+                if(not addNextRepetition):
+                    durations_for_stims.append(currentDuration)
+
+                #cleared to add new repetitions
                 addNextRepetition = True
 
-
+        full_duration_per_stim = durations_for_stims
 
         variableStimLength = True
 
@@ -159,24 +177,91 @@ def save_badframes_arr(somefishclass, no_planes = 1):
     elif no_planes == 1: # if single plane stimulation
         ##TODO: make it simpler code, combine this to just do what I am doing for volumes
         # only looking at stimulation cycle here for the right relative times
-        root = read_xml_to_root(somefishclass.data_paths["info_xml"])
-        frametimes = []
-        for child in root:
-            if child.tag == 'Sequence' and child.attrib['cycle'] == '2':
-                for subchild in child:
-                    if subchild.tag == 'Frame':
-                        frametimes.append(float(subchild.attrib['relativeTime']))
 
-        # calculate ps events in frame numbers
-        time_matches = [min(frametimes, key=lambda y: abs(x - y)) for x in stim_times] # list of frametimes values that match with the stim_times
-        frames = [frametimes.index(x) for x in time_matches] # list of frames that match with the stim_times
-        
-        # calculate the duration of one ps event in frame numbers
-        frame_dur = min(frametimes, key=lambda y: abs(full_duration_per_stim/1000 - y))
-        duration_in_frames = frametimes.index(frame_dur)
-        
-    ps_events = [somefishclass.baseline_frames + f for f in frames]
-    somefishclass.badframes_arr = np.array(ps_events)
+        if (len(full_duration_per_stim)) > 1:
+
+            with open(somefishclass.data_paths['info_xml']) as f:
+                xml_info_dict = xmltodict.parse(f.read())
+
+            #this is really horrendus but I don't think Bruker go out of their way to make the xml machine readable
+            frame_period = xml_info_dict['PVScan']['PVStateShard']['PVStateValue'][6]['@value']
+
+            root = read_xml_to_root(somefishclass.data_paths["info_xml"])
+            frametimes = []
+            for child in root:
+                if child.tag == 'Sequence' and child.attrib['cycle'] == '2':
+                    for subchild in child:
+                        if subchild.tag == 'Frame':
+                            frametimes.append(float(subchild.attrib['relativeTime']))
+
+
+            frametimes_copy = copy.deepcopy(frametimes)
+            frametimes_counter = 0
+            badframes_arr = []
+
+            #go through every stimulation and find the bad frames associated with it
+            for time_index, stim_time in enumerate(stim_times_secs):
+
+                haventFoundBadFrame = True
+                #while scanning through the frame times, continually pop the first element off the list and check it
+                while(haventFoundBadFrame):
+                    check_frame = frametimes_copy.pop(0)
+                    frametimes_counter += 1
+
+                    #check if frame is bad
+                    if((check_frame < stim_time and check_frame+frame_period < stim_time + full_duration_per_stim[time_index]) or (check_frame > stim_time and check_frame < stim_time + full_duration_per_stim[time_index] + frame_period)):
+                        badframes_arr.append(frametimes_counter)
+
+                        foundAllBadFramesInSeries = False
+                        #move through the subsequent frames and check if they are bad
+                        secondaryIterator = 0
+                        while(not foundAllBadFramesInSeries):
+
+                            #set the next frame and increment the iterator
+                            check_frame = frametimes_copy[secondaryIterator]
+                            secondaryIterator += 1
+
+                            #check the frame
+                            if ((check_frame < stim_time and check_frame + frame_period < stim_time +
+                                 full_duration_per_stim[time_index]) or (
+                                    check_frame > stim_time and check_frame < stim_time + full_duration_per_stim[
+                                time_index] + frame_period)):
+
+                                #add the frame if it is bad, otherwise we have found all the bad frames in the series and
+                                #can keep popping frames until we find the next bad series58
+
+                                badframes_arr.append(frametimes_counter)
+                            else:
+                                foundAllBadFramesInSeries = True
+
+                        haventFoundBadFrame = False
+
+
+        else:
+            # calculate the duration of one ps event in frame numbers
+            frame_dur = min(frametimes, key=lambda y: abs(full_duration_per_stim / 1000 - y))
+            duration_in_frames = frametimes.index(frame_dur)
+
+
+
+            root = read_xml_to_root(somefishclass.data_paths["info_xml"])
+            frametimes = []
+            for child in root:
+                if child.tag == 'Sequence' and child.attrib['cycle'] == '2':
+                    for subchild in child:
+                        if subchild.tag == 'Frame':
+                            frametimes.append(float(subchild.attrib['relativeTime']))
+
+            # calculate ps events in frame numbers
+            time_matches = [min(frametimes, key=lambda y: abs(x - y)) for x in stim_times] # list of frametimes values that match with the stim_times
+            frames = [frametimes.index(x) for x in time_matches] # list of frames that match with the stim_times
+
+            #in the case you have variable duration of stimulation
+
+    if (len(full_duration_per_stim)) ==  1:
+
+        ps_events = [somefishclass.baseline_frames + f for f in frames]
+        somefishclass.badframes_arr = np.array(ps_events)
     # saving the bad frames array
     save_path = Path(somefishclass.data_paths['move_corrected_image']).parents[0].joinpath('bad_frames.npy')
     if Path(save_path).exists():

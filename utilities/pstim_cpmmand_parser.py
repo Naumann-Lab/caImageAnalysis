@@ -419,22 +419,24 @@ def parse_command(commandIn):
 
     return (laser_on_list)
 
-data = json.load(open("/media/gromit/124d7bfb-0e91-4cf0-8c38-dc3142188881/Binblows-Share/Tyler-Style Sweep/16 March/TSeries-03162024-1620-001/photostim_info.json"))
-summary_command = data["summary_command"]
-command_sent = data["command"]
 
-photostim_record = parse_command(summary_command)
+if __name__ == '__main__':
+    data = json.load(open("/media/gromit/124d7bfb-0e91-4cf0-8c38-dc3142188881/Binblows-Share/Tyler-Style Sweep/16 March/TSeries-03162024-1620-001/photostim_info.json"))
+    summary_command = data["summary_command"]
+    command_sent = data["command"]
+
+    photostim_record = parse_command(summary_command)
 
 
-photostim_block_indices = []
+    photostim_block_indices = []
 
-addNextRepetition = True
-for record in photostim_record:
-    if record['delay_type'] == 'repetition':
-        if(addNextRepetition):
-            photostim_block_indices.append(record['photostimulation_count'])
-            addNextRepetition = False
-    else:
-        addNextRepetition = True
+    addNextRepetition = True
+    for record in photostim_record:
+        if record['delay_type'] == 'repetition':
+            if(addNextRepetition):
+                photostim_block_indices.append(record['photostimulation_count'])
+                addNextRepetition = False
+        else:
+            addNextRepetition = True
 
-print(photostim_block_indices)
+    print(photostim_block_indices)
