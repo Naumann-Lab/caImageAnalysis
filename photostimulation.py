@@ -368,7 +368,7 @@ def run_suite2p_PS(somebasefish, input_tau = 1.5, spatial_scale = 0, move_corr =
     move_corr = binary, if you want the motion corrected image to be run as the main image or not
     '''
     #from suite2p import run_s2p, default_ops
-    #from fishy import BaseFish
+    from fishy import BaseFish
 
     if move_corr == True:
         imagepath = somebasefish.data_paths["move_corrected_image"]
