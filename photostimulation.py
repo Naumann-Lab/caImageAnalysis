@@ -239,8 +239,6 @@ def save_badframes_arr(somefishclass, no_planes = 1):
 
         else:
             # calculate the duration of one ps event in frame numbers
-            frame_dur = min(frametimes, key=lambda y: abs(full_duration_per_stim / 1000 - y))
-            duration_in_frames = frametimes.index(frame_dur)
 
 
 
@@ -255,6 +253,8 @@ def save_badframes_arr(somefishclass, no_planes = 1):
             # calculate ps events in frame numbers
             time_matches = [min(frametimes, key=lambda y: abs(x - y)) for x in stim_times] # list of frametimes values that match with the stim_times
             frames = [frametimes.index(x) for x in time_matches] # list of frames that match with the stim_times
+            frame_dur = min(frametimes, key=lambda y: abs(full_duration_per_stim / 1000 - y))
+            duration_in_frames = frametimes.index(frame_dur)
 
             #in the case you have variable duration of stimulation
 
@@ -367,8 +367,8 @@ def run_suite2p_PS(somebasefish, input_tau = 1.5, spatial_scale = 0, move_corr =
     spatial_scale = the predicted pixel size of a ROI (2 - 12 pixels, 1 - 6 pixels)
     move_corr = binary, if you want the motion corrected image to be run as the main image or not
     '''
-    from suite2p import run_s2p, default_ops
-    from fishy import BaseFish
+    #from suite2p import run_s2p, default_ops
+    #from fishy import BaseFish
 
     if move_corr == True:
         imagepath = somebasefish.data_paths["move_corrected_image"]
@@ -382,6 +382,7 @@ def run_suite2p_PS(somebasefish, input_tau = 1.5, spatial_scale = 0, move_corr =
     if os.path.isfile(bad_frames_path) == False:
         save_badframes_arr(somebasefish)
 
+    print("Success!")
     ps_s2p_ops = default_ops()
     ps_s2p_ops['data_path'] = [imagepath.parents[0].as_posix()]
     ps_s2p_ops['save_path'] = imagepath.parents[0].as_posix()

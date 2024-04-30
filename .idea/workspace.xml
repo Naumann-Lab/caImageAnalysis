@@ -4,14 +4,7 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="0a2cab2c-7fe4-4ebc-ad9d-622d597d9f7f" name="Changes" comment="bouts are now not overlapping, made an array function too">
-      <change beforePath="$PROJECT_DIR$/.idea/caImageAnalysis.iml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/caImageAnalysis.iml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/misc.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/misc.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/examples/photostim_processing_plotting_examples01.ipynb" beforeDir="false" afterPath="$PROJECT_DIR$/examples/photostim_processing_plotting_examples01.ipynb" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/photostimulation.py" beforeDir="false" afterPath="$PROJECT_DIR$/photostimulation.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/utilities/pstim_cpmmand_parser.py" beforeDir="false" afterPath="$PROJECT_DIR$/utilities/pstim_cpmmand_parser.py" afterDir="false" />
-    </list>
+    <list default="true" id="0a2cab2c-7fe4-4ebc-ad9d-622d597d9f7f" name="Changes" comment="Replaced bruker's xml with my own custom xml" />
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -64,7 +57,7 @@
     "RunOnceActivity.ShowReadmeOnStart": "true",
     "WebServerToolWindowFactoryState": "false",
     "git-widget-placeholder": "owen",
-    "last_opened_file_path": "/home/gromit/anaconda3/envs/caiman/lib/python3.11/site-packages/caImageAnalysis/examples",
+    "last_opened_file_path": "/home/gromit/anaconda3/envs/caiman/lib/python3.11/site-packages/caImageAnalysis",
     "node.js.detected.package.eslint": "true",
     "node.js.selected.package.eslint": "(autodetect)",
     "node.js.selected.package.tslint": "(autodetect)",
@@ -129,7 +122,26 @@
       <workItem from="1713911117259" duration="4525000" />
       <workItem from="1713972640888" duration="3637000" />
       <workItem from="1713978888602" duration="23138000" />
+      <workItem from="1714493716005" duration="3196000" />
+      <workItem from="1714498067928" duration="6953000" />
     </task>
+    <task id="LOCAL-00001" summary="Replaced bruker's xml with my own custom xml">
+      <option name="closed" value="true" />
+      <created>1714426985621</created>
+      <option name="number" value="00001" />
+      <option name="presentableId" value="LOCAL-00001" />
+      <option name="project" value="LOCAL" />
+      <updated>1714426985621</updated>
+    </task>
+    <task id="LOCAL-00002" summary="Replaced bruker's xml with my own custom xml">
+      <option name="closed" value="true" />
+      <created>1714427193660</created>
+      <option name="number" value="00002" />
+      <option name="presentableId" value="LOCAL-00002" />
+      <option name="project" value="LOCAL" />
+      <updated>1714427193660</updated>
+    </task>
+    <option name="localTasksCounter" value="3" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -160,7 +172,8 @@
   </component>
   <component name="VcsManagerConfiguration">
     <MESSAGE value="bouts are now not overlapping, made an array function too" />
-    <option name="LAST_COMMIT_MESSAGE" value="bouts are now not overlapping, made an array function too" />
+    <MESSAGE value="Replaced bruker's xml with my own custom xml" />
+    <option name="LAST_COMMIT_MESSAGE" value="Replaced bruker's xml with my own custom xml" />
   </component>
   <component name="XDebuggerManager">
     <breakpoint-manager>
@@ -180,6 +193,6 @@
   </component>
   <component name="com.intellij.coverage.CoverageDataManagerImpl">
     <SUITE FILE_PATH="coverage/bruker_images_py$pstim_cpmmand_parser.coverage" NAME="pstim_cpmmand_parser Coverage Results" MODIFIED="1714083557205" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/utilities" />
-    <SUITE FILE_PATH="coverage/bruker_images_py$online_alignment.coverage" NAME="online_alignment Coverage Results" MODIFIED="1714081113562" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/registration" />
+    <SUITE FILE_PATH="coverage/bruker_images_py$online_alignment.coverage" NAME="online_alignment Coverage Results" MODIFIED="1714495173357" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/registration" />
   </component>
 </project>
