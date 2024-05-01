@@ -48,9 +48,11 @@ class BaseFish:
             self.rescaled_img()
         
     def process_filestructure(self):
+        print("nhello")
         self.data_paths = {}
         with os.scandir(self.folder_path) as entries:
             for entry in entries:
+                print(entry)
                 if entry.name.endswith(".tif"):
                     if "movement_corr" in entry.name:
                         self.data_paths["move_corrected_image"] = Path(entry.path)
@@ -100,6 +102,7 @@ class BaseFish:
 
                 #this will use Owen custom photostim output from Bruker2pControl in lieu of MarkPoints xml
                 elif entry.name.endswith("json") and 'photostim' in entry.name:
+                    print("located json")
                     self.data_paths["ps_json"] = Path(entry.path)
 
         if "image" in self.data_paths and "move_corrected_image" in self.data_paths:

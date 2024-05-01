@@ -121,13 +121,21 @@ def collect_stimulation_times(somefishclass):
         monaco_signal = np.array(volt_csv[' monaco'])
         time = np.array(volt_csv['Time(ms)'])
 
-        peaks, _ = find_peaks(monaco_signal, height = 0.10) # find peaks in voltage trace that are above 0.10 volts
-        peak_starts = [peaks[i] for i in range(len(peaks)) if i == 0 or peaks[i] - peaks[i-1] > 100] # find only the start of each peak, each rep
-        
+        #use diff to improve the signal finding
+        diffthing = np.diff(monaco_signal)
+        peaks, _ = find_peaks(diffthing, height=0.05)        print("Peaks: ", peaks)
+        print(len(peaks))
+
+        peak_starts = peaks
+
         # grabbing the start of each TRIAL, so have to take into account the repetition number
         if not variableStimLength:
             trial_starts = peak_starts[::no_repetitions]
         else:
+            print(photostim_block_indices)
+            print(peak_starts)
+            print(len(peak_starts))
+            print(len(photostim_block_indices))
             trial_starts = [peak_starts[index] for index in  photostim_block_indices]
 
         stim_times = [time[i] for i in trial_starts] # convert the peak start indices to the time in ms
