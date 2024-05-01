@@ -123,10 +123,11 @@ def collect_stimulation_times(somefishclass):
 
         #use diff to improve the signal finding
         diffthing = np.diff(monaco_signal)
-        peaks, _ = find_peaks(diffthing, height=0.05)        print("Peaks: ", peaks)
+        peaks, _ = find_peaks(diffthing, height=0.05)
+        print("Peaks: ", peaks)
         print(len(peaks))
 
-        peak_starts = peaks
+        peak_starts = np.array(peaks)+1
 
         # grabbing the start of each TRIAL, so have to take into account the repetition number
         if not variableStimLength:
