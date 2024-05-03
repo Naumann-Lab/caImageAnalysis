@@ -12,7 +12,6 @@ def pretty(x, n=3):
     """
     return np.convolve(x, np.ones(n) / n, mode="same")
 
-
 def tolerant_mean(arrs):
     """
     takes an average of arrays of different lengths
@@ -53,7 +52,6 @@ def subsection_arrays(input_array, offsets=(-10, 10)):
         a.append(np.arange(s, e))
     return np.array(a)
 
-
 def zdiffcell(arr):
     from scipy.stats import zscore
 
@@ -62,7 +60,6 @@ def zdiffcell(arr):
     prettyz = pretty(zscores, 3)
     return prettyz
 
-
 def zscoring(data_array):
     from scipy.stats import zscore
 
@@ -70,10 +67,8 @@ def zscoring(data_array):
     conv_zscores = pretty(zscores)
     return conv_zscores
 
-
 def arrs_to_medians(arrs, off1, off2):
     return np.nanmedian([i[off1 : off1 + off2] for i in arrs], axis=0)
-
 
 def find_nearest(array, value):
     idx = np.searchsorted(array, value, side="left")
@@ -84,8 +79,7 @@ def find_nearest(array, value):
         return array[idx - 1], idx - 1
     else:
         return array[idx], idx
-
-
+    
 # remove values in a list of elements in form [x,y] where the range from element overlaps with range of next element
 def remove_nearest_vals(list_of_some_vals):
     new_list = []
@@ -110,3 +104,11 @@ def remove_nearest_vals(list_of_some_vals):
             final_list.remove(x) # removing the bad values
 
     return final_list
+
+def convert_frame_to_sec(frame_lst, framerate):
+    '''
+    converts a list of frames to seconds given the framerate (helpful for plotting)
+    :param frame_lst: list of frames
+    :param framerate: framerate of the recording
+    '''
+    return [x / framerate for x in frame_lst]

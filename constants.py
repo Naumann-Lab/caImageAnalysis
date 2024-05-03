@@ -165,3 +165,27 @@ bout_timing_color_dict = {
     "after": [1, 0.25, 0],
     "during": [0, 0.25, 1]}
 
+
+stim_title_dict = {
+    "right" : r'$\Rightarrow$$\Rightarrow$',
+    "left" : r'$\Leftarrow$$\Leftarrow$',
+    "forward" : r'$\Uparrow$$\Uparrow$',
+    "backward" : r'$\Downarrow$$\Downarrow$',
+    "forward_right" : r'$\Nearrow$$\Nearrow$',
+    "backward_right" : r'$\Searrow$$\Searrow$',
+    "backward_left" : r'$\Swarrow$$\Swarrow$',
+    "forward_left" : r'$\Nwarrow$$\Nwarrow$',
+    "medial_left" : r' ---$\Leftarrow$',
+    "medial_right" : r'$\Rightarrow$--- ',
+    "lateral_left" : r'$\Leftarrow$--- ',
+    "lateral_right" : r' ---$\Rightarrow$',
+    "converging" : r'$\Rightarrow$$\Leftarrow$',
+    "diverging" : r'$\Leftarrow$$\Rightarrow$',
+
+    "forward_backward" : r'$\Uparrow$$\Downarrow$',
+    "backward_forward" : r'$\Downarrow$$\Uparrow$',
+    "x_forward" : r' ---$\Uparrow$',
+    "forward_x" : r'$\Uparrow$--- ',
+    "x_backward" : r' ---$\Downarrow$',
+    "backward_x" : r'$\Downarrow$--- ',
+}

@@ -169,28 +169,34 @@ def stimulus_start_frames_for_plots(frames_motion_on = 7, length_of_total_frame_
 
     return stim_start_frames
 
-def flexible_stim_shader(frames, stimmies, frames_motion_on, subplot = None):
+def flexible_stim_shader(frames, stimmies, frames_motion_on, fs = 14, subplot = None, label = True, ylim = (-3, 3), label_offset_x = -6):
     import constants
     import matplotlib.pyplot as plt
 
     if subplot == None:
         ax_n = plt
+        y_top = round(max(plt.gca().get_ylim()))
+        x_top = round(max(plt.gca().get_xlim()))
     else:
         ax_n = subplot
+        y_top = round(max(ax_n.get_ylim()))
+        x_top = round(max(ax_n.get_xlim()))
+
+    y_top = ylim[1]
+    ylabel_pos = y_top + y_top * 0.05
+    xlabel_pos = x_top + x_top * 0.05
+    xlabel_pos_pct = xlabel_pos / x_top
 
     for s, stimmy in zip(frames, stimmies):
+        if label:
+            ax_n.text(s + label_offset_x, ylabel_pos, constants.stim_title_dict[stimmy], fontsize=fs)
 
         begin = s
         end = s + frames_motion_on
         midpt = begin + (end - begin) // 2
 
         if stimmy in constants.monocular_dict.keys():
-            ax_n.axvspan(
-                begin,
-                end,
-                color=constants.monocular_dict[stimmy],
-                alpha=0.4,
-            )
+            ax_n.axvspan(begin, end, color=constants.monocular_dict[stimmy], alpha=0.4,)
 
         elif stimmy in constants.baseBinocs:
 
@@ -272,6 +278,7 @@ def flexible_stim_shader(frames, stimmies, frames_motion_on, subplot = None):
                 ax_n.axvspan(
                     begin, midpt, color=constants.monocular_dict["forward"], alpha=0.4
                 )
+
 
 def numToStim(dict):
     reverse_dict = {value: key for key, value in dict.items()}

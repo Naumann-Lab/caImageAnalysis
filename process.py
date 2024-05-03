@@ -103,7 +103,7 @@ def run_movement_correction(
     imsave(new_path, output) # saving the full motion corrected image here
 
 
-def run_suite2p(base_fish, input_tau=1.5, spatial_scale = 2, s2p_ops=None, force=False):
+def run_suite2p(base_fish, input_tau=1.5, spatial_scale = 0, s2p_ops=None, force=False):
     try:
         from suite2p import run_s2p, default_ops
     except:
