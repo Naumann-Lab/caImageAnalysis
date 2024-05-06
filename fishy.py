@@ -19,6 +19,8 @@ from utilities import pathutils, arrutils, roiutils, coordutils
 import stimuli
 import photostimulation
 
+import h5py
+
 
 class BaseFish:
     def __init__(
@@ -65,8 +67,11 @@ class BaseFish:
                     self.data_paths["frametimes"] = Path(entry.path)
                 
                 elif entry.name == "frametimes.h5":
-                    self.frametimes_df = pd.read_hdf(entry.path)
-                    print("found and loaded frametimes h5")
+
+                    self.frametimes_df = pd.read_csv('/media/gromit/124d7bfb-0e91-4cf0-8c38-dc3142188881/Binblows-Share/Tyler-Style Sweep/16 March/TSeries-03162024-1620-001/master_frametimes.csv')
+
+                    # self.frametimes_df = pd.read_hdf(entry.path)
+                    # print("found and loaded frametimes h5")
                     if (np.diff(self.frametimes_df.index) > 1).any():
                         self.frametimes_df.reset_index(inplace=True)
 
@@ -314,6 +319,8 @@ class BaseFish:
 
     @staticmethod
     def hzReturner(frametimes):
+        frametimes = pd.to_timedelta(frametimes)
+
         increment = 15
         test0 = 0
         test1 = increment

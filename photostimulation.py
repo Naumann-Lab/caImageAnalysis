@@ -79,7 +79,7 @@ def collect_stimulation_times(somefishclass):
         command_sent = data['command']
 
         photostim_record = parse_command(summary_command)
-
+        #print(photostim_record)
         photostim_block_indices = []
         #each block of repetitions may have a different duration so this will replace full_duration_per_stim
         durations_for_stims = []
@@ -104,6 +104,8 @@ def collect_stimulation_times(somefishclass):
             else:
                 #this will be the end of a repetition block
                 if(not addNextRepetition):
+                    currentDuration += record['duration'] + photostim_record[recordIndex-1]['delay']
+
                     durations_for_stims.append(currentDuration)
 
                 #cleared to add new repetitions
@@ -124,8 +126,8 @@ def collect_stimulation_times(somefishclass):
         #use diff to improve the signal finding
         diffthing = np.diff(monaco_signal)
         peaks, _ = find_peaks(diffthing, height=0.05)
-        print("Peaks: ", peaks)
-        print(len(peaks))
+        #print("Peaks: ", peaks)
+        #print(len(peaks))
 
         peak_starts = np.array(peaks)+1
 
@@ -133,10 +135,10 @@ def collect_stimulation_times(somefishclass):
         if not variableStimLength:
             trial_starts = peak_starts[::no_repetitions]
         else:
-            print(photostim_block_indices)
-            print(peak_starts)
-            print(len(peak_starts))
-            print(len(photostim_block_indices))
+            #print(photostim_block_indices)
+            #print(peak_starts)
+            #print(len(peak_starts))
+            #print(len(photostim_block_indices))
             trial_starts = [peak_starts[index] for index in  photostim_block_indices]
 
         stim_times = [time[i] for i in trial_starts] # convert the peak start indices to the time in ms
@@ -144,6 +146,14 @@ def collect_stimulation_times(somefishclass):
     else: # if no voltage recording, then calculate from mark points xml file
         stim_times = [(full_duration_per_stim/1000)*m + (iteration_delay_ms/1000)*m for m in range(no_iterations)]
 
+
+
+
+    somefishclass.data_paths['stim_times'] = somefishclass.folder_path.joinpath('stim_times.npy')
+    somefishclass.data_paths['stim_durations'] = somefishclass.folder_path.joinpath('full_duration_per_stim.npy')
+
+    np.save(somefishclass.data_paths["stim_times"], stim_times)
+    np.save(somefishclass.data_paths["stim_durations"], full_duration_per_stim)
 
     return full_duration_per_stim, stim_times
 
@@ -188,63 +198,84 @@ def save_badframes_arr(somefishclass, no_planes = 1):
         # only looking at stimulation cycle here for the right relative times
 
         if (len(full_duration_per_stim)) > 1:
-
+            num_badframe_blocks = 0
             with open(somefishclass.data_paths['info_xml']) as f:
                 xml_info_dict = xmltodict.parse(f.read())
 
             #this is really horrendus but I don't think Bruker go out of their way to make the xml machine readable
-            frame_period = xml_info_dict['PVScan']['PVStateShard']['PVStateValue'][6]['@value']
+            single_frame_capture_period = xml_info_dict['PVScan']['PVStateShard']['PVStateValue'][6]['@value']
+            frame_averaging = xml_info_dict['PVScan']['PVStateShard']['PVStateValue'][22]['@value']
+
+            frame_period = float(single_frame_capture_period) * float(frame_averaging) #this is in seconds
+
+            sampling_rate = 1/frame_period
+            somefishclass.imaging_frequency = sampling_rate
 
             root = read_xml_to_root(somefishclass.data_paths["info_xml"])
             frametimes = []
             for child in root:
-                if child.tag == 'Sequence' and child.attrib['cycle'] == '2':
+                #print(child)
+                #UNCOMMENT THE CYCLE IF YOUR PHOTOSTIM IS IN A SEPARATE T SERIES
+                if child.tag == 'Sequence' :#and child.attrib['cycle'] == '2':
                     for subchild in child:
+                        #print(subchild)
                         if subchild.tag == 'Frame':
                             frametimes.append(float(subchild.attrib['relativeTime']))
+                            #print(subchild.attrib['relativeTime'])
 
-
+            #print(frametimes)
             frametimes_copy = copy.deepcopy(frametimes)
             frametimes_counter = 0
             badframes_arr = []
 
+            stim_times_secs = np.array(stim_times_secs, dtype=float)
+            full_duration_per_stim = np.array(full_duration_per_stim, dtype=float)/1000 #this converts to seconds
+
+            #THIS CODE WILL BREAK IF YOU HAVE MULTIPLE STIMS IN ONE FRAME BUT NOT MULTIPLE FRAMES PER STIM
             #go through every stimulation and find the bad frames associated with it
             for time_index, stim_time in enumerate(stim_times_secs):
 
                 haventFoundBadFrame = True
                 #while scanning through the frame times, continually pop the first element off the list and check it
                 while(haventFoundBadFrame):
-                    check_frame = frametimes_copy.pop(0)
+                    check_frame = float(frametimes_copy.pop(0))
+
+                    #print("check frame:",check_frame, "to", check_frame + frame_period)
+                    #print("check time:", stim_time, "to", stim_time + full_duration_per_stim[time_index])
                     frametimes_counter += 1
 
                     #check if frame is bad
-                    if((check_frame < stim_time and check_frame+frame_period < stim_time + full_duration_per_stim[time_index]) or (check_frame > stim_time and check_frame < stim_time + full_duration_per_stim[time_index] + frame_period)):
+                    if((stim_time < check_frame and stim_time + full_duration_per_stim[time_index] > check_frame) or (stim_time > check_frame and check_frame + frame_period > stim_time + full_duration_per_stim[time_index] )):
+                        num_badframe_blocks += 1
                         badframes_arr.append(frametimes_counter)
-
+                        print("frametimes counter:",frametimes_counter)
+                        #print(check_frame, "is bad")
                         foundAllBadFramesInSeries = False
                         #move through the subsequent frames and check if they are bad
                         secondaryIterator = 0
                         while(not foundAllBadFramesInSeries):
 
                             #set the next frame and increment the iterator
-                            check_frame = frametimes_copy[secondaryIterator]
+                            check_frame = float(frametimes_copy[secondaryIterator])
                             secondaryIterator += 1
 
                             #check the frame
-                            if ((check_frame < stim_time and check_frame + frame_period < stim_time +
-                                 full_duration_per_stim[time_index]) or (
-                                    check_frame > stim_time and check_frame < stim_time + full_duration_per_stim[
-                                time_index] + frame_period)):
+                            if ((stim_time < check_frame and stim_time + full_duration_per_stim[
+                                time_index] > check_frame) or (
+                                    stim_time > check_frame and check_frame + frame_period > stim_time +
+                                    full_duration_per_stim[time_index] )):
 
                                 #add the frame if it is bad, otherwise we have found all the bad frames in the series and
                                 #can keep popping frames until we find the next bad series58
 
-                                badframes_arr.append(frametimes_counter)
+                                badframes_arr.append(frametimes_counter + secondaryIterator)
+                                #print(frametimes_counter + secondaryIterator, "is bad")
+
                             else:
                                 foundAllBadFramesInSeries = True
 
                         haventFoundBadFrame = False
-
+                print("badframes found:",num_badframe_blocks)
 
         else:
             # calculate the duration of one ps event in frame numbers
@@ -271,6 +302,9 @@ def save_badframes_arr(somefishclass, no_planes = 1):
 
         ps_events = [somefishclass.baseline_frames + f for f in frames]
         somefishclass.badframes_arr = np.array(ps_events)
+
+    else:
+        somefishclass.badframes_arr = np.array(badframes_arr)
     # saving the bad frames array
     save_path = Path(somefishclass.data_paths['move_corrected_image']).parents[0].joinpath('bad_frames.npy')
     if Path(save_path).exists():
@@ -296,23 +330,65 @@ def identify_stim_sites(somebasefish, rotate = True, planes_stimed = [1,2,3,4]):
             pixels_per_line = int(i.split('value=')[1].split('"')[1])
         if "linesPerFrame" in i:
             lines_per_frame = int(i.split('value=')[1].split('"')[1])
-    
-    # use the ps xml file to get the stim site data
-    ps_xml = read_xml_to_str(somebasefish.data_paths['ps_xml'])
-    X_stim_sites = []
-    Y_stim_sites = []
-    spiral_size_lst = []
-    for r in range(ps_xml.count("Point Index=") + 1):
-        for i in ps_xml.split("\n"):
-            if f'Point Index="{r}"' in i:
-                X_stim = float(i.split('X')[1].split('"')[1])*pixels_per_line
-                X_stim_sites.append(round(X_stim))
 
-                Y_stim = float(i.split('Y')[1].split('"')[1])*lines_per_frame
-                Y_stim_sites.append(round(Y_stim))
 
-                spiral_size = float(i.split('SpiralSizeInMicrons')[1].split('"')[1])
-                spiral_size_lst.append(round(spiral_size))
+    try:
+        # use the ps xml file to get the stim site data
+        ps_xml = read_xml_to_str(somebasefish.data_paths['ps_xml'])
+        X_stim_sites = []
+        Y_stim_sites = []
+        spiral_size_lst = []
+        for r in range(ps_xml.count("Point Index=") + 1):
+            for i in ps_xml.split("\n"):
+                if f'Point Index="{r}"' in i:
+                    X_stim = float(i.split('X')[1].split('"')[1])*pixels_per_line
+                    X_stim_sites.append(round(X_stim))
+
+                    Y_stim = float(i.split('Y')[1].split('"')[1])*lines_per_frame
+                    Y_stim_sites.append(round(Y_stim))
+
+                    spiral_size = float(i.split('SpiralSizeInMicrons')[1].split('"')[1])
+                    spiral_size_lst.append(round(spiral_size))
+
+
+
+    #if there is no ps_xml, then use the althernative json
+    except KeyError:
+        X_stim_sites = []
+        Y_stim_sites = []
+        spiral_size_lst = []
+
+        # this will load an alternative photostim information class
+        data = json.load(open(somebasefish.data_paths['ps_json']))
+        summary_command = data['summary_command']
+        command_sent = data['command']
+
+        photostim_record = parse_command(summary_command)
+        # print(photostim_record)
+        photostim_block_indices = []
+        # each block of repetitions may have a different duration so this will replace full_duration_per_stim
+        durations_for_stims = []
+
+        #this will get the percentage to microns conversion
+        with open(somebasefish.data_paths['info_xml']) as f:
+            xml_info_dict = xmltodict.parse(f.read())
+
+        # this is really horrendus but I don't think Bruker go out of their way to make the xml machine readable
+        lines_per_frame = xml_info_dict['PVScan']['PVStateShard']['PVStateValue'][9]['@value']
+        microns_per_pixel_x = microns_per_pixel_x = xml_info_dict['PVScan']['PVStateShard']['PVStateValue'][11]['IndexedValue'][0]['@value']#[0]['@value']
+
+
+        currentDuration = 0
+        for recordIndex, record in enumerate(photostim_record):
+            X_stim_sites.append(record['x_coord'])
+            Y_stim_sites.append(record['y_coord'])
+            spiral_size_lst.append(record['spiral_size'])
+
+        #converts spiral size in pixels to spiral size in microns
+        #coordinates in pixels stay in pixels
+        spiral_size_lst = np.array(spiral_size_lst) * float(microns_per_pixel_x)
+        X_stim_sites = np.array(X_stim_sites)
+        Y_stim_sites = np.array(Y_stim_sites)
 
     # need to rotate and transform the coordinates if the image is rotated from off the Bruker
     if rotate:
@@ -376,7 +452,7 @@ def run_suite2p_PS(somebasefish, input_tau = 1.5, spatial_scale = 0, move_corr =
     spatial_scale = the predicted pixel size of a ROI (2 - 12 pixels, 1 - 6 pixels)
     move_corr = binary, if you want the motion corrected image to be run as the main image or not
     '''
-    #from suite2p import run_s2p, default_ops
+    from suite2p import run_s2p, default_ops
     from fishy import BaseFish
 
     if move_corr == True:
@@ -396,7 +472,7 @@ def run_suite2p_PS(somebasefish, input_tau = 1.5, spatial_scale = 0, move_corr =
     ps_s2p_ops['data_path'] = [imagepath.parents[0].as_posix()]
     ps_s2p_ops['save_path'] = imagepath.parents[0].as_posix()
     ps_s2p_ops['tau'] = input_tau #gcamp6s = 1.5
-    ps_s2p_ops['fs'] = BaseFish.hzReturner(somebasefish.frametimes_df)
+    ps_s2p_ops['fs'] = somebasefish.imaging_frequency #BaseFish.hzReturner(somebasefish.frametimes_df)
     ps_s2p_ops['preclassify'] = 0.15
     ps_s2p_ops['block_size'] = [32, 32]
     ps_s2p_ops['allow_overlap'] = True
@@ -422,6 +498,7 @@ def collect_raw_traces(somebasefish):
     if not stim_sites_df_path.exists():
         identify_stim_sites(somebasefish)
     stim_sites_df = pd.read_hdf(stim_sites_df_path)
+    stim_sites_df.drop_duplicates(inplace=True)
     img = imread(somebasefish.data_paths["move_corrected_image"])
 
     raw_traces = np.zeros((len(stim_sites_df), img.shape[0]))

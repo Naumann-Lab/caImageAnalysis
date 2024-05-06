@@ -97,7 +97,7 @@ def parse_command(commandIn):
                                     if (iterations_iter['iterator'] == iterations_iter['count'] - 1):
                                         if (sweeps_iter['iterator'] == sweeps_iter['count'] - 1):
                                             if (numPoints_iter['iterator'] == numPoints_iter['count'] - 1):
-                                                pass
+                                                photostimulation_instance['delay_type'] = None
                                             else:
                                                 command += ' ' + str(commandIn['interpoint_delays'][sweeps_iter['iterator']][numPoints_iter['iterator']])
                                                 photostimulation_instance['delay'] = commandIn['interpoint_delays'][sweeps_iter['iterator']][numPoints_iter['iterator']]
@@ -114,7 +114,7 @@ def parse_command(commandIn):
                                     if (iterations_iter['iterator'] == iterations_iter['count'] - 1):
                                         if (numPoints_iter['iterator'] == numPoints_iter['count'] - 1):
                                             if (sweeps_iter['iterator'] == sweeps_iter['count'] - 1):
-                                                pass
+                                                photostimulation_instance['delay_type'] = None
                                             else:
                                                 command += ' ' + str(commandIn['sweep_delay'])
                                                 photostimulation_instance['delay'] = commandIn['sweep_delay']
@@ -131,7 +131,7 @@ def parse_command(commandIn):
                                     if (numPoints_iter['iterator'] == numPoints_iter['count'] - 1):
                                         if (iterations_iter['iterator'] == iterations_iter['count'] - 1):
                                             if (sweeps_iter['iterator'] == sweeps_iter['count'] - 1):
-                                                pass
+                                                photostimulation_instance['delay_type'] = None
                                             else:
                                                 command += ' ' + str(commandIn['sweep_delay'])
                                                 photostimulation_instance['delay'] = commandIn['sweep_delay']
@@ -224,7 +224,7 @@ def parse_command(commandIn):
                             if (complete_sweep_first):
                                 if (iterations_iter['iterator'] == iterations_iter['count'] - 1):
                                     if (sweeps_iter['iterator'] == sweeps_iter['count'] - 1):
-                                        pass
+                                        photostimulation_instance['delay_type'] = None
                                     else:
                                         command += ' ' + str(commandIn['sweep_delay'])
                                         photostimulation_instance['delay'] = commandIn['sweep_delay']
@@ -236,7 +236,7 @@ def parse_command(commandIn):
                             elif (complete_iterations_first):
                                 if (iterations_iter['iterator'] == iterations_iter['count'] - 1):
                                     if (sweeps_iter['iterator'] == sweeps_iter['count'] - 1):
-                                        pass
+                                        photostimulation_instance['delay_type'] = None
                                     else:
                                         command += ' ' + str(commandIn['sweep_delay'])
                                         photostimulation_instance['delay'] = commandIn['sweep_delay']
@@ -248,7 +248,7 @@ def parse_command(commandIn):
                             else:
                                 if (iterations_iter['iterator'] == iterations_iter['count'] - 1):
                                     if (sweeps_iter['iterator'] == sweeps_iter['count'] - 1):
-                                        pass
+                                        photostimulation_instance['delay_type'] = None
                                     else:
                                         command += ' ' + str(commandIn['sweep_delay'])
                                         photostimulation_instance['delay'] = commandIn['sweep_delay']
