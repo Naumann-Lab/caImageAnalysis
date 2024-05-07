@@ -85,7 +85,7 @@ class BaseFish:
                     if midnight_noon == 'midnight':
                         list = self.frametimes_df.time
                         list = [time.strftime(format="%H:%M:%S.%f") for time in list]
-                        list = ['00' + time[2:] for time in list if time[:2] == '12']
+                        list = ['00' + time[2:] if time[:2] == '12' else time for time in list]
                         self.frametimes_df.time = [dt.strptime(time, "%H:%M:%S.%f").time() for time in list]
 
                 elif os.path.isdir(entry.path):
