@@ -87,7 +87,6 @@ class BaseFish:
                         list = [time.strftime(format="%H:%M:%S.%f") for time in list]
                         list = ['00' + time[2:] if time[:2] == '12' else time for time in list]
                         self.frametimes_df.time = [dt.strptime(time, "%H:%M:%S.%f").time() for time in list]
-
                 elif os.path.isdir(entry.path):
                     if entry.name == "suite_2p":
                         self.data_paths["suite2p"] = Path(entry.path).joinpath("plane0")
@@ -392,7 +391,21 @@ class BaseFish:
         df: the target dataframe that you want matching frametimes with, needs to have one column with a datetime object
         datetime_col_name: the name of the datetime object column
         '''
-        frame_matches = [frametimes_df[frametimes_df.time < df[datetime_col_name].values[i]].index[-1] for i in range(len(df))]
+        if frametimes_df.time.values[0] > frametimes_df.time.values[-1]:  # overnight
+            #pre-midnight frametimes_df and df
+            frametimes_df_premidnight = frametimes_df[frametimes_df.time > frametimes_df.time.values[-1]]
+            df_premidnight = df[df[datetime_col_name] > df[datetime_col_name].values[-1]]
+            frame_matches_premidnight= \
+                [frametimes_df_premidnight[frametimes_df_premidnight.time < df_premidnight[datetime_col_name].values[i]].index[-1] for i in
+                            range(len(df_premidnight))]
+            frametimes_df_postmidnight = frametimes_df[frametimes_df.time < frametimes_df.time.values[0]]
+            df_postmidnight = df[df[datetime_col_name] < df[datetime_col_name].values[0]]
+            frame_matches_postmidnight = \
+                [frametimes_df_postmidnight[frametimes_df_postmidnight.time < df_postmidnight[datetime_col_name].values[i]].index[-1] for i in
+                 range(len(df_postmidnight))]
+            frame_matches = frame_matches_premidnight + frame_matches_postmidnight
+        else:
+            frame_matches = [frametimes_df[frametimes_df.time < df[datetime_col_name].values[i]].index[-1] for i in range(len(df))]
 
         df.loc[:, "frame"] = frame_matches
         df = df[df['frame'] != 0]
@@ -919,7 +932,6 @@ class WorkingFish(VizStimFish):
                 self.stimulus_df[self.stimulus_df.stim_name == stim].frame.values,
                 self.offsets,
             )
-            #normcells = arrutils.norm_fdff(self.f_cells)
             for n, nrn in enumerate(self.normf_cells):
                 resp_arrs = []
                 try:
@@ -939,19 +951,14 @@ class WorkingFish(VizStimFish):
         for stim in self.stimulus_df.stim_name.unique():
             arrs = arrutils.subsection_arrays(
                 self.stimulus_df[(self.stimulus_df.stim_name == stim) & (self.stimulus_df.frame > 0)].frame.values,
-                self.offsets,
-            )#isolate interest time period after stim onset
-
+                self.offsets)#isolate interest time period after stim onset
             for n, nrn in enumerate(traces):
                 resp_arrs = []
                 for arr in arrs:
                     if arr[-1] < len(traces[0]): # making sure the arr is not longer than the cell trace (frames)
                         resp_arrs.append(nrn[arr])
-
                 stim_dict[stim][n] = np.nanmean(resp_arrs, axis=0)
-                err_dict[stim][n] = np.nanstd(resp_arrs, axis=0) / np.sqrt(
-                    len(resp_arrs)
-                )
+                err_dict[stim][n] = np.nanstd(resp_arrs, axis=0) / np.sqrt(len(resp_arrs))
 
         neuron_dict = {}
         for neuron in stim_dict[
