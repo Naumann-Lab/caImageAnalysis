@@ -309,143 +309,14 @@ def planes_plot_tuning_perc(frametimes_df, regionlist, planerange, perc_dir, tra
             region_row += 1
         stim_col += 1
 
-def planes_plot_on(frametimes_df, region_trace, tracename, loc, on_method, cutoff_s, refImg):
-    """
-    Note that the traces are normalized and smoothed when selecting "on periods". The smoothing factor is determined by
-    frame rate * 10.
-        frametimes_df: the dataframe for all frames and their corresponding raw time
-        region_trace: dictionary containing dataframe containing all traces for all regions, raw F!
-        tracename: the cell trace name, used to label the graph
-        loc: a dataframe containing all regions and their corresponding ROIs for each cell
-        on_method: the method to selecton "on periods" ('cluster', 'mean', 'diff_peak')
-        cutoff_s: the cut off seconds to differentiate on/off and peaky neurons
-        refImg: the dataframe to plot the original fish plane
-
-    Return:
-        color_cutoff: the max duration in second that matches the colorbar
-        mean_on_duration: the CLIPPD and NORMALIZED duration in seconds matching the colorbar
-    """
-    hz = hzReturner(frametimes_df)
-    cbar = plt.get_cmap('rainbow')
-
-    #preparing figure space
-    region_count = len(region_trace.keys())
-    fig, ax= plt.subplots(region_count + 1, 4,
-                          gridspec_kw={'hspace': 0, 'wspace': 0.2, 'height_ratios':  [20] * region_count + [1]},
-            figsize = (15, 6), dpi = 240, sharex = 'col')
-    # add gridspace for all neuron correlation plot
-    gs = ax[0, 3].get_gridspec()
-    for axes in ax[0:, 3]:
-        axes.remove()
-    ax_scatter = fig.add_subplot(gs[0:, 3])
-    ax_scatter.imshow(refImg, cmap='grey', alpha=0.8, vmax=100)
-    ax_scatter.set_yticks([])
-    ax_scatter.set_xticks([])
-    # plot cbar
-    color_cutoff = 75
-    for i in range(0, 3):
-        ax_cbar = ax[region_count, i]
-        #if heatmap ax cbar, transfer to frames
-        if i == 1:
-            color_cutoff_hz = int(color_cutoff * hz)
-            plotting_frame = int(np.floor(150 * hz) + 1)
-            ax_cbar.scatter(np.linspace(0, color_cutoff_hz, color_cutoff_hz + 1), [0] * (color_cutoff_hz + 1),
-                            c=np.linspace(0, color_cutoff_hz, color_cutoff_hz + 1), cmap=cbar)
-            ax_cbar.scatter(np.linspace(color_cutoff_hz + 1, plotting_frame,
-                                        plotting_frame - color_cutoff_hz),
-                            [0] * (plotting_frame - color_cutoff_hz), c='red')
-        #else, stay with seconds
-        else:
-            ax_cbar.scatter(np.linspace(0, color_cutoff, color_cutoff + 1), [0] * (color_cutoff + 1),
-                        c=np.linspace(0, color_cutoff, color_cutoff + 1), cmap=cbar)
-            ax_cbar.scatter(np.linspace(color_cutoff + 1, 150, 150 - color_cutoff), [0] * (150 - color_cutoff), c='red')
-        ax_cbar.spines['top'].set_color('white')
-        ax_cbar.spines['right'].set_color('white')
-        ax_cbar.spines['bottom'].set_color('white')
-        ax_cbar.spines['left'].set_color('white')
-        ax_cbar.set_yticks([])
-        ax_cbar.sharex(ax[0, i])
-        ax_cbar.set_xlabel('time (s)')
-    mean_on_trace = {key: np.empty((region_trace[key].shape[0], frametimes_df.shape[0])) for key in region_trace.keys()}
-    mean_on_duration = {key: np.empty(region_trace[key].shape[0]) for key in region_trace.keys()}
-    region_row = 0
-    for region in region_trace.keys():
-        #process data for each region
-        trace = region_trace[region]
-        for neuron in trace.index:
-            trace.loc[neuron, :] = arrutils.pretty(trace.loc[neuron, :], int(10 * hz))
-        trace = arrutils.norm_0to1(trace.to_numpy())
-        if on_method == 'cluster':
-            mean_on_trace[region], mean_on_duration[region] = plot_individual_plane.cluster_on(frametimes_df, trace)
-        elif on_method == 'mean':
-            mean_on_trace[region], mean_on_duration[region] = plot_individual_plane.mean_on(frametimes_df, trace)
-        elif on_method == 'diff_peak':
-            mean_on_trace[region], mean_on_duration[region] = plot_individual_plane.diff_peak_on(frametimes_df, trace)
-        #transfer everything to seconds
-        mean_on_duration[region] = np.divide(mean_on_duration[region], hz)
-        #sort neuron by duration
-        sort_duration = np.argsort(mean_on_duration[region])
-        sort_mean_on_trace = mean_on_trace[region][sort_duration]
-        # plot heatmap
-        region_heat_ax = ax[region_row, 1]
-        sns.heatmap(sort_mean_on_trace[:, :plotting_frame], ax=region_heat_ax, cmap='viridis',
-                    vmin=0, vmax=1, cbar=False)
-        region_heat_ax.set_yticks([])
-        region_heat_ax.set_xticks([])
-        # plot histogram for each region
-        region_hist_ax = ax[region_row, 2]
-        peaky = mean_on_duration[region][np.where(mean_on_duration[region] < cutoff_s)[0]]
-        onoff = mean_on_duration[region][np.where(mean_on_duration[region] >= cutoff_s)[0]]
-        bins = np.linspace(0, 150, 11)
-        peaky = np.divide(np.histogram(peaky, bins)[0], len(mean_on_duration[region])) *100#transfer to percentage
-        onoff = np.divide(np.histogram(onoff, bins)[0], len(mean_on_duration[region])) *100
-        bins_center = np.linspace(7.5, 142.5, 10)
-        region_hist_ax.bar(bins_center, peaky, color = 'deepskyblue', alpha = 0.5, edgecolor = 'deepskyblue',
-                           width = 15)
-        region_hist_ax.bar(bins_center, onoff, color='coral', alpha=0.5, edgecolor='coral',
-                          width = 15)
-        region_hist_ax.set_ylim(0, 70)
-        region_hist_ax.set_yticks([0, 70])
-        region_hist_ax.axvline(cutoff_s, linestyle = ':', color = 'black', linewidth = 1)
-        region_hist_ax.spines['top'].set_visible(False)
-        region_hist_ax.spines['right'].set_visible(False)
-        region_hist_ax.spines['bottom'].set_visible(False)
-        #plot line plot for each region, plot after the other graphs because the duration is clipped
-        mean_on_duration[region] = np.clip(mean_on_duration[region], 0, color_cutoff)/color_cutoff
-        region_line_ax = ax[region_row, 0]
-        for neuron in range(0, mean_on_trace[region].shape[0]):
-            region_line_ax.plot(np.arange(0, 150, 1/hz), mean_on_trace[region][neuron][:plotting_frame],
-                                c = cbar(mean_on_duration[region][neuron]), linewidth = 0.1)
-        region_line_ax.axvline(cutoff_s, linestyle = ':', color = 'black', linewidth =1)
-        region_line_ax.set_xlim(0, 150)
-        region_line_ax.set_ylim(0, 1)
-        region_line_ax.set_xticks([])
-        region_line_ax.set_yticks([0, 1])
-        region_line_ax.set_ylabel(region)
-        region_line_ax.spines['top'].set_visible(False)
-        region_line_ax.spines['right'].set_visible(False)
-        region_line_ax.spines['bottom'].set_visible(False)
-        if region_row == 0:
-            region_line_ax.set_yticklabels([0, 1])
-            region_heat_ax.set_ylabel(tracename)
-            region_hist_ax.set_yticklabels([0, 70])
-            region_hist_ax.set_ylabel('cell%')
-        else:
-            region_line_ax.set_yticklabels([])
-            region_hist_ax.set_ylabel('')
-            region_hist_ax.set_yticklabels([])
-        ax_scatter.scatter(loc[region]['xpos'], loc[region]['ypos'], c = mean_on_duration[region], s = 0.1, cmap = cbar)
-        region_row += 1
-    return color_cutoff, mean_on_duration
-
-def volumetric_plot_on(color_cutoff, region_ROIs, mean_on_duration, loc):
+def volumetric_plot(color_cutoff, region_ROIs, clip_variable, loc):
     """
     Plot the 3d html of the location of peaky and on/off cells, with color corresponding to their mean on durations.
             color_cutoff: the max mean_on_duration in seconds that reaches the peak of the color
             region_ROIs: the dictionary that contains all regions, as well as a dataframe containing their all ROIs including
              "xpos", "ypos", "zpos"
-            mean_on_duration: the CLIPPED and NORMALIZED mean_on_duration for each cell in seconds. Note that the list
-             is CLIPPED at color_cutoff and NORMALIZED to the range of 0-1 regards to percentage color_cutoff
+            clip_variable: the CLIPPED (and NORMALIZED) variable for each cell that determine their color. Note that the
+             list is CLIPPED at color_cutoff and NORMALIZED to the range of 0-1 regards to percentage color_cutoff
             loc: a dataframe containing all regions and their corresponding ROIs for each cell
     """
     scatter = []
@@ -454,7 +325,7 @@ def volumetric_plot_on(color_cutoff, region_ROIs, mean_on_duration, loc):
         scatter = scatter + \
             [go.Scatter3d(x=loc[region].loc[:, 'xpos'], y=loc[region].loc[:, 'ypos'], z=loc[region].loc[:, 'zpos'],
                                     mode='markers', opacity = 0.5,
-                          marker=dict(size=3, symbol="circle", color=mean_on_duration[region],
+                          marker=dict(size=2, symbol="circle", color=clip_variable[region],
                                                                 colorscale = "rainbow" ))]
     for region in region_ROIs.keys():
         color = 'rgb(' + str(constants.cmaplist[region](0.8)[0] * 255) + ',' \
@@ -464,7 +335,6 @@ def volumetric_plot_on(color_cutoff, region_ROIs, mean_on_duration, loc):
                [go.Mesh3d(x=region_ROIs[region]['xpos'], y=region_ROIs[region]['ypos'], z=region_ROIs[region]['zpos'],
                           opacity=0.1, alphahull=0, color = color)]
     fig = go.Figure(data=mesh + scatter)
-    fig.update_layout(plot_bgcolor='white',
-                       coloraxis_showscale=True, scene_aspectmode='manual', scene_aspectratio=dict(x=1, y=1.8, z=1))
+    fig.update_scenes(xaxis_visible=False, yaxis_visible=False, zaxis_visible=False)
+    fig.update_layout( coloraxis_showscale=True, scene_aspectmode='manual', scene_aspectratio=dict(x=1, y=1.8, z=0.6))
     return fig
-

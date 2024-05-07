@@ -28,9 +28,9 @@ def tolerant_mean(arrs):
 
 def norm_0to1(cell_array):
     if len(cell_array.shape) == 1:
-        norm_cell_arr = np.array((cell_array - np.min(cell_array)) / (np.max(cell_array) - np.min(cell_array)))
+        norm_cell_arr = np.array((cell_array - np.nanmin(cell_array)) / (np.nanmax(cell_array) - np.nanmin(cell_array)))
     else:
-        norm_cell_arr = np.array([(c - np.min(c)) / (np.max(c) - np.min(c)) for c in cell_array])
+        norm_cell_arr = np.array([(c - np.nanmin(c)) / (np.nanmax(c) - np.nanmin(c)) for c in cell_array])
     return norm_cell_arr
 
 def norm_fdff(cell_array):

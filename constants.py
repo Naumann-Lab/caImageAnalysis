@@ -77,14 +77,14 @@ baseBinocs = [
 ]
 
 deg_dict = {
-    "right": 90,
-    "forward_right": 45,
     "forward": 0,
     "forward_left": 315,
     "left": 270,
-    "backward_left": 215,
+    "backward_left": 225,
     "backward": 180,
     "backward_right": 135,
+    "right": 90,
+    "forward_right": 45,
     "medial_left": 999,
     "lateral_left": 999,
     "medial_right": 999,

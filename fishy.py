@@ -30,7 +30,8 @@ class BaseFish:
         folder_path,
         frametimes_key="frametimes",
         invert=False,
-        bruker_invert = False
+        bruker_invert = False,
+        midnight_noon = "noon"
     ):
         self.folder_path = Path(folder_path)
         self.frametimes_key = frametimes_key
@@ -38,21 +39,27 @@ class BaseFish:
         self.invert = invert
         self.bruker_invert = bruker_invert # inverts the stim names since bruker projector was displayed differently
 
-        self.process_filestructure()  # generates self.data_paths
+        self.process_filestructure(midnight_noon)  # generates self.data_paths
         try:
-            self.raw_text_frametimes_to_df()  # generates self.frametimes_df
+            self.raw_text_frametimes_to_df(midnight_noon)  # generates self.frametimes_df
         except:
             print("failed to process frametimes from text")
 
         if 'suite2p' in self.data_paths.keys():
             self.load_suite2p()  # loads in suite2p paths
             self.rescaled_img()
+            self.is_cell()
+            self.zdiff_cells = [arrutils.zdiffcell(i) for i in self.f_cells]
+            self.normf_cells = arrutils.norm_0to1(self.f_cells)
         if 'caiman' in self.data_paths.keys():
+            print('loading once..')
             self.load_caiman()  # load in caiman data
             self.rescaled_img()
-        # self.load_suite2p() # loads in suite2p paths
+            self.is_cell()
+            self.zdiff_cells = [arrutils.zdiffcell(i) for i in self.f_cells]
+            self.normf_cells = arrutils.norm_0to1(self.f_cells)
 
-    def process_filestructure(self):
+    def process_filestructure(self, midnight_noon):
         self.data_paths = {}
         with os.scandir(self.folder_path) as entries:
             for entry in entries:
@@ -64,6 +71,9 @@ class BaseFish:
                     else:
                         self.data_paths["image"] = Path(entry.path)
 
+                elif entry.name == 'tail_df.h5':
+                    self.data_paths['tail'] = Path(entry.path)
+
                 elif entry.name.endswith(".txt") and self.frametimes_key in entry.name:
                     self.data_paths["frametimes"] = Path(entry.path)
 
@@ -72,6 +82,11 @@ class BaseFish:
                     print("found and loaded frametimes h5")
                     if (np.diff(self.frametimes_df.index) > 1).any():
                         self.frametimes_df.reset_index(inplace=True)
+                    if midnight_noon == 'midnight':
+                        list = self.frametimes_df.time
+                        list = [time.strftime(format="%H:%M:%S.%f") for time in list]
+                        list = ['00' + time[2:] for time in list if time[:2] == '12']
+                        self.frametimes_df.time = [dt.strptime(time, "%H:%M:%S.%f").time() for time in list]
 
                 elif os.path.isdir(entry.path):
                     if entry.name == "suite_2p":
@@ -97,7 +112,6 @@ class BaseFish:
                         with open(entry.path, "rb") as f:
                             self.x_pts = np.load(f)
 
-                
                 # bruker information files
                 elif entry.name.endswith("xml"):
                     if 'MarkPoints' in entry.name:
@@ -119,16 +133,19 @@ class BaseFish:
                 except:
                     print("failed to move original image out of folder")
 
-    def raw_text_frametimes_to_df(self):
+    def raw_text_frametimes_to_df(self, midnight_noon):
         if hasattr(self, "frametimes_df"):
             return
         with open(self.data_paths["frametimes"]) as file:
             contents = file.read()
         parsed = contents.split("\n")
-
         times = []
         for line in range(len(parsed) - 1):
-            times.append(dt.strptime(parsed[line], "%H:%M:%S.%f").time())
+            text = parsed[line]
+            if midnight_noon == 'midnight':
+                if text[:2] == '12':
+                    text = '00' + text[2:]
+            times.append(dt.strptime(text, "%H:%M:%S.%f").time())
         times_df = pd.DataFrame(times)
         times_df.rename({0: "time"}, axis=1, inplace=True)
         self.frametimes_df = times_df
@@ -151,20 +168,29 @@ class BaseFish:
         self.ops = {'refImg': mean_img}
 
         self.iscell = np.load(
-            self.data_paths["caiman"].joinpath("iscell.npy"), allow_pickle=True
-        ).astype(bool)
+            self.data_paths["caiman"].joinpath("iscell.npy"), allow_pickle=True).astype(bool)
 
         self.stats = np.load(
-            self.data_paths["caiman"].joinpath("coordinates_dict.npy"), allow_pickle=True
-        )
-
+            self.data_paths["caiman"].joinpath("coordinates_dict.npy"), allow_pickle=True)
         self.f_cells = np.load(self.data_paths["caiman"].joinpath("C.npy"))
         self.df_f_cells = np.load(self.data_paths["caiman"].joinpath("F_dff.npy"))
 
-    def return_cell_rois(self, cells):
-        if isinstance(cells, int):
-            cells = [cells]
+    def is_cell(self):
+        """
+        Clean up the self.f_cells and self.df_f_cells according to self.iscell and clean up cells that didn't
+        change fluorscence throughout the trial at all
 
+        also clean up cells that are smalelr
+        """
+        iscell_index = np.where(self.iscell)
+        ischanging_index = np.where(np.amax(self.f_cells, 1) != np.amin(self.f_cells, 1))
+        iscell_index = np.intersect1d(iscell_index, ischanging_index)
+        self.f_cells = self.f_cells[iscell_index]
+        self.stats = self.stats[iscell_index]
+        if 'caiman' in self.data_paths.keys():
+            self.df_f_cells = self.df_f_cells[iscell_index]
+
+    def return_cell_rois(self, cells):
         rois = []
         for cell in cells:
             ypix = self.stats[cell]["ypix"]
@@ -401,7 +427,7 @@ class PurgeFish(BaseFish):
 class VizStimFish(BaseFish):
     def __init__(
         self,
-        stim_key="stims",
+        stim_key="stim",
         stim_fxn=stimuli.pandastim_to_df,
         stim_fxn_args=None,
         legacy=False,
@@ -427,11 +453,12 @@ class VizStimFish(BaseFish):
         super().__init__(*args, **kwargs)
         if stim_fxn_args is None:
             stim_fxn_args = {}
-        if ~hasattr(self, "f_cells"):
+        if not hasattr(self, "f_cells"):
             if 'suite_2p' in self.data_paths.keys():
                 self.load_suite2p()
             if 'caiman' in self.data_paths.keys():
                 self.load_caiman()
+            self.is_cell()
         self.stim_fxn_args = stim_fxn_args
         self.add_stims(stim_key, stim_fxn, legacy)
 
@@ -451,13 +478,45 @@ class VizStimFish(BaseFish):
         self.stim_offset = stim_offset
         self.offsets = used_offsets
         self.baseline_offset = baseline_offset
-        self.diff_image = self.make_difference_image()
+        #self.diff_image = self.make_difference_image()
 
     def add_stims(self, stim_key, stim_fxn, legacy):
         with os.scandir(self.folder_path) as entries:
             for entry in entries:
                 if stim_key in entry.name:
-                    self.data_paths["stimuli"] = Path(entry.path)
+                    if entry.name.endswith('.csv'):
+                        self.data_paths["stimuli"] = Path(entry.path)
+                        dateparse = lambda x: pd.to_datetime(x, format='%H:%M:%S.%f').time()
+                        self.stimulus_df = pd.read_csv(self.data_paths['stimuli'],  index_col=0, parse_dates=['time'], date_parser=dateparse)
+                        break
+                    elif entry.name.endswith('.txt'):
+                        self.data_paths["stimuli"] = Path(entry.path)
+                        if stim_fxn:
+                            if self.stim_fxn_args:
+                                try:
+                                    self.stimulus_df = stim_fxn(
+                                        self.data_paths["stimuli"], **self.stim_fxn_args
+                                    )
+                                except:
+                                    try:
+                                        self.stimulus_df = stim_fxn(
+                                            self.folder_path, **self.stim_fxn_args
+                                        )
+                                    except:
+                                        print("failed to generate stimulus df")
+                            else:
+                                self.stimulus_df = stim_fxn(self.data_paths["stimuli"])
+                    self.unchop_stimulus_df = self.stimulus_df  # chop stimulus that are outside of frametime
+        # THIS IS ASSUMING THAT THE IMAGING DIDN'T LAST FOR 24 HRS+
+        if self.frametimes_df.time.values[0] > self.frametimes_df.time.values[-1]:  # overnight
+            self.stimulus_df = pd.concat(
+                            [self.stimulus_df[(self.stimulus_df.time > self.frametimes_df.time.values[0])],
+                             self.stimulus_df[(self.stimulus_df.time < self.frametimes_df.time.values[-1])]])
+        else:
+            self.stimulus_df = self.stimulus_df[
+                            (self.stimulus_df.time > self.frametimes_df.time.values[0]) &
+                            (self.stimulus_df.time < self.frametimes_df.time.values[-1])]
+        self.stimulus_df = self.tag_frames_to_df(self.frametimes_df, self.stimulus_df, 'time')
         if not legacy:
             try:
                 _ = self.data_paths["stimuli"]
@@ -465,26 +524,8 @@ class VizStimFish(BaseFish):
                 print("failed to find stimuli")
                 return
 
-        if stim_fxn:
-            if self.stim_fxn_args:
-                try:
-                    self.stimulus_df = stim_fxn(
-                        self.data_paths["stimuli"], **self.stim_fxn_args
-                    )
-                except:
-                    try:
-                        self.stimulus_df = stim_fxn(
-                            self.folder_path, **self.stim_fxn_args
-                        )
-                    except:
-                        print("failed to generate stimulus df")
-            else:
-                self.stimulus_df = stim_fxn(self.data_paths["stimuli"])
-            self.unchop_stimulus_df  = self.stimulus_df# chop stimulus that are outside of frametime
-            self.stimulus_df = self.stimulus_df[(self.stimulus_df.time > self.frametimes_df.time.values[0]) &
-                                                (self.stimulus_df.time < self.frametimes_df.time.values[-1])]
 
-            self.stimulus_df = self.tag_frames_to_df(self.frametimes_df, self.stimulus_df, 'time')
+
 
     # made a new generic tag frames function, but keeping this in case
     # def tag_frames(self):
@@ -575,7 +616,7 @@ class PhotostimFish(BaseFish):
         super().__init__(*args, **kwargs)
 
         # 0 - prep the cell traces
-        if ~hasattr(self, "f_cells"):
+        if not hasattr(self, "f_cells"):
             if 'suite_2p' in self.data_paths.keys():
                 self.load_suite2p()
             if 'caiman' in self.data_paths.keys():
@@ -687,12 +728,16 @@ class TailTrackedFish(BaseFish):
         self.tail_df = pd.read_hdf(self.data_paths["tail"])
 
         if 'frame' not in self.tail_df.columns:
-            self.tail_df = self.tail_df[(self.tail_df.t_dt > self.frametimes_df.time.values[0]) &
+            if self.frametimes_df.time.values[0] > self.frametimes_df.time.values[-1]: #overnight
+                self.tail_df = pd.concat([self.tail_df[(self.tail_df.t_dt > self.frametimes_df.time.values[0])],
+                    self.tail_df[(self.tail_df.t_dt < self.frametimes_df.time.values[-1])]])
+            else:
+                self.tail_df = self.tail_df[(self.tail_df.t_dt > self.frametimes_df.time.values[0]) &
                                                 (self.tail_df.t_dt < self.frametimes_df.time.values[-1])]
             self.tail_df = self.tag_frames_to_df(self.frametimes_df, self.tail_df, 't_dt')
             self.tail_df.to_hdf(self.data_paths['tail'], key='tail')
 
-        # self.bout_finder(sig=5, width=None, prominence=7)
+        #self.bout_finder(sig=5, width=None, prominence=7)
 
     def add_tail_paths(self, tail_key):
         try:
@@ -828,15 +873,13 @@ class WorkingFish(VizStimFish):
         if "move_corrected_image" not in self.data_paths:
             raise TankError
         self.corr_threshold = corr_threshold
-        if ~hasattr(self, "f_cells"):
+        if not hasattr(self, "f_cells"):
+            print('loading cells in working fish again?')
             if 'suite_2p' in self.data_paths.keys():
                 self.load_suite2p()
             if 'caiman' in self.data_paths.keys():
                 self.load_caiman()
-
-        # create different fluorescence arrays
-        self.zdiff_cells = [arrutils.zdiffcell(i) for i in self.f_cells]
-        self.normf_cells = arrutils.norm_0to1(self.f_cells)
+            self.is_cell()
 
         self.zdiff_stim_dict, self.zdiff_err_dict, self.zdiff_neuron_dict = self.build_stimdicts(self.zdiff_cells)
         self.normf_stim_dict, self.normf_err_dict, self.normf_neuron_dict = self.build_stimdicts(self.normf_cells)
@@ -1216,21 +1259,22 @@ class WorkingFish_Tail(WorkingFish, TailTrackedFish):
 
         # self.diff_image = self.make_difference_image()
 
-        if ~hasattr(self, "f_cells"):
-            if 'suite_2p' in self.data_paths.keys():
-                self.load_suite2p()
-            if 'caiman' in self.data_paths.keys():
-                self.load_caiman()
-        if hasattr(self, "tail_stimulus_df"):
-            self.stimulus_df = stimuli.validate_stims(self.stimulus_df, self.f_cells)
-            self.build_stimdicts()
-        else:
-            pass
-        self.bout_locked_dict()
-        self.single_bout_avg_neurresp()
-        self.avg_bout_avg_neurresp()
-        self.neur_responsive_trials()
-        self.build_timing_bout_dict()
+        # if ~hasattr(self, "f_cells"):
+        #     if 'suite_2p' in self.data_paths.keys():
+        #         self.load_suite2p()
+        #     if 'caiman' in self.data_paths.keys():
+        #         self.load_caiman()
+        #     self.is_cell()
+        # if hasattr(self, "tail_stimulus_df"):
+        #     self.stimulus_df = stimuli.validate_stims(self.stimulus_df, self.normf_cells)
+        #     self.build_stimdicts()
+        # else:
+        #     pass
+        #self.bout_locked_dict()
+        #self.single_bout_avg_neurresp()
+        #self.avg_bout_avg_neurresp()
+        #self.neur_responsive_trials()
+        #self.build_timing_bout_dict()
 
     def make_heatmap_bout_count(
         self,

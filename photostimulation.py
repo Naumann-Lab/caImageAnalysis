@@ -7,7 +7,7 @@ import numpy as np
 from tifffile import imread, imwrite
 from datetime import datetime as dt, timedelta
 import xml.etree.ElementTree as ET
-import caiman as cm
+#import caiman as cm
 from PIL import Image
 import math
 from scipy.signal import find_peaks 
