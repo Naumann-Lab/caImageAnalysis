@@ -398,11 +398,18 @@ class BaseFish:
             frame_matches_premidnight= \
                 [frametimes_df_premidnight[frametimes_df_premidnight.time < df_premidnight[datetime_col_name].values[i]].index[-1] for i in
                             range(len(df_premidnight))]
+            #post-midnight frametimes_df and df
             frametimes_df_postmidnight = frametimes_df[frametimes_df.time < frametimes_df.time.values[0]]
             df_postmidnight = df[df[datetime_col_name] < df[datetime_col_name].values[0]]
-            frame_matches_postmidnight = \
-                [frametimes_df_postmidnight[frametimes_df_postmidnight.time < df_postmidnight[datetime_col_name].values[i]].index[-1] for i in
-                 range(len(df_postmidnight))]
+            #use a for loop to deal with if the first frame of post-midnight df is actually earlier than first frame of
+            #post-midnight frametimes_df, but still after midnight.
+            frame_matches_postmidnight = []
+            for i in range(len(df_postmidnight)):
+                smaller_df = frametimes_df_postmidnight[frametimes_df_postmidnight.time < df_postmidnight[datetime_col_name].values[i]]
+                if smaller_df.empty:
+                    frame_matches_postmidnight = frame_matches_postmidnight + [frame_matches_premidnight[-1]]
+                else:
+                    frame_matches_postmidnight = frame_matches_postmidnight + [smaller_df.index[-1]]
             frame_matches = frame_matches_premidnight + frame_matches_postmidnight
         else:
             frame_matches = [frametimes_df[frametimes_df.time < df[datetime_col_name].values[i]].index[-1] for i in range(len(df))]
@@ -536,19 +543,6 @@ class VizStimFish(BaseFish):
             except KeyError:
                 print("failed to find stimuli")
                 return
-
-
-
-
-    # made a new generic tag frames function, but keeping this in case
-    # def tag_frames(self):
-
-    #     frame_matches = [self.frametimes_df[self.frametimes_df.time < self.stimulus_df.time.values[i]].index[-1] for i in range(len(self.stimulus_df))]
-
-    #     self.stimulus_df.loc[:, "frame"] = frame_matches
-    #     # self.stimulus_df.drop(columns="time", inplace=True) #this needs to be included in the stimulus_df for TailTrackingFish
-    #     self.stimulus_df = self.stimulus_df[self.stimulus_df['frame'] != 0]
-    #     self.stimulus_df.reset_index(inplace = True, drop = True)
 
     def make_difference_image(self, selectivityFactor=1.5, brightnessFactor=10):
         image = self.load_image()
@@ -741,13 +735,16 @@ class TailTrackedFish(BaseFish):
         self.tail_df = pd.read_hdf(self.data_paths["tail"])
 
         if 'frame' not in self.tail_df.columns:
-            if self.frametimes_df.time.values[0] > self.frametimes_df.time.values[-1]: #overnight
-                self.tail_df = pd.concat([self.tail_df[(self.tail_df.t_dt > self.frametimes_df.time.values[0])],
-                    self.tail_df[(self.tail_df.t_dt < self.frametimes_df.time.values[-1])]])
+            if self.frametimes_df.time.values[0] > self.frametimes_df.time.values[-1]:  # overnight
+                self.tail_df = pd.concat(
+                    [self.tail_df[(self.tail_df.t_dt > self.frametimes_df.time.values[0])],
+                     self.tail_df[(self.tail_df.t_dt < self.frametimes_df.time.values[-1])]])
             else:
-                self.tail_df = self.tail_df[(self.tail_df.t_dt > self.frametimes_df.time.values[0]) &
-                                                (self.tail_df.t_dt < self.frametimes_df.time.values[-1])]
+                self.tail_df = self.tail_df[
+                    (self.tail_df.t_dt > self.frametimes_df.time.values[0]) &
+                    (self.tail_df.t_dt < self.frametimes_df.time.values[-1])]
             self.tail_df = self.tag_frames_to_df(self.frametimes_df, self.tail_df, 't_dt')
+
             self.tail_df.to_hdf(self.data_paths['tail'], key='tail')
 
         #self.bout_finder(sig=5, width=None, prominence=7)
