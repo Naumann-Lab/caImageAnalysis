@@ -15,11 +15,13 @@ import matplotlib.pyplot as plt
 
 # local imports
 import constants
-from utilities import pathutils, arrutils, roiutils, coordutils
+from utilities import pathutils, arrutils, roiutils, coordutils, txt_json
 import stimuli
 import photostimulation
 
 import h5py
+
+import subprocess
 
 
 class BaseFish:
@@ -48,11 +50,26 @@ class BaseFish:
         if 'caiman' in self.data_paths.keys():
             self.load_caiman() # load in caiman data 
             self.rescaled_img()
-        
+
+
+    def create_csv(self, file_path):
+
+        interpreter_path = '/home/gromit/anaconda3/envs/caiman/bin/python'
+        script_path = '/home/gromit/anaconda3/envs/caiman/lib/python3.11/site-packages/H5support/H5converter.py'
+
+        command = [interpreter_path, script_path] + [file_path]
+        print("Creating csv!")
+        #result = subprocess.run(["echo", "Hello World"], capture_output=True, text=True)
+
+        #print(result.stdout)
+        result = subprocess.run(command, capture_output=True, text=True, check=True)
+        print(result)
+
     def process_filestructure(self):
         print("nhello")
         self.data_paths = {}
         with os.scandir(self.folder_path) as entries:
+
             for entry in entries:
                 print(entry)
                 if entry.name.endswith(".tif"):
@@ -67,8 +84,13 @@ class BaseFish:
                     self.data_paths["frametimes"] = Path(entry.path)
                 
                 elif entry.name == "frametimes.h5":
+                    #self.create_csv('chester')
+                    print(entry.path)
+                    self.create_csv(entry.path)
 
-                    self.frametimes_df = pd.read_csv('/media/gromit/124d7bfb-0e91-4cf0-8c38-dc3142188881/Binblows-Share/Tyler-Style Sweep/16 March/TSeries-03162024-1620-001/master_frametimes.csv')
+
+                    self.frametimes_df = pd.read_csv(entry.path[:-3]+'.csv')
+                    #self.frametimes_df = pd.read_csv('/media/gromit/124d7bfb-0e91-4cf0-8c38-dc3142188881/Binblows-Share/Tyler-Style Sweep/16 March/TSeries-03162024-1620-001/master_frametimes.csv')
 
                     # self.frametimes_df = pd.read_hdf(entry.path)
                     # print("found and loaded frametimes h5")
@@ -109,6 +131,15 @@ class BaseFish:
                 elif entry.name.endswith("json") and 'photostim' in entry.name:
                     print("located json")
                     self.data_paths["ps_json"] = Path(entry.path)
+
+                #This will create the json if one is not already made
+                elif entry.name.endswith('txt') and 'photostim' in entry.name:
+                    print("found photostim txt in liue of json")
+                    parent = os.path.dirname(entry.path)
+                    print( entry.path,  entry.path[:-4]+'.json')
+
+                    txt_json.load_and_convert_to_json(entry.path,  entry.path[:-4]+'.json')
+                    self.data_paths["ps_json"] = Path(entry.path[:-4]+'.json')
 
         if "image" in self.data_paths and "move_corrected_image" in self.data_paths:
             if (

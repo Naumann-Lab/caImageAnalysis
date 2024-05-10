@@ -76,7 +76,7 @@ def collect_stimulation_times(somefishclass):
         #this will load an alternative photostim information class
         data = json.load(open(somefishclass.data_paths['ps_json']))
         summary_command = data['summary_command']
-        command_sent = data['command']
+        #command_sent = data['command']
 
         photostim_record = parse_command(summary_command)
         #print(photostim_record)
@@ -361,7 +361,7 @@ def identify_stim_sites(somebasefish, rotate = True, planes_stimed = [1,2,3,4]):
         # this will load an alternative photostim information class
         data = json.load(open(somebasefish.data_paths['ps_json']))
         summary_command = data['summary_command']
-        command_sent = data['command']
+        #command_sent = data['command']
 
         photostim_record = parse_command(summary_command)
         # print(photostim_record)

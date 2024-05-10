@@ -4,17 +4,12 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="0a2cab2c-7fe4-4ebc-ad9d-622d597d9f7f" name="Changes" comment="Fixed version compatibility issue with &lt;3.10">
+    <list default="true" id="0a2cab2c-7fe4-4ebc-ad9d-622d597d9f7f" name="Changes" comment="Plotting changes">
+      <change afterPath="$PROJECT_DIR$/utilities/txt_json.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/examples/Alignment example.ipynb" beforeDir="false" afterPath="$PROJECT_DIR$/examples/Alignment example.ipynb" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/examples/legacy fish to fishy.ipynb" beforeDir="false" afterPath="$PROJECT_DIR$/examples/legacy fish to fishy.ipynb" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/examples/new_fish_examples.ipynb" beforeDir="false" afterPath="$PROJECT_DIR$/examples/new_fish_examples.ipynb" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/examples/photostim_processing_plotting_examples.ipynb" beforeDir="false" afterPath="$PROJECT_DIR$/examples/photostim_processing_plotting_examples.ipynb" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/examples/photostim_processing_plotting_examples01.ipynb" beforeDir="false" afterPath="$PROJECT_DIR$/examples/photostim_processing_plotting_examples01.ipynb" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/examples/roi_example.ipynb" beforeDir="false" afterPath="$PROJECT_DIR$/examples/roi_example.ipynb" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/fishy.py" beforeDir="false" afterPath="$PROJECT_DIR$/fishy.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/photostimulation.py" beforeDir="false" afterPath="$PROJECT_DIR$/photostimulation.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/utilities/pstim_cpmmand_parser.py" beforeDir="false" afterPath="$PROJECT_DIR$/utilities/pstim_cpmmand_parser.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -138,7 +133,8 @@
       <workItem from="1714594877196" duration="29590000" />
       <workItem from="1714772957350" duration="4717000" />
       <workItem from="1714850138746" duration="4602000" />
-      <workItem from="1715011722391" duration="1207000" />
+      <workItem from="1715011722391" duration="9218000" />
+      <workItem from="1715304676084" duration="5826000" />
     </task>
     <task id="LOCAL-00001" summary="Replaced bruker's xml with my own custom xml">
       <option name="closed" value="true" />
@@ -180,7 +176,15 @@
       <option name="project" value="LOCAL" />
       <updated>1714589631783</updated>
     </task>
-    <option name="localTasksCounter" value="6" />
+    <task id="LOCAL-00006" summary="Plotting changes">
+      <option name="closed" value="true" />
+      <created>1715035893885</created>
+      <option name="number" value="00006" />
+      <option name="presentableId" value="LOCAL-00006" />
+      <option name="project" value="LOCAL" />
+      <updated>1715035893885</updated>
+    </task>
+    <option name="localTasksCounter" value="7" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -214,7 +218,8 @@
     <MESSAGE value="Replaced bruker's xml with my own custom xml" />
     <MESSAGE value="bug fix" />
     <MESSAGE value="Fixed version compatibility issue with &lt;3.10" />
-    <option name="LAST_COMMIT_MESSAGE" value="Fixed version compatibility issue with &lt;3.10" />
+    <MESSAGE value="Plotting changes" />
+    <option name="LAST_COMMIT_MESSAGE" value="Plotting changes" />
   </component>
   <component name="XDebuggerManager">
     <breakpoint-manager>
