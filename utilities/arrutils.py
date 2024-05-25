@@ -12,6 +12,18 @@ def pretty(x, n=3):
     """
     return np.convolve(x, np.ones(n) / n, mode="same")
 
+def gaussian_convolve(arr, size, sigma, mode):
+    """
+    @https://stackoverflow.com/questions/67008247/1d-gaussian-smoothing-with-python-sigma-equals-filter-length
+    Apply a Gaussian filter to the input array
+        size: the size of the gaussian filter
+        sigma: the sigma of the gaussian filter
+        mode: the mode of convolution to be used, see
+    """
+    filter_range = np.linspace(-int(size / 2), int(size / 2), size)
+    gaussian_filter = [1 / (sigma * np.sqrt(2 * np.pi)) * np.exp(-x ** 2 / (2 * sigma ** 2)) for x in filter_range]
+    return np.convolve(arr, gaussian_filter, mode=mode)
+
 
 def tolerant_mean(arrs):
     """

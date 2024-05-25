@@ -361,10 +361,14 @@ class BaseFish:
         increment = 15
         test0 = 0
         test1 = increment
+        if 'time' in frametimes.columns:
+            time_column = 'time'
+        elif 't' in frametimes.columns:
+            time_column = 't_dt'
         while True:
             testerBool = (
-                frametimes.loc[:, "time"].values[test0].minute
-                == frametimes.loc[:, "time"].values[test1].minute
+                frametimes.loc[:, time_column].values[test0].minute
+                == frametimes.loc[:, time_column].values[test1].minute
             )
             if testerBool:
                 break
@@ -379,7 +383,7 @@ class BaseFish:
 
         times = [
             float(str(f.second) + "." + str(f.microsecond))
-            for f in frametimes.loc[:, "time"].values[test0:test1]
+            for f in frametimes.loc[:, time_column].values[test0:test1]
         ]
         return 1 / np.mean(np.diff(times))
 
@@ -891,16 +895,16 @@ class WorkingFish(VizStimFish):
                 self.load_caiman()
             self.is_cell()
 
-        self.zdiff_stim_dict, self.zdiff_err_dict, self.zdiff_neuron_dict = self.build_stimdicts(self.zdiff_cells)
-        self.normf_stim_dict, self.normf_err_dict, self.normf_neuron_dict = self.build_stimdicts(self.normf_cells)
-        self.f_stim_dict, self.f_err_dict, self.f_neuron_dict = self.build_stimdicts(self.f_cells)
+        #self.zdiff_stim_dict, self.zdiff_err_dict, self.zdiff_neuron_dict = self.build_stimdicts(self.zdiff_cells)
+        #self.normf_stim_dict, self.normf_err_dict, self.normf_neuron_dict = self.build_stimdicts(self.normf_cells)
+        #self.f_stim_dict, self.f_err_dict, self.f_neuron_dict = self.build_stimdicts(self.f_cells)
 
-        self.build_stimdicts_extended_zdiff()
-        self.build_stimdicts_extended_normf()
+        #self.build_stimdicts_extended_zdiff()
+        #self.build_stimdicts_extended_normf()
 
-        self.build_booldf_corr()
-        self.build_booldf_baseline()
-        self.build_booldf_cluster()
+        #self.build_booldf_corr()
+        #self.build_booldf_baseline()
+        #self.build_booldf_cluster()
 
     def build_stimdicts_extended_zdiff(self):
         # makes an array of z-scored calcium responses for each stim (not median)

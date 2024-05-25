@@ -13,11 +13,11 @@ import seaborn as sns
 from utilities import arrutils
 import plotly.graph_objects as go
 import plot_individual_plane
+from sklearn.preprocessing import StandardScaler
+from sklearn.cluster import KMeans
+from sklearn.decomposition import PCA
+import matplotlib.cm as cm
 
-import sys
-
-# change this sys path to your own computer
-sys.path.append(r'miniforge3/envs/naumann_lab/Codes/caImageAnalysis-kaitlyn/')
 
 import constants, plot_individual_plane
 import cmasher as cmr
@@ -309,7 +309,7 @@ def planes_plot_tuning_perc(frametimes_df, regionlist, planerange, perc_dir, tra
             region_row += 1
         stim_col += 1
 
-def volumetric_plot(color_cutoff, region_ROIs, clip_variable, loc):
+def volumetric_plot(region_ROIs, clip_variable, loc, byregion =True):
     """
     Plot the 3d html of the location of peaky and on/off cells, with color corresponding to their mean on durations.
             color_cutoff: the max mean_on_duration in seconds that reaches the peak of the color
@@ -318,15 +318,21 @@ def volumetric_plot(color_cutoff, region_ROIs, clip_variable, loc):
             clip_variable: the CLIPPED (and NORMALIZED) variable for each cell that determine their color. Note that the
              list is CLIPPED at color_cutoff and NORMALIZED to the range of 0-1 regards to percentage color_cutoff
             loc: a dataframe containing all regions and their corresponding ROIs for each cell
+            byregion: if the input of loc is by region as a dictionary
     """
     scatter = []
     mesh = []
-    for region in region_ROIs.keys():
+    if byregion:
+        for region in region_ROIs.keys():
+            scatter = scatter + \
+                [go.Scatter3d(x=loc[region].loc[:, 'xpos'], y=loc[region].loc[:, 'ypos'], z=loc[region].loc[:, 'zpos'],
+                    mode='markers', opacity = 0.5, marker=dict(size=2, symbol="circle", color=clip_variable[region],
+                                                                        colorscale = "rainbow" ))]
+    else:
         scatter = scatter + \
-            [go.Scatter3d(x=loc[region].loc[:, 'xpos'], y=loc[region].loc[:, 'ypos'], z=loc[region].loc[:, 'zpos'],
-                                    mode='markers', opacity = 0.5,
-                          marker=dict(size=2, symbol="circle", color=clip_variable[region],
-                                                                colorscale = "rainbow" ))]
+                  [go.Scatter3d(x=loc.loc[:, 'xpos'], y=loc.loc[:, 'ypos'], z=loc.loc[:, 'zpos'],
+                #mode='markers', opacity=0.5, marker=dict(size=2, symbol="circle", color=clip_variable, colorscale="rainbow"))]
+                mode='markers', opacity=0.5, marker=dict(size=2, symbol="circle", color= clip_variable))]
     for region in region_ROIs.keys():
         color = 'rgb(' + str(constants.cmaplist[region](0.8)[0] * 255) + ',' \
                 + str(constants.cmaplist[region](0.8)[1] * 255) + ','\
@@ -338,3 +344,246 @@ def volumetric_plot(color_cutoff, region_ROIs, clip_variable, loc):
     fig.update_scenes(xaxis_visible=False, yaxis_visible=False, zaxis_visible=False)
     fig.update_layout( coloraxis_showscale=True, scene_aspectmode='manual', scene_aspectratio=dict(x=1, y=1.8, z=0.6))
     return fig
+
+def plot_tail_type_cluster_traces(cluster_df, tail_df, region_trace, save_path, cluster):
+    """
+    Plot the calcium traces and raw tail_sum for each K-means clusters input.
+     cluster_df: the dataframe of the tail cluster, with each row being a bout and most importantly, a columns with their
+      on and off index
+     region_trace: the (assuming HBr only, normF) trace to be plotted across all planes
+     tail_df: the tail dataframe that includes the corresponding FRAME and the raw tail poisition (in rad)
+     save_path: the image save path
+     cluster: the cluster number
+    """
+    total_cycle = cluster_df.shape[0]//20 + 1
+    region_trace['plane'] = [str(i).split('.')[1] for i in region_trace.index]
+    frame_perplane = region_trace.shape[1]
+    for cycle in range(0, total_cycle):
+        bout_left = cluster_df.shape[0] - 20 * cycle
+        max_bout = 20
+        width_ratio = np.add(cluster_df.iloc[20 * cycle:20 * (cycle + 1)]['tail_duration_s'], 30)
+        #if the bouts in this cluster is less than 20, turn off the rest of trhe axis
+        if bout_left < 20:
+            max_bout = bout_left
+            width_ratio = list(np.add(cluster_df.iloc[20 * cycle:]['tail_duration_s'], 30))
+            width_ratio = width_ratio + [30] * (20 - max_bout)
+        fig, ax = plt.subplots(2, 20, figsize=(30, 5), dpi=240, gridspec_kw={'hspace': 0.1, 'width_ratios': width_ratio})
+        if bout_left < 20:
+            for empty_space in range(bout_left, 20):
+                ax[0, empty_space].axis('off')
+                ax[1, empty_space].axis('off')
+        for bout in range(0, max_bout):
+            ax_bout = ax[0, bout]
+            bout_tuple = cluster_df.iloc[bout + 20 * cycle]['cont_tuples_imageframe']
+            plot_raw_tail = tail_df[
+                (tail_df.frame >= bout_tuple[0] - 5) & (tail_df.frame < bout_tuple[1] + 30)].tail_sum
+            ax_bout.set_ylim([-5, 5])
+            ax_bout.plot(list(plot_raw_tail), linewidth=0.5, color = 'black')
+            ax_bout.set_xticks([])
+            ax_bout.set_xticklabels([])
+            ax_bout.set_yticks([])
+            ax_bout.set_yticklabels([])
+            ax_bout.spines[['top', 'right', 'bottom', 'left']].set_visible(False)
+
+            # plot calcium signals in HBr only
+            # find plane
+            tuple_plane = bout_tuple[0] // frame_perplane + 4#+9
+            if tuple_plane%10 == 0:
+                tuple_plane = str(tuple_plane)[0]
+            elif tuple_plane > 10:
+                tuple_plane = str(tuple_plane)
+            elif tuple_plane < 10 :
+                tuple_plane = '0' + str(tuple_plane)
+
+            tuple_frame_on =bout_tuple[0] % frame_perplane
+            tuple_frame_off = bout_tuple[1] % frame_perplane
+
+            ax_neuron = ax[1, bout]
+            plane_cell_toplot = region_trace[region_trace.plane == tuple_plane].drop(['plane'], axis = 1)
+            plane_cell_toplot = plane_cell_toplot.iloc[:, tuple_frame_on - 5:tuple_frame_off + 30 ]
+            #sort cells by their total fluorscence
+            plane_cell_toplot['sum'] = plane_cell_toplot.sum()
+            plane_cell_toplot = plane_cell_toplot.sort_values(by = ['sum']).drop(['sum'], axis = 1)
+            sns.heatmap(plane_cell_toplot,
+                ax=ax_neuron, cmap='viridis', vmin=0, vmax=1, cbar=False)
+            ax_neuron.axvline(5, linestyle=':', color='pink', linewidth=1)
+            ax_neuron.axvline(5 + tuple_frame_off - tuple_frame_on, linestyle=':', color='pink', linewidth=1)
+            ax_neuron.set_yticks([])
+            ax_neuron.set_yticklabels([])
+            ax_neuron.set_xticks([0, 5, bout_tuple[1] - bout_tuple[0] + 30])
+            ax_neuron.set_xticklabels(['-5', bout_tuple[1] - bout_tuple[0], '+30'], rotation = 0)
+            if bout == 0:
+                ax_neuron.set_xlabel('frame')
+        fig.savefig(save_path + '/tail_cluster/cluster_' + str(cluster) + '(' + str(cycle) + ').png')
+
+def planes_plot_tail_type_clusters(region_trace, tail_bout_df, tail_df, save_path, k_clusters = 6):
+    """
+    cluster the types of tail events with PCA and K-Means Clustering.
+        region_trace: the traces of neurons for all planes, with their index labeled "plane.n_index" (default normF)
+        tail_bout_df: A dataframe with each row being a tail event, including "cont_tuples", "tail_stimuli", the positive
+         component, negative component, standard deviation, duration (s) and frequency (times/s) for each event
+        tail_df: the dataframe for raw tail traces and their matching frames
+        k_clusters: Ideally, use the elbow method (commented out below) to find the optimal k_means_clusters. Default around
+         6 for all tail data here seems to yield a good result.
+        save_path: the path to save for the plot in string
+    """
+    fig, ax = plt.subplots(2, 1, figsize=(5, 10), dpi = 240)
+    # standardize the data
+    tail_bout_df_pcainput = tail_bout_df.drop(['cont_tuples_tailindex', 'cont_tuples_imageframe', 'tail_stimuli'], axis=1)
+    scaler = StandardScaler()
+    tail_bout_df_pcainput = scaler.fit_transform(tail_bout_df_pcainput)
+    # make the PCA
+    pca = PCA(n_components=4)
+    principalComponents = pca.fit_transform(tail_bout_df_pcainput)
+    tail_bout_df_pcaoutput = pd.DataFrame(data=principalComponents,
+                               columns=['principal component 1', 'principal component 2', 'principal component 3',
+                                        'principal component 4'])
+    # plot bout unrelated scatteres
+    colormap = cm.get_cmap('winter')
+    cmap = np.divide(list(range(0, tail_bout_df.shape[0])), tail_bout_df.shape[0])
+    ax[0].scatter(tail_bout_df_pcaoutput['principal component 1'], tail_bout_df_pcaoutput['principal component 2'],
+               color=colormap(cmap))
+    ax[0].set_title('PCA across bouts')
+    ax[0].set_xlabel('PC1')
+    ax[0].set_ylabel('PC2')
+    ax[0].set_xticks([])
+    ax[0].set_xticklabels([])
+    ax[0].set_yticks([])
+    ax[0].set_yticklabels([])
+    ax[0].spines[['right', 'top']].set_visible(False)
+
+    #use elbow method to find the best k means clusters numbers
+    # wcss = []
+    # for i in range(1, 21):
+    #     kmeans_pca = KMeans(n_clusters=i, init='k-means++', random_state=42)
+    #     kmeans_pca.fit(tail_bout_df_pcaoutput)
+    #     wcss.append(kmeans_pca.inertia_)
+
+    #K Means Clustering
+    kmeans_pca = KMeans(n_clusters=k_clusters, init='k-means++', random_state=42)
+    kmeans_pca.fit(tail_bout_df_pcaoutput)
+    final_result = pd.concat([tail_bout_df, tail_bout_df_pcaoutput, pd.DataFrame(kmeans_pca.labels_)], axis=1)
+    final_result.columns.values[-1] = 'K Means Cluster'
+    sns.scatterplot(data=final_result, x='principal component 1', y='principal component 2', hue='K Means Cluster',
+                    ax = ax[1], palette = 'cool')
+    sns.move_legend(ax[1], 'lower center', bbox_to_anchor=(.5, -.2), title = None, frameon = False, ncol = k_clusters)
+    ax[1].set_xticks([])
+    ax[1].set_xticklabels([])
+    ax[1].set_yticks([])
+    ax[1].set_yticklabels([])
+    ax[1].spines[['right', 'top']].set_visible(False)
+    ax[1].set_title('K Means Clustering')
+    ax[1].set_xlabel('PC1')
+    ax[1].set_ylabel('PC2')
+    plt.savefig(save_path + '90_tail_clustering')
+
+    #for each cluster, plot HBr calcium traces and raw tail_sum
+    cluster_n = final_result['K Means Cluster'].max() + 1
+    for cluster in range(0, cluster_n):
+        cluster_df = final_result[final_result['K Means Cluster'] == cluster]
+        plot_tail_type_cluster_traces(cluster_df, tail_df, region_trace['HBr'], save_path, cluster)
+
+    return final_result
+
+def volumetric_plot_tailneurons(neuron_tail_dfs, loc, plane_toppercentage):
+    """
+    Plot the 3d html of the location of peaky and on/off cells, with color corresponding to their mean on durations.
+            color_cutoff: the max mean_on_duration in seconds that reaches the peak of the color
+            region_ROIs: the dictionary that contains all regions, as well as a dataframe containing their all ROIs including
+             "xpos", "ypos", "zpos"
+            tail_neuron_df: the dataframe containing all neurons for each plane and their relevant tail responding/predict
+            rate
+            loc: the neuron index and the x, y, and zpos of the neurons
+            plane_toppercentage: the percentile of top ail responder for each plane to plot
+    """
+    blues_cmap = plt.get_cmap('Blues')(list(neuron_tail_dfs['tail_total_response_rate']))
+    blues_cmap = np.array(blues_cmap.T) * 0.5
+    reds_cmap = plt.get_cmap('Reds')(list(neuron_tail_dfs['tail_total_predict_rate']))
+    reds_cmap = np.array(reds_cmap.T) * 0.5
+    scattercolor = np.add(blues_cmap, reds_cmap)[:3, :].T
+    scattercolor_df = pd.DataFrame(index = neuron_tail_dfs.index, data = scattercolor)
+    scatter = go.Scatter3d(x=loc.loc[neuron_tail_dfs.index, 'xpos'], y=loc.loc[neuron_tail_dfs.index, 'ypos'], z=loc.loc[neuron_tail_dfs.index, 'zpos'],
+                mode='markers', opacity=0.5, marker=dict(size=2, symbol="circle", color= scattercolor_df.loc[neuron_tail_dfs.index]))
+    #determine top responders in each plane
+    #get range of planes from loc.zpos
+    #planes = np.unique(loc['zpos'])
+    plane_toppercentage = 1 - plane_toppercentage
+    top_responder_cutoff = neuron_tail_dfs.tail_total_response_rate.quantile(plane_toppercentage)
+    top_predictor_cutoff = neuron_tail_dfs.tail_total_predict_rate.quantile(plane_toppercentage)
+    top_neurons = neuron_tail_dfs[(neuron_tail_dfs['tail_total_response_rate'] >= top_responder_cutoff) & (
+                     neuron_tail_dfs['tail_total_predict_rate'] >= top_predictor_cutoff)]
+    # top_neurons = []
+    # for plane in planes:
+    #     neuron_tail_df = neuron_tail_dfs[np.round((neuron_tail_dfs.index%1), 2) * 100 == plane]
+    #     top_responder_cutoff = neuron_tail_df.tail_total_response_rate.quantile(plane_toppercentage)
+    #     top_predictor_cutoff = neuron_tail_df.tail_total_predict_rate.quantile(plane_toppercentage)
+    #     top_neuron = neuron_tail_df[(neuron_tail_df['tail_total_response_rate'] >= top_responder_cutoff) & (
+    #                 neuron_tail_df['tail_total_predict_rate'] >= top_predictor_cutoff)].index
+    #     top_neurons = top_neurons + list(top_neuron)
+    topscatter = go.Scatter3d(x=loc.loc[top_neurons.index, 'xpos'], y=loc.loc[top_neurons.index, 'ypos'], z=loc.loc[top_neurons.index, 'zpos'],
+                mode='markers', opacity=0.5, marker=dict(size=5, symbol="circle", color= scattercolor_df.loc[top_neurons.index]))
+    data = [scatter] + [topscatter]
+    fig = go.Figure(data=data)
+    fig.update_scenes(xaxis_visible=False, yaxis_visible=False, zaxis_visible=False)
+    fig.update_layout( coloraxis_showscale=True, scene_aspectmode='manual', scene_aspectratio=dict(x=1, y=1.8, z=0.6))
+
+    #plot fig_response
+    scattercolor_response = (blues_cmap[:3, :] * 2).T
+    scattercolor_response_df = pd.DataFrame(index=neuron_tail_dfs.index, data=scattercolor_response)
+    scatter_response = go.Scatter3d(x=loc.loc[neuron_tail_dfs.index, 'xpos'], y=loc.loc[neuron_tail_dfs.index, 'ypos'],
+                           z=loc.loc[neuron_tail_dfs.index, 'zpos'],
+                           mode='markers', opacity=0.5,
+                           marker=dict(size=2, symbol="circle", color=scattercolor_response_df.loc[neuron_tail_dfs.index]))
+    # determine top responders in each plane
+    top_response_neurons = neuron_tail_dfs[neuron_tail_dfs['tail_total_response_rate'] >= top_responder_cutoff].index
+    # top_response_neurons = []
+    # for plane in planes:
+    #     neuron_tail_df = neuron_tail_dfs[np.round((neuron_tail_dfs.index % 1), 2) * 100 == plane]
+    #     top_responder_cutoff = neuron_tail_df.tail_total_response_rate.quantile(plane_toppercentage)
+    #     top_response_neuron = neuron_tail_df[neuron_tail_df['tail_total_response_rate'] >= top_responder_cutoff].index
+    #     top_response_neurons = top_response_neurons + list(top_response_neuron)
+    topscatter_response = go.Scatter3d(x=loc.loc[top_response_neurons, 'xpos'], y=loc.loc[top_response_neurons, 'ypos'],
+                              z=loc.loc[top_response_neurons, 'zpos'],
+                              mode='markers', opacity=0.5,
+                              marker=dict(size=5, symbol="circle", color=scattercolor_response_df.loc[top_response_neurons]))
+    data_response = [scatter_response] + [topscatter_response]
+    fig_response = go.Figure(data=data_response)
+    fig_response.update_scenes(xaxis_visible=False, yaxis_visible=False, zaxis_visible=False)
+    fig_response.update_layout(coloraxis_showscale=True, scene_aspectmode='manual', scene_aspectratio=dict(x=1, y=1.8, z=0.6))
+
+    #plot fig_predict
+    scattercolor_predict = (reds_cmap[:3, :] * 2).T
+    scattercolor_predict_df = pd.DataFrame(index=neuron_tail_dfs.index, data=scattercolor_predict)
+    scatter_predict = go.Scatter3d(x=loc.loc[neuron_tail_dfs.index, 'xpos'], y=loc.loc[neuron_tail_dfs.index, 'ypos'],
+                                    z=loc.loc[neuron_tail_dfs.index, 'zpos'], mode='markers', opacity=0.5,
+                                    marker=dict(size=2, symbol="circle", color=scattercolor_predict_df.loc[neuron_tail_dfs.index]))
+    top_predict_neurons = neuron_tail_dfs[neuron_tail_dfs['tail_total_predict_rate'] >= top_predictor_cutoff].index
+    # top_predict_neurons = []
+    # for plane in planes:
+    #     neuron_tail_df = neuron_tail_dfs[np.round((neuron_tail_dfs.index % 1), 2) * 100 == plane]
+    #     top_predictor_cutoff = neuron_tail_df.tail_total_predict_rate.quantile(plane_toppercentage)
+    #     top_predict_neuron = neuron_tail_df[neuron_tail_df['tail_total_predict_rate'] >= top_predictor_cutoff].index
+    #     top_predict_neurons = top_predict_neurons + list(top_predict_neuron)
+    topscatter_predict = go.Scatter3d(x=loc.loc[top_predict_neurons, 'xpos'], y=loc.loc[top_predict_neurons, 'ypos'],
+                                       z=loc.loc[top_predict_neurons, 'zpos'],mode='markers', opacity=0.5,
+                                       marker=dict(size=5, symbol="circle", color=scattercolor_predict_df.loc[top_predict_neurons]))
+    data_predict = [scatter_predict] + [topscatter_predict]
+    fig_predict= go.Figure(data=data_predict)
+    fig_predict.update_scenes(xaxis_visible=False, yaxis_visible=False, zaxis_visible=False)
+    fig_predict.update_layout(coloraxis_showscale=True, scene_aspectmode='manual', scene_aspectratio=dict(x=1, y=1.8, z=0.6))
+
+    fig_scatter, ax_combine_scatter = plt.subplots(1, 1, dpi = 240, figsize = (5, 5))
+    ax_combine_scatter.scatter(neuron_tail_dfs['tail_total_response_rate'], neuron_tail_dfs['tail_total_predict_rate'], s=0.5,
+                               c=scattercolor_df.loc[neuron_tail_dfs.index])
+    ax_combine_scatter.scatter(top_neurons['tail_total_response_rate'], top_neurons['tail_total_predict_rate'], s=2,
+                               c=scattercolor_df.loc[top_neurons.index])
+    ax_combine_scatter.axvline(top_responder_cutoff, c='royalblue', linestyle=':', linewidth=2)
+    ax_combine_scatter.axhline(top_predictor_cutoff, c='firebrick', linestyle=':', linewidth=2)
+    ax_combine_scatter.set_xlim([0, 1])
+    ax_combine_scatter.set_ylim([0, 1])
+    ax_combine_scatter.spines[['top', 'right']].set_visible(False)
+    ax_combine_scatter.set_aspect('equal', adjustable='box')
+    ax_combine_scatter.set_xlabel('neuron predicted by %tail')
+    ax_combine_scatter.set_ylabel('neuron predicting %tail')
+
+    return fig, fig_response, fig_predict, fig_scatter
