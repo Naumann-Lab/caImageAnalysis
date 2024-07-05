@@ -74,20 +74,12 @@ def neuron_each_stim_rep_arrays(somefishclass, no_repetitions = 3, stim_order = 
                 resp_arr = nrn[_all_arrs]
             except IndexError:
                 print(IndexError)
-                # bad_inds = []
-                # for b, a in enumerate(_all_arrs):
-                #     if a not in np.arange(len(nrn)):
-                #         bad_inds.append(b)
-                # trimmed_all_arrs = [_all_arrs[i] for i in range(len(_all_arrs)) if i not in bad_inds]
-                # resp_arr = nrn[trimmed_all_arrs]
-                # nan_array = np.full(len(bad_inds), 0)
-                # resp_arr = np.concatenate((resp_arr, nan_array))
 
             neur_resps[n][r] = resp_arr
     
     return neur_resps
 
-def various_arrays(o_t, n_stim, n_reps, len_extendedarr = 21, len_pre = 7, len_on = 7):
+def various_arrays(o_t, n_stim, n_reps, len_extendedarr = 21, len_pre = 7, len_on = 7, base_start = 6):
     '''    
     o_t = original traces in shape of [# of neurons, # of repetitions, # of stimuli * length of offsets before/after stimulus]
     n_stim = number of stimuli in experiment
@@ -99,7 +91,6 @@ def various_arrays(o_t, n_stim, n_reps, len_extendedarr = 21, len_pre = 7, len_o
     len_on = length of array when stimulus is on
     '''
 
-    base_start = 4 
     o_t_base = np.zeros(shape=(len(o_t),n_stim,n_reps))
     o_t_base_std = np.zeros(shape=(len(o_t),n_stim,n_reps))
     o_t_on_max = np.zeros(shape=(len(o_t),n_stim,n_reps))
@@ -131,13 +122,22 @@ def various_arrays(o_t, n_stim, n_reps, len_extendedarr = 21, len_pre = 7, len_o
     return o_t_base, o_t_base_std, o_t_on_avg, o_t_on_max, o_t_diff_mean
 
 
-def general_motion_resp_neurons(o_t, n_stim, n_reps, len_extendedarr = 21, len_pre = 7, len_on = 7, r_val = 0.65):
+def motion_responsive_neuron_arrays(o_t, n_stim, n_reps, len_extendedarr = 21, len_pre = 7, len_on = 7, len_base = 4, frames_to_peak = 3, r_val = 0.65):
     '''
     o_t = original traces in shape of [# of neurons, # of repetitions, # of stimuli * length of offsets before/after stimulus]
+    n_stim = number of stimuli in experiment
+    n_reps = number of repetitions or trials of experiments
+
+    len_extendedarr = # total number of frames that is taken from the neural trace (i.e. somefishclass.offsets difference)
+
+    len_pre = length of array before stimulus on
+    len_on = length of array when stimulus is on
+
+    r_val is threshold to see if responsive or not
 
     '''
-    
-    o_t_base, o_t_base_std, _, o_t_on_max, _ = various_arrays(o_t, n_stim, n_reps, len_extendedarr, len_pre, len_on)
+    base_start =  len_pre - len_base
+    o_t_base, o_t_base_std, o_t_on_avg, o_t_on_max, o_t_diff_mean = various_arrays(o_t, n_stim, n_reps, len_extendedarr, len_pre, len_on, base_start)
 
     resp_dict = BCDict()
     coor_dict = BCDict()
@@ -153,23 +153,24 @@ def general_motion_resp_neurons(o_t, n_stim, n_reps, len_extendedarr = 21, len_p
             
             for k in np.arange(n_reps):
                 # 1 - stim on period is corr with neuron's activity
-                cell_arr = o_t[i][k][len_extendedarr*j+len_pre: len_extendedarr*j+len_pre+len_on]
-                stim_arr = np.linspace(0, 1, len_on)
+                cell_arr = o_t[i][k][len_extendedarr*j+len_pre: len_extendedarr*j+len_pre+frames_to_peak]
+                stim_arr = np.linspace(0, 1, frames_to_peak)
                 corr_val = round(np.corrcoef(stim_arr, cell_arr)[0][1], 3)
                 corr_lst.append(corr_val)
 
                 # 2 - peak vs base response
-                if o_t_on_max[i][j][k] >= (o_t_base[i][j][k] + (1.8* o_t_base_std[i][j][k])):
+                if o_t_on_max[i][j][k] >= (o_t_base[i][j][k] + (1.5* o_t_base_std[i][j][k])):
                     resp_lst.append(True)
                 else:
                     resp_lst.append(False)
 
-            if np.nanmean(corr_lst) >= r_val:
-                coor_dict[i][j] = True
-            else:
-                coor_dict[i][j] = False
+            coor_dict[i][j] = True
+            # if np.nanmean(corr_lst) >= r_val:
+            #     coor_dict[i][j] = True
+            # else:
+            #     coor_dict[i][j] = False
             
-            if sum(resp_lst) == len(resp_lst):
+            if sum(resp_lst) == len(resp_lst): #make sure this is responding to all the reps
                 resp_dict[i][j] = True
             else:
                 resp_dict[i][j] = False
@@ -177,4 +178,6 @@ def general_motion_resp_neurons(o_t, n_stim, n_reps, len_extendedarr = 21, len_p
         if (coor_dict[i][j] == True) & (resp_dict[i][j] == True):
             motion_responsive_neurons.append(i)
     
-    return motion_responsive_neurons
+    binary_response_dict = resp_dict
+
+    return o_t_base, o_t_base_std, o_t_on_avg, o_t_on_max, o_t_diff_mean, motion_responsive_neurons, binary_response_dict

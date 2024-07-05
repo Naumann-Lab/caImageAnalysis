@@ -10,6 +10,8 @@ import glob
 import caiman as cm
 from scipy.signal import find_peaks
 
+from utilities import pathutils
+
 def get_frametimes(info_xml_path, voltage_path):
     '''
     Calculating frame times from either just the information xml file or the voltage recording if it is there
@@ -92,7 +94,11 @@ def bruker_img_organization(folder_path, testkey = 'Cycle', safe=False, single_p
 
     if single_plane == True:
 
-        fls = glob.glob(os.path.join(folder_path,'*.tif'))  #  change tif to the extension you need
+        # collect only the tif files that you need (not in References)
+        fls = [Path(x) for x in pathutils.pathcrawler(folder_path, inset=set(), inlist=[], mykey = testkey)]
+        fls = [x for x in fls if 'References' not in str(x)]
+
+        # fls = glob.glob(os.path.join(folder_path,'*.tif'))  #  change tif to the extension you need
         fls.sort()  # make sure your files are sorted alphanumerically
         m = cm.load_movie_chain(fls)
         save_fld = Path(new_output).joinpath(f"single_plane")

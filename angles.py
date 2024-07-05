@@ -32,6 +32,7 @@ def calc_dsi(neuron_dict):
     monoc_neuron = {
         k: v for k, v in neuron_dict.items() if k in constants.monocular_dict
     }
+    
     inverse_dict = {v: k for k, v in monoc_neuron.items()}
 
     max_val = max(monoc_neuron.values())
@@ -187,3 +188,22 @@ def continuous_clr_array(val, theta, clr_array):
     val = np.clip(int(val * 100), a_min=0, a_max=99)
 
     return clr_array[val, theta]
+
+def sort_df_by_continous_color(df, target_value, df_column_name='color'):
+    '''
+    For plotting purposes, I want to have all the grey values at the bottom of actual color dots.
+    Here, I sort the DataFrame by the color column, where the target_value is the color of the grey dots.
+    Need to convert it into tuples since too many values to deal with in a sort function.
+    '''
+    # Sort the DataFrame
+    df['tuple_values'] = df[df_column_name].apply(convert_to_tuple)
+    df_sorted = df.sort_values(by='tuple_values', key=lambda x: x.apply(lambda v: (v != tuple(target_value), v)), ascending = True)
+
+    # Drop the helper column
+    df_sorted = df_sorted.drop(columns=['tuple_values'])
+
+    return df_sorted
+
+# Convert lists to tuples for comparison
+def convert_to_tuple(arr):
+    return tuple(arr)

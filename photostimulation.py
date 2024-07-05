@@ -1,4 +1,4 @@
-# functions to preprocess photostimulation data 
+# functions to preprocess and help process photostimulation data 
 
 import os
 from pathlib import Path
@@ -70,10 +70,11 @@ def collect_stimulation_times(somefishclass):
         time = np.array(volt_csv['Time(ms)'])
 
         peaks, _ = find_peaks(monaco_signal, height = 0.10) # find peaks in voltage trace that are above 0.10 volts
-        peak_starts = [peaks[i] for i in range(len(peaks)) if i == 0 or peaks[i] - peaks[i-1] > 100] # find only the start of each peak, each rep
+        peak_starts = [peaks[i] for i in range(len(peaks)) if i == 0 or peaks[i] - peaks[i-1] > int(full_duration_per_stim)] # find only the start of each peak, each rep
         
         # grabbing the start of each TRIAL, so have to take into account the repetition number
-        trial_starts = peak_starts[::no_repetitions]
+        # trial_starts = peak_starts[::no_repetitions]
+        trial_starts = peak_starts
 
         stim_times = [time[i] for i in trial_starts] # convert the peak start indices to the time in ms
     
@@ -83,69 +84,53 @@ def collect_stimulation_times(somefishclass):
 
     return full_duration_per_stim, stim_times
 
-def save_badframes_arr(somefishclass, no_planes = 1):
+def save_badframes_arr(somefishclass, no_planes = 1, force = False):
 
     somefishclass.baseline_frames = find_no_baseline_frames(somefishclass, no_planes)
 
     full_duration_per_stim, stim_times = collect_stimulation_times(somefishclass)
+    somefishclass.ps_event_duration = full_duration_per_stim
     stim_times_secs = [x/1000 for x in stim_times] # needs to be in seconds for comparing with the relative times in the xml file
 
     # using the information xml file to calculate the frames and times for each stimulation
     if no_planes > 1: # if volume stimulation
         plane_num = int(somefishclass.data_paths['move_corrected_image'].parents[0].name.split('_')[1])
+    else:
+        plane_num = 0
 
-        frametimes = []
-        info_data = read_xml_to_str(somefishclass.data_paths["info_xml"])
+    frametimes = []
+    info_data = read_xml_to_str(somefishclass.data_paths["info_xml"])
 
-        for i in info_data.split("\n"):
-            if "relativeTime" in i:
-                relative_time = [i.split("relativeTime=")[1].split('"')[1]][0]
-                frametimes.append(float(relative_time))
-        
-        # find the second occurence where the stimulation starts in the list of frametimes
-        # presuming that you are doing 2 t-series cycles:
-        # the first occurence is the baseline recording, second is the markpoints start, then third value is the frame
-        index = 1
-        if "voltage_signal" in somefishclass.data_paths.keys():
-            index = 2
-        stim_ind = [index for index, value in enumerate(frametimes) if value < 0.01][index] 
+    for i in info_data.split("\n"):
+        if "relativeTime" in i:
+            relative_time = [i.split("relativeTime=")[1].split('"')[1]][0]
+            frametimes.append(float(relative_time))
+    
+    # find the second occurence where the stimulation starts in the list of frametimes
+    # presuming that you are doing 2 t-series cycles:
+    # the first occurence is the baseline recording, second is the markpoints start, then third value is the frame
+    index = 1
+    if "voltage_signal" in somefishclass.data_paths.keys():
+        index = 2
+    stim_ind = [index for index, value in enumerate(frametimes) if value < 0.01][index] 
 
-        # only get the relative frametimes that happen during the stimulation
-        stimulation_frametimes = frametimes[stim_ind:]
+    # only get the relative frametimes that happen during the stimulation
+    stimulation_frametimes = frametimes[stim_ind:]
 
-        for p in range(no_planes):
-            if p == plane_num:
-                plane_frametimes = stimulation_frametimes[p::no_planes]
-                time_matches = [min(plane_frametimes, key=lambda y: abs(x - y)) for x in stim_times_secs] # list of frametimes values that match with the stim_times
-                frames = [plane_frametimes.index(x) for x in time_matches] # list of frames that match with the stim_times
-
-    elif no_planes == 1: # if single plane stimulation
-        ##TODO: make it simpler code, combine this to just do what I am doing for volumes
-        # only looking at stimulation cycle here for the right relative times
-        root = read_xml_to_root(somefishclass.data_paths["info_xml"])
-        frametimes = []
-        for child in root:
-            if child.tag == 'Sequence' and child.attrib['cycle'] == '2':
-                for subchild in child:
-                    if subchild.tag == 'Frame':
-                        frametimes.append(float(subchild.attrib['relativeTime']))
-
-        # calculate ps events in frame numbers
-        time_matches = [min(frametimes, key=lambda y: abs(x - y)) for x in stim_times] # list of frametimes values that match with the stim_times
-        frames = [frametimes.index(x) for x in time_matches] # list of frames that match with the stim_times
-        
-        # calculate the duration of one ps event in frame numbers
-        frame_dur = min(frametimes, key=lambda y: abs(full_duration_per_stim/1000 - y))
-        duration_in_frames = frametimes.index(frame_dur)
+    for p in range(no_planes):
+        if p == plane_num:
+            plane_frametimes = stimulation_frametimes[p::no_planes]
+            time_matches = [min(plane_frametimes, key=lambda y: abs(x - y)) for x in stim_times_secs] # list of frametimes values that match with the stim_times
+            frames = [plane_frametimes.index(x) for x in time_matches] # list of frames that match with the stim_times
         
     ps_events = [somefishclass.baseline_frames + f for f in frames]
     somefishclass.badframes_arr = np.array(ps_events)
     # saving the bad frames array
     save_path = Path(somefishclass.data_paths['move_corrected_image']).parents[0].joinpath('bad_frames.npy')
-    if Path(save_path).exists():
+    if force == False:
         somefishclass.badframes_arr = np.array(np.load(save_path)) # load in badframes
         print('load in bad frames array')
-    else:
+    elif force == True:
         np.save(save_path, somefishclass.badframes_arr)  # save badframes
         print('saved bad frames array')
    
@@ -238,7 +223,7 @@ def identify_stim_sites(somebasefish, rotate = True, planes_stimed = [1,2,3,4]):
 
     return somebasefish.stim_sites_df
 
-def run_suite2p_PS(somebasefish, input_tau = 1.5, spatial_scale = 0, move_corr = False):
+def run_suite2p_PS(somebasefish, input_tau = 1.5, spatial_scale = 0, custom_parameter_dict = None, move_corr = False, force = False):
     '''
     somebasefish = the data you want to have suite2p run on
     input_tau = decay value for gcamp indicator (6s = 1.5, m = 1.0, f = 0.7)
@@ -247,6 +232,10 @@ def run_suite2p_PS(somebasefish, input_tau = 1.5, spatial_scale = 0, move_corr =
     '''
     from suite2p import run_s2p, default_ops
     from fishy import BaseFish
+    import shutil
+
+    if force == True:
+        shutil.rmtree(Path(somebasefish.folder_path).joinpath('suite2p'))
 
     if move_corr == True:
         imagepath = somebasefish.data_paths["move_corrected_image"]
@@ -260,18 +249,32 @@ def run_suite2p_PS(somebasefish, input_tau = 1.5, spatial_scale = 0, move_corr =
     if os.path.isfile(bad_frames_path) == False:
         save_badframes_arr(somebasefish)
 
+    # basic changes to suite2p ops to fit the fishy format
+    basic_s2p_ops = {
+            "data_path": [imagepath.parents[0].as_posix()],
+            "save_path0": imagepath.parents[0].as_posix(),
+            "tau": input_tau, #gcamp6s = 1.5, gcamp6m = 1.0, gcamp6f = 0.7
+            "preclassify": 0.15,
+            "allow_overlap": True,
+            "block_size": [32, 32],
+            "spatial_scale" : spatial_scale,
+            "fs": BaseFish.hzReturner(somebasefish.frametimes_df),
+            "tiff_list": [imagepath.name],
+            "two_step_registration" : True,
+            "keep_movie_raw":True,
+        }
+
     ps_s2p_ops = default_ops()
-    ps_s2p_ops['data_path'] = [imagepath.parents[0].as_posix()]
-    ps_s2p_ops['save_path'] = imagepath.parents[0].as_posix()
-    ps_s2p_ops['tau'] = input_tau #gcamp6s = 1.5
-    ps_s2p_ops['fs'] = BaseFish.hzReturner(somebasefish.frametimes_df)
-    ps_s2p_ops['preclassify'] = 0.15
-    ps_s2p_ops['block_size'] = [32, 32]
-    ps_s2p_ops['allow_overlap'] = True
-    ps_s2p_ops['tiff_list'] = [imagepath.name]
-    ps_s2p_ops['two_step_registration'] = True
-    ps_s2p_ops['keep_movie_raw'] = True
-    ps_s2p_ops['spatial_scale'] = spatial_scale
+    db = {}
+
+    for item in basic_s2p_ops:
+        ps_s2p_ops[item] = basic_s2p_ops[item]
+
+    # for additional changes:
+    if custom_parameter_dict is not None: # can edit parameters as you want
+        for key in custom_parameter_dict:
+            if key in ps_s2p_ops:
+                ps_s2p_ops[key] = custom_parameter_dict[key]
 
     db = {}
     run_s2p(ops=ps_s2p_ops, db=db)
@@ -336,6 +339,8 @@ def identify_stimmed_planes(omr_tseries_folder_path, clst_label):
     elif Path(omr_tseries_folder_path).joinpath("volume_barcoding_df.h5").exists():
         df = pd.read_hdf(Path(omr_tseries_folder_path).joinpath("volume_barcoding_df.h5"))
         one_category_df = df[df['barcoding'] == clst_label]
+    # elif omr_tseries_folder_path == None: # no OMR data to pull this from, then find out the stimmed planes from the xml files
+
 
     all_stimmed_planes = []
     for v in one_category_df.plane.unique():
@@ -395,5 +400,38 @@ def correlations_with_stim_sites(somebasefish, traces_array = None, corr_thresho
     corr_neurons = corr_df[corr_df.avg_corr > corr_threshold].index.values
 
     return corr_df, corr_neurons
+
+def calculate_average_evoked_response(arr_cell_traces, arr_subset, frame_window = [-4, 7], normalized = True):
+    
+    each_trial = np.array([arr_cell_traces[:,s] for s in arr_subset])
+    avg_each_trial = np.nanmean(each_trial, axis=0)
+    
+    # evoked responses across trials for each ROI cell    
+    baseline_resp = np.nanmean(avg_each_trial[:, :-frame_window[0]], axis = 1)
+    max_resp = np.nanmax(avg_each_trial[:, frame_window[1]:], axis = 1)
+    # max_resp = np.nanmax(avg_each_trial, axis = 1)
+    if normalized == True:
+        avg_evoked_response = (np.nanmean(avg_each_trial[:, frame_window[1]:], axis = 1) - baseline_resp)/baseline_resp
+    else:
+        avg_evoked_response = np.nanmean(avg_each_trial[:, frame_window[1]:], axis = 1) - baseline_resp
+
+    return avg_evoked_response
+
+def calculate_avgpeak_evoked_response_with_baseline(arr_cell_traces, arr_subset, frame_window = [-4, 7], normalized = True, baseline_frame_len = 200):
+    
+    each_trial = np.array([arr_cell_traces[:,s] for s in arr_subset])
+    baseline_before_any_stim = np.nanmean(arr_cell_traces[:,:baseline_frame_len], axis = 1)
+    peak_each_trial = np.nanmax(each_trial, axis=0)
+    
+    # evoked responses across trials for each ROI cell    
+    baseline_resp = np.nanmean(avg_each_trial[:, :-frame_window[0]], axis = 1)
+    max_resp = np.nanmax(avg_each_trial[:, frame_window[1]:], axis = 1)
+
+    if normalized == True:
+        peak_evoked_response = (np.nanmean(avg_each_trial[:, frame_window[1]:], axis = 1) - baseline_resp)/baseline_resp
+    else:
+        peak_evoked_response = np.nanmean(avg_each_trial[:, frame_window[1]:], axis = 1) - baseline_resp
+
+    return avg_evoked_response
 
 

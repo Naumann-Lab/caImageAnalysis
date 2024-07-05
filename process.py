@@ -34,7 +34,7 @@ def run_movement_correction(
     import caiman as cm
     from tifffile import imsave
 
-    base_fish.process_filestructure()  # why not update :)
+    base_fish.process_filestructure(midnight_noon = "noon")  # why not update :)
 
     if "move_corrected_image" in base_fish.data_paths.keys():
         if not force:
@@ -103,7 +103,7 @@ def run_movement_correction(
     imsave(new_path, output) # saving the full motion corrected image here
 
 
-def run_suite2p(base_fish, input_tau=1.5, spatial_scale = 0, s2p_ops=None, force=False):
+def run_suite2p(base_fish, input_tau=1.5, spatial_scale = 0, custom_parameter_dict=None, force=False):
     try:
         from suite2p import run_s2p, default_ops
     except:
@@ -112,7 +112,7 @@ def run_suite2p(base_fish, input_tau=1.5, spatial_scale = 0, s2p_ops=None, force
         except:
             print("failed to import suite2p")
 
-    base_fish.process_filestructure()  # why not update :)
+    base_fish.process_filestructure(midnight_noon = base_fish.midnight_noon_keyword)  # why not update :)
 
     if "suite2p" in base_fish.data_paths.keys():
         if not force:
@@ -125,15 +125,14 @@ def run_suite2p(base_fish, input_tau=1.5, spatial_scale = 0, s2p_ops=None, force
     except KeyError:
         imagepath = base_fish.data_paths["image"]
 
-    if not s2p_ops:
-        s2p_ops = {
+    # basic changes to suite2p ops to fit the fishy format
+    basic_s2p_ops = {
             "data_path": [imagepath.parents[0].as_posix()],
             "save_path0": imagepath.parents[0].as_posix(),
             "tau": input_tau,
             "preclassify": 0.15,
             "allow_overlap": True,
             "block_size": [32, 32],
-            # "threshold_scaling": 0.9,
             "spatial_scale" : spatial_scale,
             "fs": imageHz,
             "tiff_list": [imagepath.name],
@@ -141,11 +140,53 @@ def run_suite2p(base_fish, input_tau=1.5, spatial_scale = 0, s2p_ops=None, force
 
     ops = default_ops()
     db = {}
-    for item in s2p_ops:
-        ops[item] = s2p_ops[item]
+
+    for item in basic_s2p_ops:
+        ops[item] = basic_s2p_ops[item]
+
+    # for additional changes:
+    if custom_parameter_dict is not None: # can edit parameters as you want
+        for key in custom_parameter_dict:
+            if key in ops:
+                ops[key] = custom_parameter_dict[key]
 
     output_ops = run_s2p(ops=ops, db=db)
 
+
+def run_suite2p_normal(imagepath, imageHz, input_tau=1.5, custom_parameter_dict=None):
+    try:
+        from suite2p import run_s2p, default_ops
+    except:
+        try:
+            from suite2p.suite2p import run_s2p, default_ops
+        except:
+            print("failed to import suite2p")
+
+    basic_s2p_ops = {
+            "data_path": [imagepath.parents[0].as_posix()],
+            "save_path0": imagepath.parents[0].as_posix(),
+            "tau": input_tau,
+            "preclassify": 0.15,
+            "allow_overlap": True,
+            "block_size": [32, 32],
+            "spatial_scale" : 0,
+            "fs": imageHz,
+            "tiff_list": [imagepath.name],
+        }
+
+    ops = default_ops()
+    db = {}
+
+    for item in basic_s2p_ops:
+        ops[item] = basic_s2p_ops[item]
+
+    # for additional changes:
+    if custom_parameter_dict is not None: # can edit parameters as you want
+        for key in custom_parameter_dict:
+            if key in ops:
+                ops[key] = custom_parameter_dict[key]
+
+    output_ops = run_s2p(ops=ops, db=db)
 
 def run_caiman_cnmf(base_fish, custom_parameter_dict = None, match_suite2p = True, keep_mmaps = False):
     '''
@@ -162,7 +203,10 @@ def run_caiman_cnmf(base_fish, custom_parameter_dict = None, match_suite2p = Tru
     if Path(base_fish.folder_path).joinpath("caiman/cnmf_results.hdf5").exists():
         print('cnmf processed')
     
-    movie_path = base_fish.data_paths['move_corrected_image']
+    if 'move_corrected_image' not in base_fish.data_paths.keys():
+        movie_path = base_fish.data_paths['image']
+    else:
+        movie_path = base_fish.data_paths['move_corrected_image']
     movie_orig = cm.load(movie_path)
     framerate = base_fish.hzReturner(base_fish.frametimes_df)
 
@@ -236,7 +280,8 @@ def run_caiman_cnmf(base_fish, custom_parameter_dict = None, match_suite2p = Tru
     print('saved cnmf results')
 
     # saving calcium traces
-    np.save( Path(moveto_folder).joinpath('C.npy'), cnmf_refit.estimates.C) # raw calcium 
+    np.save( Path(moveto_folder).joinpath('raw.npy'), cnmf_refit.estimates.C + cnmf_refit.estimates.YrA) # raw traces
+    np.save( Path(moveto_folder).joinpath('C.npy'), cnmf_refit.estimates.C) # denoised calcium 
     np.save( Path(moveto_folder).joinpath('F_dff.npy'),cnmf_refit.estimates.F_dff) # df/f traces
     np.save( Path(moveto_folder).joinpath('baseline.npy'),cnmf_refit.estimates.bl) # baseline
     
@@ -261,7 +306,23 @@ def run_caiman_cnmf(base_fish, custom_parameter_dict = None, match_suite2p = Tru
         np.save(Path(moveto_folder).joinpath('coordinates_dict.npy'), new_coordinates_arr) # matching suite2p output
         
     cm.stop_server(dview=cluster)
-    
+
+def gather_raw_traces_from_cnmf_output(somebasefish):
+    '''
+    In case I did not save the raw traces from the process caiman function, this will gather that and put into the caiman folder
+    Adds C and Yra --> Each row in YrA corresponds to the residual signal after denoising the corresponding component in estimates.C.
+    '''
+    import caiman as cm
+    from pathlib import Path
+
+    c_p = somebasefish.data_paths['caiman'].joinpath('cnmf_results.hdf5')
+    cnmf_h5_file = cm.source_extraction.cnmf.cnmf.load_CNMF(c_p)
+    raw_arr = cnmf_h5_file.estimates.YrA + cnmf_h5_file.estimates.C # raw is C + YrA (deconvolved + residual components)
+    moveto_folder = somebasefish.data_paths['caiman'].joinpath('raw.npy')
+    np.save( Path(moveto_folder) ,raw_arr)
+
+    return print('saved raw traces from caiman output')
+
 def make_coordinates_into_dict(array_of_coors):
     
     #remove nan's

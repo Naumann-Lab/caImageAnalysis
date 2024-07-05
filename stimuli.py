@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 from numpy import nan #important for stimuli fxns
+from datetime import datetime
 
 
 def pandastim_to_df(pstimpath, minimode=False, addvelocity=True):
@@ -26,6 +27,28 @@ def pandastim_to_df(pstimpath, minimode=False, addvelocity=True):
 
     mini_stim_vel = stimulus_df[["stim_name", "velocity", "time"]]
     mini_stim_vel.stim_name = pd.Series(mini_stim.stim_name, dtype="category")
+    if minimode:
+        return mini_stim
+    elif addvelocity:
+        return mini_stim_vel
+    else:
+        return stimulus_df
+
+def csv_to_df(csvpath, minimode=False, addvelocity=True):
+    stimulus_df = pd.read_csv(csvpath)
+    stimulus_df.drop(columns=['Unnamed: 0'], inplace=True)
+
+    strings = stimulus_df.time.values
+    datetime_full = [datetime.strptime(string, '%H:%M:%S.%f') for string in strings]
+    datetime_times = [dt.time() for dt in datetime_full]
+    stimulus_df['time'] = datetime_times # convert times to actual datetime objects
+    
+    mini_stim = stimulus_df[["stim_name", "time"]]
+    mini_stim.stim_name = pd.Series(mini_stim.stim_name, dtype="category")
+
+    mini_stim_vel = stimulus_df[["stim_name", "velocity", "time"]]
+    mini_stim_vel.stim_name = pd.Series(mini_stim.stim_name, dtype="category")
+    
     if minimode:
         return mini_stim
     elif addvelocity:
@@ -155,7 +178,7 @@ def stim_shader(some_fish_class):
 
 def stimulus_start_frames_for_plots(frames_motion_on = 7, length_of_total_frame_arr = 21, number_of_stims_in_set = 8):
     '''
-    frames_motion_on -- the number of frames the motion is on for (7 frames typically)
+    frames_motion_on -- the first frame that motion is on in the series of frames you want to shade
     length_of_total_frame_arr -- the total number of frames that is taken from the neural trace before and after the stimulus is on (typically diff between offsets, i.e. 21)
     number_of_stims_in_set -- the number of stimuli in the experiment (8 for the 8 barcoded stimuli)
 
@@ -184,8 +207,6 @@ def flexible_stim_shader(frames, stimmies, frames_motion_on, fs = 14, subplot = 
 
     y_top = ylim[1]
     ylabel_pos = y_top + y_top * 0.05
-    xlabel_pos = x_top + x_top * 0.05
-    xlabel_pos_pct = xlabel_pos / x_top
 
     for s, stimmy in zip(frames, stimmies):
         if label:
@@ -279,11 +300,9 @@ def flexible_stim_shader(frames, stimmies, frames_motion_on, fs = 14, subplot = 
                     begin, midpt, color=constants.monocular_dict["forward"], alpha=0.4
                 )
 
-
 def numToStim(dict):
     reverse_dict = {value: key for key, value in dict.items()}
     return reverse_dict
-
 
 def kaitlyn_pandastim_to_df(
     pstim_path,
@@ -328,7 +347,6 @@ def kaitlyn_pandastim_to_df(
 
     return mini_stim
 
-
 def validate_stims(stim_df, f_cells):
     stim_frames = stim_df.frame.values
     img_len = f_cells.shape[1]
@@ -342,44 +360,6 @@ def validate_stims(stim_df, f_cells):
         pass
 
     return stim_df
-
-
-class StimulusCollapse:
-    # requires a neuron_df with stims labeled and the arrays tucked in
-
-    def __init__(self, neuron_df, pad=6, start_ind=0):
-        self.neuron_df = neuron_df
-        self.pad = pad
-        self.start_ind = start_ind
-
-        self.iterator = len(self.neuron_df.iloc[0, 0][0]) + self.pad
-
-    def create_stimkey_master(self):
-        running_ind = self.start_ind
-        stimulus_starts = {}
-        for stimulus in self.neuron_df.columns:
-            stimulus_starts[stimulus] = running_ind
-            running_ind += self.iterator
-        return stimulus_starts
-
-    def collapse_to_stims(self):
-        # neuron_df.reset_index(inplace=True, drop=True)
-        master_key = self.create_stimkey_master()
-
-        collapsed_arrs = []
-        for n in range(len(self.neuron_df)):
-            collapsed_arr = np.zeros(self.iterator * (len(master_key.keys()) + 1))
-            nrn_arrs = self.neuron_df.iloc[n]
-
-            running_ind = self.start_ind
-            for stimulus in self.neuron_df.columns:
-                nrn_stim_arrs = nrn_arrs[stimulus]
-                mean_stim_arr = np.nanmean(nrn_stim_arrs, axis=0)
-                collapsed_arr[running_ind : running_ind + len(mean_stim_arr)] = mean_stim_arr
-                running_ind += self.iterator
-            collapsed_arrs.append(collapsed_arr)
-        return np.nanmean(collapsed_arrs, axis=0)
-
 
 def label_stim_ax(plot, stim_keys, fs=12, offset=10, stim_offset=6):
 
@@ -442,3 +422,4 @@ def label_stim_ax(plot, stim_keys, fs=12, offset=10, stim_offset=6):
                 plot.axvspan(
                     midpt, end, color=constants.monocular_dict["right"], alpha=0.4
                 )
+

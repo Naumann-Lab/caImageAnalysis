@@ -56,6 +56,13 @@ monocular_dict = {
     "backward_right": [1, 0, 0.25],
 }
 
+binocular_dict = {
+    "medial_left" : [0, 1, 0],
+    "medial_right" : [0, 1, 0],
+    "lateral_left" : [1, 0, 1],
+    "lateral_right" : [1, 0, 1]
+}
+
 nulldict = {
     "right": "left",
     "left": "right",
@@ -86,6 +93,8 @@ deg_dict = {
     "backward": 180,
     "backward_right": 135,
 }
+
+
 eva_stims = [
     "converging",
     "diverging",
@@ -120,6 +129,24 @@ eva_typesR = {
     "S": [False, False, False, False, False, True, False, False, True, True],
 }
 
+eva_types_all_short = {
+    "oB_L": [False, True, True, True, True, False, False, False],
+    "B_L": [False, False, True, True, True, False, False, False],
+    "iB_L": [True, False, True, True, True, False, False, False],
+    "ioB_L": [True, True, True, True, True, False, False, False],
+    "iMm_L": [True, False, True, True, False, False, False, False],
+    "Mm_L": [False, False, True, True, False, False, False, False],
+    "oMl_L": [False, True, True, False, True, False, False, False],
+    "S_L": [False, False, True, False, False, False, False, False],
+    "oB_R": [False, True, False, False, True, True, True, False],
+    "B_R": [False, False, False, False, False, True, True, True],
+    "iB_R": [True, False, False, False, False, True, True, True],
+    "ioB_R": [True, True, False, False, False, True, True, True],
+    "iMm_R": [True, False, False, False, False, True, True, False],
+    "Mm_R": [False, False, False, False, False, True, True, False],
+    "oMl_R": [False, True, False, False, False, True, False, True],
+    "S_R": [False, False, False, False, False, True, False, False],
+}
 
 eva_types_all = {
     "oB_L": [False, True, True, True, True, False, False, False, True, True],
