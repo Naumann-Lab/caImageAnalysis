@@ -4,6 +4,9 @@ import math
 # utility functions for working with coordinates
 
 def closest_coordinates(target_x, target_y, coordinates):
+    '''
+    Target x and y are what you want to find a match for in the list of coordinates.
+    '''
     min_distance = float('inf')
     closest_coord = None
 

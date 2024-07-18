@@ -14,14 +14,14 @@ from tqdm.auto import tqdm
 import matplotlib.pyplot as plt
 from bcdict import BCDict
 
+
 # local imports
 import constants
 import angles
-from utilities import pathutils, arrutils, roiutils, coordutils
+from utilities import pathutils, arrutils, roiutils, coordutils, plotutils
 import stimuli
 import process
 import photostimulation
-import plotting_photostim
 
 
 class BaseFish:
@@ -55,7 +55,7 @@ class BaseFish:
         if 'caiman' in self.data_paths.keys():
             self.load_caiman(caiman_type) # load in caiman data 
             self.rescaled_img()
-            # self.is_cell() # clean up cells that are not changing fluorescence
+            self.is_cell() # clean up cells that are not changing fluorescence
         
     def process_filestructure(self, midnight_noon):
         self.data_paths = {}
@@ -774,7 +774,7 @@ class PhotostimFish(BaseFish):
         _, self.stimmed_cell_id_list = self.identify_stim_cells()
 
         # 4 - build the photostim correlation dataframe
-        self.build_ps_corrdf(frames_pre_post = photostim_window)
+        # self.build_ps_corrdf(frames_pre_post = photostim_window)
 
     def identify_stim_cells(self):
         '''
@@ -797,11 +797,13 @@ class PhotostimFish(BaseFish):
 
         return closest_coord_list, closest_cell_id_list
 
-    def build_ps_corrdf(self, len_decay_frames = 10, select_cells = None, frames_pre_post = [-3, 8], trace_type = 'raw'):
+    def build_ps_corrdf(self, len_decay_frames = 10, ps_offset = 0, select_cells = None, frames_pre_post = [-3, 8], 
+                        trace_type = 'raw', evoked_response_type = 'mean'):
         '''
         building a photostim correlation dataframe with perfect photostim responders and evoked response from stimulation event
         len_decay_frames: 
         select_cells: 
+        ps_offset: the offset after the photostim event (aka bad frame) that the response should start
         frames_pre_post: the frames before and after each photostim event to grab for calculations
         '''
         if select_cells is None:
@@ -811,19 +813,16 @@ class PhotostimFish(BaseFish):
             cell_traces = self.f_cells[select_cells]
             normcell_traces = self.normcells[select_cells]
 
-        normalized_keyword = True
         if trace_type == 'raw':
             traces_array = cell_traces
         elif trace_type == 'norm':
             traces_array = normcell_traces
         elif trace_type == 'df/f' :
             traces_array = self.df_f_cells
-            normalized_keyword = False
         else:
             traces_array = cell_traces
 
         perfect_photostim_response = np.zeros(traces_array[0].shape)
-        ps_offset = 1 # 1 frame after the photostim event is when the decay starts
         decay_lst = np.linspace(1, 0, len_decay_frames)
 
         for i in self.badframes_arr:
@@ -838,9 +837,62 @@ class PhotostimFish(BaseFish):
             self.ps_corrdf.loc[b] = corr
 
         ps_trial_subset = arrutils.subsection_arrays(self.badframes_arr, frames_pre_post)
-        self.ps_corrdf['evoked_response'] = photostimulation.calculate_average_evoked_response(traces_array, ps_trial_subset, 
-                                                                                               frames_pre_post, normalized = normalized_keyword)
+        self.ps_corrdf['evoked_response'] = photostimulation.calculate_evoked_response(arr_cell_traces = traces_array, arr_subset = ps_trial_subset, 
+                                                                                       ps_offset = ps_offset,frame_window = frames_pre_post, 
+                                                                                       r_type = evoked_response_type)
     
+    def make_connectivity_map(self, stimulation_site_coord_lst, responding_cell_lst, arrows = True, annotate_txt = True, cbar_limit = None, 
+                              frames_pre_post = [-3, 8], stimulation_site_clr = 'green', dot_size = 80, savepath = None):
+        '''
+        Make a connectivity map based on average evoked response with arrows from one stimulation site to list of cells
+        '''
+        import matplotlib.pyplot as plt
+        import matplotlib
+
+        if not hasattr(self, 'ps_corrdf'):
+            print('building ps_corrdf')
+            self.build_ps_corrdf(frames_pre_post = frames_pre_post)
+        
+        _rois = self.return_cell_rois(responding_cell_lst)
+        _clr_list = [self.ps_corrdf.evoked_response[b] for b in responding_cell_lst]
+        if cbar_limit == None:
+            set_max = max(_clr_list)
+        else:
+            set_max = cbar_limit
+        set_min = -set_max
+
+        plt.figure(figsize=(10, 10))
+        plt.imshow(self.rescaled_ref*1.3, cmap="gray",alpha=1, vmax=np.percentile(self.rescaled_ref, 99.9),)
+        xvals = [r[0] for r in _rois]
+        yvals = [r[1] for r in _rois]
+        clrs = plotutils.clip_and_map_colors(_clr_list, vmin = set_min, vmax = set_max, cmap_name='coolwarm')
+        plt.scatter(xvals, yvals, s = dot_size, color = clrs, cmap = 'coolwarm', edgecolor = 'white', vmin = set_min, vmax = set_max, zorder = 2)
+
+        # annotate text
+        if annotate_txt:
+            for d in range(len(responding_cell_lst)):
+                plt.annotate(str(d+1), (xvals[d], yvals[d]), textcoords="offset points", xytext=(10, -10), color = 'white', fontsize=18)
+        
+        for s in stimulation_site_coord_lst:
+            plt.scatter(s[0], s[1], s = dot_size, color = stimulation_site_clr, edgecolor = 'white', marker = 'o', zorder=3)
+        # draw arrows
+        if arrows:
+            for k in range(len(responding_cell_lst)):
+                end = (xvals[k], yvals[k])
+                for d in stimulation_site_coord_lst:
+                    plt.annotate('', xy=(end[0]-2, end[1] - 1 ), xytext=(d[0], d[1]), 
+                                arrowprops=dict(arrowstyle = '-|>', linewidth=2, facecolor=clrs[k], edgecolor = clrs[k]), zorder=1)
+
+        cbar = plt.colorbar(matplotlib.cm.ScalarMappable(cmap='coolwarm'))
+        cbar.set_label(label= 'Average Evoked Response', rotation = 270, labelpad=15)
+        cbar.mappable.set_clim(vmin = set_min, vmax = set_max)
+        plt.axis('off') 
+
+        if savepath != None:
+            plt.savefig(savepath, dpi = 300)
+
+        # plt.show()
+
     def gather_roi_avg_evoked_responses(photostim_fishvolume, roi_to_map, frame_window = [-4, 7], ylim = [-1, 1], traces = 'norm'):
         '''
         Gather the average evoked responses for a specific ROI across all barcodes
@@ -884,9 +936,9 @@ class PhotostimFish(BaseFish):
         roi_per_barcode_list = [item for sublist in roi_per_barcode_list for item in sublist]
 
         fig, (ax0, ax1, ax2) = plt.subplots(1, 3, figsize = (20, 6))
-        plotting_photostim.make_population_avg_evoked_trace_plots(right_roi_traces, frame_window, ylim = ylim, title = f'Right_{roi_to_map}', subplot = ax0)
-        plotting_photostim.make_population_avg_evoked_trace_plots(all_roi_traces, frame_window, title = roi_to_map, ylim = ylim,  subplot = ax1,)
-        plotting_photostim.make_population_avg_evoked_trace_plots(left_roi_traces, frame_window, title = f'Left_{roi_to_map}', ylim = ylim, ssubplot=ax2 )
+        plotutils.make_population_avg_evoked_trace_plots(right_roi_traces, frame_window, ylim = ylim, title = f'Right_{roi_to_map}', subplot = ax0)
+        plotutils.make_population_avg_evoked_trace_plots(all_roi_traces, frame_window, title = roi_to_map, ylim = ylim,  subplot = ax1,)
+        plotutils.make_population_avg_evoked_trace_plots(left_roi_traces, frame_window, title = f'Left_{roi_to_map}', ylim = ylim, ssubplot=ax2 )
 
         return roi_per_barcode_list, right_roi_per_barcode_list, left_roi_per_barcode_list
 

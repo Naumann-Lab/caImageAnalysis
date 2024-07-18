@@ -5,6 +5,7 @@ from pathlib import Path
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib
 
 from datetime import datetime as dt, timedelta
 import xml.etree.ElementTree as ET
@@ -16,6 +17,47 @@ from bruker_images import read_xml_to_str, read_xml_to_root
 from utilities import arrutils, statutils
 from utilities.roiutils import create_circular_mask
 from utilities.coordutils import rotate_transform_coors, closest_coordinates
+
+def get_color_from_normval(value, vmin = -1, vmax = 1, cmap='coolwarm'):
+    norm = plt.Normalize(vmin=vmin, vmax=vmax, clip=False)
+    cmap = plt.get_cmap(cmap)
+
+    return cmap(norm(value))
+
+def clip_and_map_colors(values, vmin=-2, vmax=2, cmap_name='coolwarm'):
+    """
+    Clips the values to the range [vmin, vmax], normalizes them, maps them to colors using the specified colormap,
+    and optionally visualizes the results.
+
+    Parameters:
+    - values (array-like): The array of values to be processed.
+    - vmin (float): The minimum value for clipping and normalization.
+    - vmax (float): The maximum value for clipping and normalization.
+    - cmap_name (str): The name of the colormap to use.
+    - visualize (bool): Whether to visualize the results with a scatter plot and colorbar.
+
+    Returns:
+    - clipped_values (numpy.ndarray): The clipped values.
+    - colors (numpy.ndarray): The corresponding RGBA colors.
+    """
+    # Convert the input values to a numpy array
+    values_array = np.array(values)
+    
+    # Clip the values between vmin and vmax
+    clipped_values = np.clip(values_array, vmin, vmax)
+    
+    # Create a Normalize instance with the specified range
+    norm = matplotlib.colors.Normalize(vmin=vmin, vmax=vmax)
+    
+    # Choose a colormap
+    cmap = plt.get_cmap(cmap_name)
+    
+    # Create a ScalarMappable instance and map the normalized values to colors
+    mappable = plt.cm.ScalarMappable(norm=norm, cmap=cmap)
+    colors = mappable.to_rgba(clipped_values)
+
+    return colors
+
 
 def make_population_avg_evoked_trace_plots(special_cells_list, frame_window, subplot = None, title = '', ylim = [-0.03, 0.03]):
     '''

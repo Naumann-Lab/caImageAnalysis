@@ -116,6 +116,7 @@ def save_badframes_arr(somefishclass, no_planes = 1, force = False):
 
     # only get the relative frametimes that happen during the stimulation
     stimulation_frametimes = frametimes[stim_ind:]
+    print(stimulation_frametimes)
 
     for p in range(no_planes):
         if p == plane_num:
@@ -124,6 +125,7 @@ def save_badframes_arr(somefishclass, no_planes = 1, force = False):
             frames = [plane_frametimes.index(x) for x in time_matches] # list of frames that match with the stim_times
         
     ps_events = [somefishclass.baseline_frames + f for f in frames]
+    print(frames)
     somefishclass.badframes_arr = np.array(ps_events)
     # saving the bad frames array
     save_path = Path(somefishclass.data_paths['move_corrected_image']).parents[0].joinpath('bad_frames.npy')
@@ -401,37 +403,26 @@ def correlations_with_stim_sites(somebasefish, traces_array = None, corr_thresho
 
     return corr_df, corr_neurons
 
-def calculate_average_evoked_response(arr_cell_traces, arr_subset, frame_window = [-4, 7], normalized = True):
-    
-    each_trial = np.array([arr_cell_traces[:,s] for s in arr_subset])
-    avg_each_trial = np.nanmean(each_trial, axis=0)
-    
-    # evoked responses across trials for each ROI cell    
-    baseline_resp = np.nanmean(avg_each_trial[:, :-frame_window[0]], axis = 1)
-    max_resp = np.nanmax(avg_each_trial[:, frame_window[1]:], axis = 1)
-    # max_resp = np.nanmax(avg_each_trial, axis = 1)
-    if normalized == True:
-        avg_evoked_response = (np.nanmean(avg_each_trial[:, frame_window[1]:], axis = 1) - baseline_resp)/baseline_resp
-    else:
-        avg_evoked_response = np.nanmean(avg_each_trial[:, frame_window[1]:], axis = 1) - baseline_resp
+def calculate_evoked_response(arr_cell_traces, arr_subset, ps_offset = 0, frame_window = [-4, 7], r_type = 'mean'):
+    '''
+    ps_offset = the offset in frames from the photostimulation event to collect data, in case the event is longer than 1 frame
+    '''
+    evoked_response = np.zeros(shape = (arr_cell_traces.shape[0], 1))
+    for a, arr in enumerate(arr_cell_traces):
+        # evoked responses across trials for each ROI cell 
+        each_trial = np.array([arr[s] for s in arr_subset])
+        each_trial_evoked_resp = np.zeros(shape = (len(each_trial), len(each_trial[0])))
+        # base_e = matching_single_cell_trace[matching_fish.badframes_arr[0] + offsets[0]:matching_fish.badframes_arr[0] ] 
+        for d, f in enumerate(each_trial):
+            base_e = f[:-frame_window[0]]
+            plot_e = (f - np.nanmean(base_e)) / np.nanmean(base_e)
+            if r_type == 'mean':
+                each_trial_evoked_resp[d] = np.nanmean(plot_e[(-frame_window[0] + ps_offset):]) # frames necessary for looking at evoked window
+            elif r_type == 'median':
+                each_trial_evoked_resp[d] = np.nanmedian(plot_e[(-frame_window[0] + ps_offset):])
+        evoked_response[a] = np.nanmean(each_trial_evoked_resp)
 
-    return avg_evoked_response
+    return evoked_response
 
-def calculate_avgpeak_evoked_response_with_baseline(arr_cell_traces, arr_subset, frame_window = [-4, 7], normalized = True, baseline_frame_len = 200):
-    
-    each_trial = np.array([arr_cell_traces[:,s] for s in arr_subset])
-    baseline_before_any_stim = np.nanmean(arr_cell_traces[:,:baseline_frame_len], axis = 1)
-    peak_each_trial = np.nanmax(each_trial, axis=0)
-    
-    # evoked responses across trials for each ROI cell    
-    baseline_resp = np.nanmean(avg_each_trial[:, :-frame_window[0]], axis = 1)
-    max_resp = np.nanmax(avg_each_trial[:, frame_window[1]:], axis = 1)
-
-    if normalized == True:
-        peak_evoked_response = (np.nanmean(avg_each_trial[:, frame_window[1]:], axis = 1) - baseline_resp)/baseline_resp
-    else:
-        peak_evoked_response = np.nanmean(avg_each_trial[:, frame_window[1]:], axis = 1) - baseline_resp
-
-    return avg_evoked_response
 
 
