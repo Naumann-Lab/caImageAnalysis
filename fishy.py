@@ -66,8 +66,10 @@ class BaseFish:
                         self.data_paths["move_corrected_image"] = Path(entry.path)
                     elif "rotated" in entry.name:
                         self.data_paths["rotated_image"] = Path(entry.path)
+                    elif "img_stack" in entry.name:
+                        self.data_paths["image"] = Path(entry.path) 
                     else:
-                        self.data_paths["image"] = Path(entry.path)
+                        self.data_paths["original_image"] = Path(entry.path)
 
                 elif entry.name.endswith(".txt") and self.frametimes_key in entry.name:
                     self.data_paths["frametimes"] = Path(entry.path)
@@ -92,7 +94,7 @@ class BaseFish:
                         with os.scandir(entry.path) as imgdiver:
                             for poss_img in imgdiver:
                                 if poss_img.name.endswith(".tif"):
-                                    self.data_paths["image"] = Path(poss_img.path)
+                                    self.data_paths["original_image"] = Path(poss_img.path)
 
                 elif entry.name.endswith(".npy"): # these are mislabeled so just flip here
                     if "xpts" in entry.name:
@@ -346,13 +348,13 @@ class BaseFish:
             pass
 
     def load_image(self):
-        if "move_corrected_image" in self.data_paths.keys():
-            image = imread(self.data_paths["move_corrected_image"])
-        else:
+        try:
+            if "move_corrected_image" in self.data_paths.keys():
+                image = imread(self.data_paths["move_corrected_image"])
+            else:
+                image = imread(self.data_paths["rotated_image"])
+        except:
             image = imread(self.data_paths["image"])
-
-        # # if self.invert:
-        #     image = image[:, :, ::-1]
 
         return image
 
@@ -730,10 +732,9 @@ class VizStimFish(BaseFish):
 
         return final_image * brightnessFactor
 
-class PhotostimFish(BaseFish):
+class PhotostimFish(VizStimFish):
     def __init__(
         self,
-        no_planes = 5, 
         stimmed_planes = [1, 2, 3, 4, 5],
         photostim_window = [-3, 8],
         rotate = True, 
@@ -760,20 +761,33 @@ class PhotostimFish(BaseFish):
         # 1 - find bad frames, make sure this exists first
         try:
             self.badframes_arr = np.array(np.load(Path(self.folder_path).joinpath('bad_frames.npy')))
-            self.ps_event_duration, _ = photostimulation.collect_stimulation_times(self)
         except: 
             print('find bad frames and re run suite2p')
             photostimulation.save_badframes_arr(self)
-        photostimulation.find_no_baseline_frames(self, no_planes)
+        photostimulation.find_no_baseline_frames(self)
 
-        # 2 - id the stim sites and save the raw traces
+        # 2 - find the start of each ps event
+        self.ps_event_duration, _ = photostimulation.collect_stimulation_times(self)
+        self.ps_event_duration_frames = int(self.ps_event_duration/1000 * self.img_hz)
+        try:
+            self.ps_event_start = arrutils.filter_list(lst = np.unique(self.badframes_arr), interval = self.ps_event_duration_frames)
+        except:
+            self.ps_event_start = self.badframes_arr
+
+        if 'caiman' in self.data_paths.keys():
+            photostimulation.create_new_ps_events_array(self) # making a new ps_events start array since trimmed frames from caiman processing
+            self.ps_event_start = np.load(Path(self.folder_path).joinpath('ps_frames.npy'))
+            self.ps_event_duration = 100 # arbitrary setting duration to 100 ms
+            self.ps_event_duration_frames = 1 # thus frames is 1
+        
+        # 3 - id the stim sites and save the raw traces
         self.stim_sites_df = photostimulation.identify_stim_sites(self, rotate, planes_stimed = stimmed_planes)
         self.raw_traces, self.points = photostimulation.collect_raw_traces(self)
 
-        # 3 - id the stimulated cells based on distance
+        # 4 - id the stimulated cells based on distance
         _, self.stimmed_cell_id_list = self.identify_stim_cells()
 
-        # 4 - build the photostim correlation dataframe
+        # 5 - build the photostim correlation dataframe
         # self.build_ps_corrdf(frames_pre_post = photostim_window)
 
     def identify_stim_cells(self):
@@ -825,7 +839,7 @@ class PhotostimFish(BaseFish):
         perfect_photostim_response = np.zeros(traces_array[0].shape)
         decay_lst = np.linspace(1, 0, len_decay_frames)
 
-        for i in self.badframes_arr:
+        for i in self.ps_event_start:
             i = i + ps_offset
             perfect_photostim_response[i:(i + len_decay_frames)] = decay_lst
 
@@ -836,10 +850,12 @@ class PhotostimFish(BaseFish):
             corr = np.corrcoef(cell_arr, stim_arr)[0, 1]
             self.ps_corrdf.loc[b] = corr
 
-        ps_trial_subset = arrutils.subsection_arrays(self.badframes_arr, frames_pre_post)
+        ps_trial_subset = arrutils.subsection_arrays(self.ps_event_start, frames_pre_post)
         self.ps_corrdf['evoked_response'] = photostimulation.calculate_evoked_response(arr_cell_traces = traces_array, arr_subset = ps_trial_subset, 
                                                                                        ps_offset = ps_offset,frame_window = frames_pre_post, 
                                                                                        r_type = evoked_response_type)
+        
+        return self.ps_corrdf
     
     def make_connectivity_map(self, stimulation_site_coord_lst, responding_cell_lst, arrows = True, annotate_txt = True, cbar_limit = None, 
                               frames_pre_post = [-3, 8], stimulation_site_clr = 'green', dot_size = 80, savepath = None):
@@ -912,7 +928,7 @@ class PhotostimFish(BaseFish):
         left_roi_traces = []
 
         for e, v in photostim_fishvolume.volumes.items():
-            frame_subset = arrutils.subsection_arrays(v.badframes_arr, frame_window)
+            frame_subset = arrutils.subsection_arrays(v.ps_event_start, frame_window)
             x_len = v.rescaled_ref.shape[1]
             midline = int(x_len/2) # to find right and left
             region_cells = v.return_cells_by_saved_roi(roi_to_map)
@@ -1000,7 +1016,7 @@ class WorkingFish(VizStimFish):
         super().__init__(*args, **kwargs)
 
         if "move_corrected_image" not in self.data_paths:
-            raise TankError
+            print('no movement corrected image')
         self.corr_threshold = corr_threshold
         if not hasattr(self, "f_cells"):
             if 'suite_2p' in self.data_paths.keys():

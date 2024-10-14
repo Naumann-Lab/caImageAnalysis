@@ -18,6 +18,10 @@ from utilities import arrutils, statutils
 from utilities.roiutils import create_circular_mask
 from utilities.coordutils import rotate_transform_coors, closest_coordinates
 
+
+def convert_frame_to_sec(frame_lst, framerate):
+    return [x / framerate for x in frame_lst]
+
 def get_color_from_normval(value, vmin = -1, vmax = 1, cmap='coolwarm'):
     norm = plt.Normalize(vmin=vmin, vmax=vmax, clip=False)
     cmap = plt.get_cmap(cmap)
@@ -58,6 +62,36 @@ def clip_and_map_colors(values, vmin=-2, vmax=2, cmap_name='coolwarm'):
 
     return colors
 
+def build_cmap_blue_to_red():
+    cmap_colors = ['slateblue', '#F5F5F5', 'crimson']
+    npoints = 500
+    cmap = matplotlib.colors.LinearSegmentedColormap.from_list('custom_cmap', cmap_colors, N=npoints)
+    return cmap
+
+def add_scalebar(ax, bar_pixel_length, label, location=(0.1, 0.1), bar_thickness=3, color='black'):
+    """
+    Adds a scale bar to a plot.
+    
+    :param ax: The axis on which to add the scale bar.
+    :param size_in_data_units: The length of the scale bar in data units.
+    :param label: The label to display above or beside the scale bar.
+    :param location: The (x, y) location for the scale bar, as a fraction of the axes.
+    :param bar_thickness: Thickness of the scale bar in pixels.
+    :param color: Color of the scale bar.
+    """
+    # Get the x and y limits
+    xlim = ax.get_xlim()
+    ylim = ax.get_ylim()
+    
+    # Calculate the position for the scale bar
+    x_pos = xlim[0] + location[0] * (xlim[1] - xlim[0])
+    y_pos = ylim[0] + location[1] * (ylim[1] - ylim[0])
+    
+    # Draw the scale bar
+    ax.hlines(y_pos, x_pos, x_pos + bar_pixel_length, colors=color, linewidth=bar_thickness)
+    
+    # Add the label
+    ax.text(x_pos + bar_pixel_length / 2, y_pos, label, ha='center', va='bottom', color=color, fontsize=10)
 
 def make_population_avg_evoked_trace_plots(special_cells_list, frame_window, subplot = None, title = '', ylim = [-0.03, 0.03]):
     '''

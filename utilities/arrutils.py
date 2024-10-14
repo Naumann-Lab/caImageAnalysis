@@ -112,3 +112,10 @@ def convert_frame_to_sec(frame_lst, framerate):
     :param framerate: framerate of the recording
     '''
     return [x / framerate for x in frame_lst]
+
+def filter_list(lst, interval):
+    filtered_list = [lst[0]]
+    for i in range(1, len(lst)):
+        if abs(lst[i-1]-lst[i]) > interval:
+            filtered_list.append(lst[i])
+    return filtered_list

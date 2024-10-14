@@ -25,7 +25,6 @@ def get_stim_on_frames(somefishy, stim_set = barcoding_8stim_order, motion_on_fr
     
     return stim_frame_dict
 
-
 def barcode_with_ideal_trace(vizstimfish, barcode_dict = constants.eva_typesL, n_reps = 3, stim_order = barcoding_8stim_order, 
                              frames_motion_on = 7, length_of_total_frame_arr = None, std_thresh = 1.6):
     '''

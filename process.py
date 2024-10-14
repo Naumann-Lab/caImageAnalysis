@@ -123,7 +123,7 @@ def run_suite2p(base_fish, input_tau=1.5, spatial_scale = 0, custom_parameter_di
     try:
         imagepath = base_fish.data_paths["move_corrected_image"]
     except KeyError:
-        imagepath = base_fish.data_paths["image"]
+        imagepath = base_fish.data_paths["rotated_image"]
 
     # basic changes to suite2p ops to fit the fishy format
     basic_s2p_ops = {
@@ -151,7 +151,6 @@ def run_suite2p(base_fish, input_tau=1.5, spatial_scale = 0, custom_parameter_di
                 ops[key] = custom_parameter_dict[key]
 
     output_ops = run_s2p(ops=ops, db=db)
-
 
 def run_suite2p_normal(imagepath, imageHz, input_tau=1.5, custom_parameter_dict=None):
     try:

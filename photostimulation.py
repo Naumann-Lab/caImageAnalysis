@@ -12,16 +12,19 @@ from PIL import Image
 import math
 from scipy.signal import find_peaks 
 
-from bruker_images import read_xml_to_str, read_xml_to_root
+from bruker_images import read_xml_to_str, get_micronstopixels_scale
+import process
 from utilities import arrutils
 from utilities.roiutils import create_circular_mask
 from utilities.coordutils import rotate_transform_coors, closest_coordinates
 
-def find_no_baseline_frames(somefishclass, no_planes = 0):
+# getting experiment information for later functions
+def find_no_baseline_frames(somefishclass):
     '''
     folder_path = path that contains all the data (xml file and original bruker images)
     volume = set to True if this is a volume stack since the baseline frame number is calculated differently
     '''
+    no_planes = identify_number_planes_in_expt(somefishclass)
     if no_planes < 2:
         original_imgs = Path(somefishclass.folder_path).parents[1].joinpath("bruker_images")
         with os.scandir(original_imgs) as entries:
@@ -84,9 +87,48 @@ def collect_stimulation_times(somefishclass):
 
     return full_duration_per_stim, stim_times
 
-def save_badframes_arr(somefishclass, no_planes = 1, force = False):
+def identify_number_planes_in_expt(somefishclass):
+    '''
+    identify the number of planes in the experiment based on the data structure
+    '''
+    no_planes = 0
+    with os.scandir(Path(somefishclass.folder_path.parents[0])) as entries:
+        for entry in entries:
+            if os.path.isdir(entry.path):
+                no_planes += 1
 
-    somefishclass.baseline_frames = find_no_baseline_frames(somefishclass, no_planes)
+    return no_planes
+
+def identify_stimmed_planes(omr_tseries_folder_path, clst_label):
+    '''
+    folder_path = where the cluster df is located, will be the omr tseries folder path
+    clst_label = the label of the stimulated cluster in this dataset (could be a cluster number or barcode label)
+    returns the unique planes that were stimulated in the experiment
+    '''
+    if Path(omr_tseries_folder_path).joinpath("clusters.h5").exists():
+        df = pd.read_hdf(Path(omr_tseries_folder_path).joinpath("clusters.h5"))
+        one_category_df = df[df['cluster'] == clst_label]
+    elif Path(omr_tseries_folder_path).joinpath("volume_barcoding_df.h5").exists():
+        df = pd.read_hdf(Path(omr_tseries_folder_path).joinpath("volume_barcoding_df.h5"))
+        one_category_df = df[df['barcoding'] == clst_label]
+    # elif omr_tseries_folder_path == None: # no OMR data to pull this from, then find out the stimmed planes from the xml files
+
+
+    all_stimmed_planes = []
+    for v in one_category_df.plane.unique():
+       all_stimmed_planes.append(int(v.split('_')[1]))
+
+    # stimmed_planes = all_stimmed_planes.unique()
+    stimmed_planes = sorted(all_stimmed_planes)
+
+    return stimmed_planes
+
+# identifying the ps events
+def save_badframes_arr(somefishclass, force = False):
+
+    somefishclass.process_filestructure(somefishclass.midnight_noon_keyword) # update file structure
+    no_planes = identify_number_planes_in_expt(somefishclass)
+    somefishclass.baseline_frames = find_no_baseline_frames(somefishclass)
 
     full_duration_per_stim, stim_times = collect_stimulation_times(somefishclass)
     somefishclass.ps_event_duration = full_duration_per_stim
@@ -94,7 +136,7 @@ def save_badframes_arr(somefishclass, no_planes = 1, force = False):
 
     # using the information xml file to calculate the frames and times for each stimulation
     if no_planes > 1: # if volume stimulation
-        plane_num = int(somefishclass.data_paths['move_corrected_image'].parents[0].name.split('_')[1])
+        plane_num = int(somefishclass.data_paths['info_xml'].parents[0].name.split('_')[1])
     else:
         plane_num = 0
 
@@ -116,7 +158,6 @@ def save_badframes_arr(somefishclass, no_planes = 1, force = False):
 
     # only get the relative frametimes that happen during the stimulation
     stimulation_frametimes = frametimes[stim_ind:]
-    print(stimulation_frametimes)
 
     for p in range(no_planes):
         if p == plane_num:
@@ -125,10 +166,10 @@ def save_badframes_arr(somefishclass, no_planes = 1, force = False):
             frames = [plane_frametimes.index(x) for x in time_matches] # list of frames that match with the stim_times
         
     ps_events = [somefishclass.baseline_frames + f for f in frames]
-    print(frames)
+    ps_events = np.unique(ps_events)
     somefishclass.badframes_arr = np.array(ps_events)
     # saving the bad frames array
-    save_path = Path(somefishclass.data_paths['move_corrected_image']).parents[0].joinpath('bad_frames.npy')
+    save_path = Path(somefishclass.data_paths['info_xml']).parents[0].joinpath('bad_frames.npy')
     if force == False:
         somefishclass.badframes_arr = np.array(np.load(save_path)) # load in badframes
         print('load in bad frames array')
@@ -138,6 +179,120 @@ def save_badframes_arr(somefishclass, no_planes = 1, force = False):
    
     return somefishclass.badframes_arr
 
+def manually_remove_bad_frames(base_fish, save = True):
+    if base_fish.badframes_arr is None:
+        save_badframes_arr(base_fish)
+    
+    img = base_fish.load_image()
+    img_trimmed = np.array([frame for i, frame in enumerate(img) if i not in base_fish.badframes_arr])
+
+    if save:
+        original_img_save_path = Path(base_fish.folder_path).joinpath('original_image/original_img_stack.tif')
+        imwrite(original_img_save_path, img)
+
+        trimmed_img_save_path = Path(base_fish.folder_path).joinpath('img_stack.tif')
+        imwrite(trimmed_img_save_path, img_trimmed)
+
+    # move the other tiff files into the original_image folder, so now only working with the trimmed image
+    tiff_files = list(Path(base_fish.folder_path).glob('*.tif'))
+    for tiff_file in tiff_files:
+        if 'img_stack' not in tiff_file.name:
+            tiff_file.rename(Path(base_fish.folder_path).joinpath('original_image').joinpath(tiff_file.name))   
+
+    return print('trimmed image saved')
+
+
+def create_new_ps_events_array(base_fish):
+    '''
+    New array of the start frame for each photostimulation event
+    with the trimmed image, this is different from original bad_frames_arr 
+    '''
+    
+    base_fish.badframes_arr = np.load(Path(base_fish.folder_path).joinpath('bad_frames.npy'))
+
+    og_end_of_ps_event = np.where(np.abs(np.diff(base_fish.badframes_arr)) > 2)[0]
+    og_inds_of_ps_event = og_end_of_ps_event + 1
+    og_inds_of_ps_event = np.array([0] + list(og_inds_of_ps_event))
+    og_start_of_ps_event = base_fish.badframes_arr[og_inds_of_ps_event]
+
+    start_ind = og_start_of_ps_event[0]
+    new_ps_frames = [start_ind]
+    for i, n in enumerate(og_start_of_ps_event):
+        if i != 0:
+            new_ps_frames.append(n - og_inds_of_ps_event[i])
+
+    # save new ps_frames array
+    save_path = Path(base_fish.folder_path).joinpath('ps_frames.npy')
+    np.save(save_path, new_ps_frames)
+
+    return new_ps_frames
+
+# running source extraction
+
+# troubleshooting on 10/10/24 - found these to be important params to change for photostim datasets
+suite2p_params = { 'preclassify' : 0.01, 'threshold_scaling': 0.7, 'max_overlap':1}
+
+def run_suite2p_PS(somebasefish, input_tau = 1.5, custom_parameter_dict = None, move_corr = False, force = False):
+    '''
+    somebasefish = the data you want to have suite2p run on
+    input_tau = decay value for gcamp indicator (6s = 1.5, m = 1.0, f = 0.7)
+    spatial_scale = the predicted pixel size of a ROI (2 - 12 pixels, 1 - 6 pixels)
+    move_corr = binary, if you want the motion corrected image to be run as the main image or not
+    '''
+    from suite2p import run_s2p, default_ops
+    from fishy import BaseFish
+    import shutil
+
+    if force == True:
+        shutil.rmtree(Path(somebasefish.folder_path).joinpath('suite2p'))
+
+    if move_corr == True:
+        imagepath = somebasefish.data_paths["move_corrected_image"]
+    elif move_corr == False:
+        imagepath = somebasefish.data_paths["rotated_image"]
+    elif KeyError:
+        imagepath = somebasefish.data_paths["image"]
+
+    # make sure bad frames exists first
+    bad_frames_path = imagepath.parents[0].joinpath('bad_frames.npy')
+    if os.path.isfile(bad_frames_path) == False:
+        save_badframes_arr(somebasefish)
+
+    # basic changes to suite2p ops to fit the fishy format
+    basic_s2p_ops = {
+            "data_path": [imagepath.parents[0].as_posix()],
+            "save_path0": imagepath.parents[0].as_posix(),
+            "tau": input_tau, #gcamp6s = 1.5, gcamp6m = 1.0, gcamp6f = 0.7
+            "preclassify": 0.15,
+            "allow_overlap": True,
+            "block_size": [32, 32],
+            "fs": BaseFish.hzReturner(somebasefish.frametimes_df),
+            "tiff_list": [imagepath.name],
+            "two_step_registration" : True,
+            "keep_movie_raw":True,
+        }
+
+    ps_s2p_ops = default_ops()
+    db = {}
+
+    for item in basic_s2p_ops:
+        ps_s2p_ops[item] = basic_s2p_ops[item]
+
+    # for additional changes:
+    if custom_parameter_dict is not None: # can edit parameters as you want
+        for key in custom_parameter_dict:
+            if key in ps_s2p_ops:
+                ps_s2p_ops[key] = custom_parameter_dict[key]
+
+    db = {}
+    run_s2p(ops=ps_s2p_ops, db=db)
+
+def run_caiman_cnmf_PS(base_fish, custom_parameter_dict = None, match_suite2p = True, keep_mmaps = False):
+    manually_remove_bad_frames(base_fish)
+    base_fish.process_filestructure(base_fish.midnight_noon_keyword) # update file structure
+    process.caiman_cnmf(base_fish, custom_parameter_dict, match_suite2p, keep_mmaps)
+
+# identifying stimed sites and collecting its data
 def identify_stim_sites(somebasefish, rotate = True, planes_stimed = [1,2,3,4]):
     '''
     planes_stimed is hard coded, not sure how to gather the z plane info with not a clear output file 
@@ -158,17 +313,19 @@ def identify_stim_sites(somebasefish, rotate = True, planes_stimed = [1,2,3,4]):
     X_stim_sites = []
     Y_stim_sites = []
     spiral_size_lst = []
-    for r in range(ps_xml.count("Point Index=") + 1):
-        for i in ps_xml.split("\n"):
-            if f'Point Index="{r}"' in i:
-                X_stim = float(i.split('X')[1].split('"')[1])*pixels_per_line
-                X_stim_sites.append(round(X_stim))
+    # for r in range(ps_xml.count("Point Index=") + 1):
+    #     for i in ps_xml.split("\n"):
+    #         if f'Point Index="{r}"' in i:
+    list_of_stimulations = [i for i in ps_xml.split("\n") if f'Point Index=' in i]
+    for i in list_of_stimulations:
+        X_stim = float(i.split('X')[1].split('"')[1])*pixels_per_line
+        X_stim_sites.append(round(X_stim))
 
-                Y_stim = float(i.split('Y')[1].split('"')[1])*lines_per_frame
-                Y_stim_sites.append(round(Y_stim))
+        Y_stim = float(i.split('Y')[1].split('"')[1])*lines_per_frame
+        Y_stim_sites.append(round(Y_stim))
 
-                spiral_size = float(i.split('SpiralSizeInMicrons')[1].split('"')[1])
-                spiral_size_lst.append(round(spiral_size))
+        spiral_size = float(i.split('SpiralSizeInMicrons')[1].split('"')[1])
+        spiral_size_lst.append(round(spiral_size))
 
     # need to rotate and transform the coordinates if the image is rotated from off the Bruker
     if rotate:
@@ -225,61 +382,84 @@ def identify_stim_sites(somebasefish, rotate = True, planes_stimed = [1,2,3,4]):
 
     return somebasefish.stim_sites_df
 
-def run_suite2p_PS(somebasefish, input_tau = 1.5, spatial_scale = 0, custom_parameter_dict = None, move_corr = False, force = False):
+def identify_stim_sites_from_markpoints(info_xml_path, markpoints_xml_path, info_env_path, rotate = True, 
+                                   stimmed_plane_num = 0, planes_stimed = [1,2,3,4]):
     '''
-    somebasefish = the data you want to have suite2p run on
-    input_tau = decay value for gcamp indicator (6s = 1.5, m = 1.0, f = 0.7)
-    spatial_scale = the predicted pixel size of a ROI (2 - 12 pixels, 1 - 6 pixels)
-    move_corr = binary, if you want the motion corrected image to be run as the main image or not
+    planes_stimed is hard coded, not sure how to gather the z plane info with not a clear output file 
+    does not use a BaseFish to collect paths and such
     '''
-    from suite2p import run_s2p, default_ops
-    from fishy import BaseFish
-    import shutil
+    stim_sites_df = pd.DataFrame(columns = ['plane', 'x_stim', 'y_stim', 'sp_size'])
 
-    if force == True:
-        shutil.rmtree(Path(somebasefish.folder_path).joinpath('suite2p'))
+    # use the info xml file to get the pixel data
+    pixel_info = read_xml_to_str(info_xml_path)
+    for i in (pixel_info.split("\n")):
+        if "pixelsPerLine" in i:
+            pixels_per_line = int(i.split('value=')[1].split('"')[1])
+        if "linesPerFrame" in i:
+            lines_per_frame = int(i.split('value=')[1].split('"')[1])
+    
+    # use the ps xml file to get the stim site data
+    ps_xml = read_xml_to_str(markpoints_xml_path)
+    X_stim_sites = []
+    Y_stim_sites = []
+    spiral_size_lst = []
+    for r in range(ps_xml.count("Point Index=") + 1):
+        for i in ps_xml.split("\n"):
+            if f'Point Index="{r}"' in i:
+                X_stim = float(i.split('X')[1].split('"')[1])*pixels_per_line
+                X_stim_sites.append(round(X_stim))
 
-    if move_corr == True:
-        imagepath = somebasefish.data_paths["move_corrected_image"]
-    elif move_corr == False:
-        imagepath = somebasefish.data_paths["rotated_image"]
-    elif KeyError:
-        imagepath = somebasefish.data_paths["image"]
+                Y_stim = float(i.split('Y')[1].split('"')[1])*lines_per_frame
+                Y_stim_sites.append(round(Y_stim))
 
-    # make sure bad frames exists first
-    bad_frames_path = imagepath.parents[0].joinpath('bad_frames.npy')
-    if os.path.isfile(bad_frames_path) == False:
-        save_badframes_arr(somebasefish)
+                spiral_size = float(i.split('SpiralSizeInMicrons')[1].split('"')[1])
+                spiral_size_lst.append(round(spiral_size))
 
-    # basic changes to suite2p ops to fit the fishy format
-    basic_s2p_ops = {
-            "data_path": [imagepath.parents[0].as_posix()],
-            "save_path0": imagepath.parents[0].as_posix(),
-            "tau": input_tau, #gcamp6s = 1.5, gcamp6m = 1.0, gcamp6f = 0.7
-            "preclassify": 0.15,
-            "allow_overlap": True,
-            "block_size": [32, 32],
-            "spatial_scale" : spatial_scale,
-            "fs": BaseFish.hzReturner(somebasefish.frametimes_df),
-            "tiff_list": [imagepath.name],
-            "two_step_registration" : True,
-            "keep_movie_raw":True,
-        }
+    # need to rotate and transform the coordinates if the image is rotated from off the Bruker
+    if rotate:
+        coord_stim_sites = list(zip(X_stim_sites, Y_stim_sites))
 
-    ps_s2p_ops = default_ops()
-    db = {}
+        ##TODO: make this cleaner to find the correct y and x coords, i should not have to do this separately
+        correct_y_coords = rotate_transform_coors(coord_stim_sites, 90, translation=(pixels_per_line, 0))
+        correct_x_coords = rotate_transform_coors(coord_stim_sites, -90, translation=(0, pixels_per_line))
 
-    for item in basic_s2p_ops:
-        ps_s2p_ops[item] = basic_s2p_ops[item]
+        X_stim_sites = [x[0] for x in correct_x_coords]
+        Y_stim_sites = [-y[1] + pixels_per_line for y in correct_y_coords]
 
-    # for additional changes:
-    if custom_parameter_dict is not None: # can edit parameters as you want
-        for key in custom_parameter_dict:
-            if key in ps_s2p_ops:
-                ps_s2p_ops[key] = custom_parameter_dict[key]
+    if len(planes_stimed) > 1:
+        # get values for the z steps in the info env file
+        with open(info_env_path, "r") as f:
+            lines = f.readlines()
+            for i, line in enumerate(lines):
+                if "PVMarkPoints" in line and "active" in line:
+                    ind_start = i+2
+                if "PVGalvoPointGroup" in line:
+                    ind_end = i
+            ind_lines = np.arange(ind_start, ind_end, step=1)
+            z_vals = [float(lines[i].split('Z')[1].split('"')[1]) for i in ind_lines]
+        
+        # convert z values into planes
+        unique_z = np.unique(z_vals)
+        map_z = {}
+        for _p, p in enumerate(unique_z):
+            map_z[p] = planes_stimed[_p]
 
-    db = {}
-    run_s2p(ops=ps_s2p_ops, db=db)
+        z_to_plane = [map_z[z] for z in z_vals]
+
+        this_plane = stimmed_plane_num
+    else:
+        z_to_plane = 0 # just the plane that you recorded from
+        this_plane = 0
+
+    stim_sites_df['x_stim'] = X_stim_sites
+    stim_sites_df['y_stim'] = Y_stim_sites
+    stim_sites_df['sp_size'] = spiral_size_lst
+    stim_sites_df['plane'] = z_to_plane
+
+    stim_sites_df = stim_sites_df[stim_sites_df['plane'] == this_plane]
+    stim_sites_df.reset_index(inplace = True, drop = True)
+
+    return stim_sites_df
 
 def return_raw_coord_trace(cell_coord, img, s=5):
     '''
@@ -295,13 +475,18 @@ def collect_raw_traces(somebasefish):
     if not stim_sites_df_path.exists():
         identify_stim_sites(somebasefish)
     stim_sites_df = pd.read_hdf(stim_sites_df_path)
-    img = imread(somebasefish.data_paths["move_corrected_image"])
+    try:
+        img = imread(somebasefish.data_paths["move_corrected_image"])
+    except:
+        img = imread(somebasefish.data_paths["image"])
 
     raw_traces = np.zeros((len(stim_sites_df), img.shape[0]))
     points = np.zeros((len(stim_sites_df), 2))
+    um_per_pxs = get_micronstopixels_scale(somebasefish.data_paths['info_xml'])
     for point in range(len(stim_sites_df)):
         pt = stim_sites_df.iloc[point]
-        msk = create_circular_mask(img.shape[1:], pt.x_stim, pt.y_stim, pt.sp_size*3)
+        pt_sp_size_pixels = pt.sp_size / um_per_pxs
+        msk = create_circular_mask(img.shape[1:], pt.x_stim, pt.y_stim, pt_sp_size_pixels/2)
         msk_trace = np.nanmean(img[:, msk], axis=1)
         raw_traces[point] = msk_trace
         points[point] = [pt.x_stim, pt.y_stim]
@@ -329,30 +514,7 @@ def all_stimmed_traces_array(stimulated_fishvolume):
 
     return stim_traces_array
 
-def identify_stimmed_planes(omr_tseries_folder_path, clst_label):
-    '''
-    folder_path = where the cluster df is located, will be the omr tseries folder path
-    clst_label = the label of the stimulated cluster in this dataset (could be a cluster number or barcode label)
-    returns the unique planes that were stimulated in the experiment
-    '''
-    if Path(omr_tseries_folder_path).joinpath("clusters.h5").exists():
-        df = pd.read_hdf(Path(omr_tseries_folder_path).joinpath("clusters.h5"))
-        one_category_df = df[df['cluster'] == clst_label]
-    elif Path(omr_tseries_folder_path).joinpath("volume_barcoding_df.h5").exists():
-        df = pd.read_hdf(Path(omr_tseries_folder_path).joinpath("volume_barcoding_df.h5"))
-        one_category_df = df[df['barcoding'] == clst_label]
-    # elif omr_tseries_folder_path == None: # no OMR data to pull this from, then find out the stimmed planes from the xml files
-
-
-    all_stimmed_planes = []
-    for v in one_category_df.plane.unique():
-       all_stimmed_planes.append(int(v.split('_')[1]))
-
-    # stimmed_planes = all_stimmed_planes.unique()
-    stimmed_planes = sorted(all_stimmed_planes)
-
-    return stimmed_planes
-
+# more functions to help analysis on the photostimulation data
 def correlations_with_stim_sites(somebasefish, traces_array = None, corr_threshold = 0.5, normalizing = 1, saving = True):
     '''
     for each cell, find the corrleation coefficients for each stim site, withput including the baseline period here
