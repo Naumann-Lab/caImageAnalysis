@@ -275,3 +275,36 @@ def read_xml_to_str(xml_file_path):
     with open(xml_file_path, "r") as f:
         data = f.read()
     return data
+
+def get_zstep_vals(info_xml_file, etl = True):
+    '''
+    Getting the z-step values from the information xml file
+    Important for getting the stimulated plane number
+    '''
+    data_str = read_xml_to_str(info_xml_file)
+
+    all_z_steps = []
+    all_etl_steps = []
+    for j, i in enumerate(data_str.split("\n")):
+        if "page" in i:
+            page = int(i.split('page=')[1].split('"')[1])
+            all_z_steps.append(page)
+        if 'ETL' in i:
+            etl_step = float(i.split('value=')[1].split('"')[1])
+            all_etl_steps.append(etl_step)
+        if "Z Focus" in i:
+            Z_focus_start = float(i.split('value=')[1].split('"')[1])
+        if "micronsPerPixel" in i:
+            next_line = data_str.split("\n")[j+1]
+            pixel_size = float(next_line.split('value=')[1].split('"')[1])
+            z_step_size = float(data_str.split("\n")[j+3].split('value=')[1].split('"')[1])
+
+    num_z_steps = max(all_z_steps)
+    zstep_vals = [Z_focus_start + n*z_step_size for n in range(num_z_steps)]
+
+    if etl:
+        zstep_vals = np.unique(all_etl_steps)
+
+    return zstep_vals
+
+

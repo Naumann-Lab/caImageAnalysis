@@ -12,7 +12,7 @@ from PIL import Image
 import math
 from scipy.signal import find_peaks 
 
-from bruker_images import read_xml_to_str, get_micronstopixels_scale
+from bruker_images import read_xml_to_str, get_micronstopixels_scale, get_zstep_vals
 import process
 from utilities import arrutils
 from utilities.roiutils import create_circular_mask
@@ -201,7 +201,6 @@ def manually_remove_bad_frames(base_fish, save = True):
 
     return print('trimmed image saved')
 
-
 def create_new_ps_events_array(base_fish):
     '''
     New array of the start frame for each photostimulation event
@@ -293,7 +292,7 @@ def run_caiman_cnmf_PS(base_fish, custom_parameter_dict = None, match_suite2p = 
     process.caiman_cnmf(base_fish, custom_parameter_dict, match_suite2p, keep_mmaps)
 
 # identifying stimed sites and collecting its data
-def identify_stim_sites(somebasefish, rotate = True, planes_stimed = [1,2,3,4]):
+def identify_stim_sites(somebasefish, rotate = True, stimulation_type = 'single_cell'):
     '''
     planes_stimed is hard coded, not sure how to gather the z plane info with not a clear output file 
     use a base fish, saves a stimulated site dataframe for each unique plane
@@ -307,15 +306,13 @@ def identify_stim_sites(somebasefish, rotate = True, planes_stimed = [1,2,3,4]):
             pixels_per_line = int(i.split('value=')[1].split('"')[1])
         if "linesPerFrame" in i:
             lines_per_frame = int(i.split('value=')[1].split('"')[1])
-    
-    # use the ps xml file to get the stim site data
+
+    z_planes_data = get_zstep_vals(somebasefish.data_paths['info_xml'])
     ps_xml = read_xml_to_str(somebasefish.data_paths['ps_xml'])
     X_stim_sites = []
     Y_stim_sites = []
     spiral_size_lst = []
-    # for r in range(ps_xml.count("Point Index=") + 1):
-    #     for i in ps_xml.split("\n"):
-    #         if f'Point Index="{r}"' in i:
+
     list_of_stimulations = [i for i in ps_xml.split("\n") if f'Point Index=' in i]
     for i in list_of_stimulations:
         X_stim = float(i.split('X')[1].split('"')[1])*pixels_per_line
@@ -338,8 +335,17 @@ def identify_stim_sites(somebasefish, rotate = True, planes_stimed = [1,2,3,4]):
         X_stim_sites = [x[0] for x in correct_x_coords]
         Y_stim_sites = [-y[1] + pixels_per_line for y in correct_y_coords]
 
-    if len(planes_stimed) > 1:
-        # get values for the z steps in the info env file
+    if stimulation_type == 'single_cell': # single cell stimulation
+       
+        with open(somebasefish.data_paths['info_env'], "r") as f:
+            lines = f.readlines()
+            for i, line in enumerate(lines):
+                if "PVMarkPoints" in line and "active" in line:
+                    z_step_stimulation_site = int(float(lines[i+2].split(" ")[-2].split("=")[1].split('"')[1]))
+        z_to_plane = [a for a, b in enumerate(z_planes_data) if b == z_step_stimulation_site][0]
+        this_plane = z_to_plane
+
+    else: # ensemble stimulation
         with open(somebasefish.data_paths['info_env'], "r") as f:
             lines = f.readlines()
             for i, line in enumerate(lines):
@@ -349,19 +355,11 @@ def identify_stim_sites(somebasefish, rotate = True, planes_stimed = [1,2,3,4]):
                     ind_end = i
             ind_lines = np.arange(ind_start, ind_end, step=1)
             z_vals = [float(lines[i].split('Z')[1].split('"')[1]) for i in ind_lines]
-        
+
+        map_z_to_plane_num = {z: i for i, z in enumerate(z_planes_data)}        
         # convert z values into planes
-        unique_z = np.unique(z_vals)
-        map_z = {}
-        for _p, p in enumerate(unique_z):
-            map_z[p] = planes_stimed[_p]
-
-        z_to_plane = [map_z[z] for z in z_vals]
-
+        z_to_plane = [map_z_to_plane_num[z] for z in z_vals]
         this_plane = int(somebasefish.folder_path.name.split('_')[1])
-    else:
-        z_to_plane = 0 # just the plane that you recorded from
-        this_plane = 0
 
     somebasefish.stim_sites_df['x_stim'] = X_stim_sites
     somebasefish.stim_sites_df['y_stim'] = Y_stim_sites
@@ -464,6 +462,7 @@ def identify_stim_sites_from_markpoints(info_xml_path, markpoints_xml_path, info
 def return_raw_coord_trace(cell_coord, img, s=5):
     '''
     returns the ROI location of a specified coordinate in the target fish
+    s = the radius of the ROI in pixels
     '''
     msk = create_circular_mask(img.shape[1:], cell_coord[1], cell_coord[0], s)[:, ::-1]
 

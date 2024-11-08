@@ -107,6 +107,7 @@ eva_stims = [
     "forward",
     "backward",
 ]
+
 eva_typesL = {
     "oB": [False, True, True, True, True, False, False, False, True, True],
     "B": [False, False, True, True, True, False, False, False, True, True],
@@ -165,6 +166,31 @@ eva_types_all = {
     "Mm_R": [False, False, False, False, False, True, True, False, True, False],
     "oMl_R": [False, True, False, False, False, True, False, True, True, True],
     "S_R": [False, False, False, False, False, True, False, False, True, True],
+}
+
+bouting_stims = [
+    "converging",
+    "diverging",
+    "left",
+    "medial_left",
+    "lateral_left",
+    "right",
+    "medial_right",
+    "lateral_right",
+    'forward', 
+    'forward_x', 
+    'x_forward', 
+    'backward', 
+    'backward_x', 
+    'x_backward', 
+    'forward_backward', 
+    'backward_forward']
+
+bouting_barcode_types = {
+    'iMm_L_F': [True, False, True, True, False, False, False, False, True, False, True, False, False, False, False, True],
+    'iMm_R_F' : [True, False, False, False, False, True, True, False, True, True, False, False, False, False, True, False],
+    'iMm_L_B' : [True, False, True, True, False, False, False, False, False, False, False, True, False, True, True, False],
+    'iMm_R_B' : [True, False, False, False, False, True, True, False, False, False, False, True, True, False, False, True],
 }
 
 velocity_mono_dict = {

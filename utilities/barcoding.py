@@ -1,6 +1,7 @@
 import numpy as np
 import constants
 from utilities import arrutils, clustering
+import stimuli
 
 barcoding_8stim_order = [
     "converging","diverging",
@@ -26,7 +27,7 @@ def get_stim_on_frames(somefishy, stim_set = barcoding_8stim_order, motion_on_fr
     return stim_frame_dict
 
 def barcode_with_ideal_trace(vizstimfish, barcode_dict = constants.eva_typesL, n_reps = 3, stim_order = barcoding_8stim_order, 
-                             frames_motion_on = 7, length_of_total_frame_arr = None, std_thresh = 1.6):
+                             frames_motion_on = 7, length_of_total_frame_arr = None, std_thresh = 1.8):
     '''
     Identifying barcoded neurons with correlations to the 'ideal' trace
     vizstimfish -- a VizStimFish class object
@@ -56,37 +57,32 @@ def barcode_with_ideal_trace(vizstimfish, barcode_dict = constants.eva_typesL, n
                           h*length_of_total_frame_arr + -vizstimfish.offsets[0] + frames_motion_on] = 1
         ideal_barcorde_dict[typ] = arrutils.pretty(ideal_arr, 3)
 
-    # correlate ideal fake traces for each barcode:
-    corr_dict = {}
-    bool_dict = {}
+    corr_dict = {} # dictionary of all correlation values for each neuron to each barcode
+    type_dict = {} # type of barcode for each neuron
+    binary_codes_dict = {} # collecting all binary codes for each neuron to determine its forward responses
     for n, neuron_arr in enumerate(stim_resp_each_cell_arr):
+        if n not in type_dict.keys():
+            type_dict[n] = np.nan
+            corr_dict[n] = np.nan
+            binary_codes_dict[n] = {}
 
         # determining the binary code for this neuron
         neuron_binary_code = barcode_binary_score(vizstimfish, neuron_arr, base_length = 4, frames_motion_on = frames_motion_on, 
-                                    std_thresh = std_thresh, num_responding_trials = int(n_reps*0.75))
-        
-        for typ, binary_code in barcode_dict.items():
-            if typ not in bool_dict.keys():
-                bool_dict[typ] = {}
-                corr_dict[typ] = {}
-            mean_neuron_arr = np.nanmean(neuron_arr, axis = 0)[:len(ideal_barcorde_dict[typ])]
-            corr = np.corrcoef(ideal_barcorde_dict[typ], mean_neuron_arr)[0, 1]
-            corr_dict[typ][n] = corr
+                                    std_thresh = std_thresh, num_responding_trials = int(n_reps*0.8))
+        binary_codes_dict[n] = neuron_binary_code
+        for typ, l in barcode_dict.items():
+            if l == neuron_binary_code: 
+                type_dict[n] = typ
+                mean_neuron_arr = np.nanmean(neuron_arr, axis = 0)[:len(ideal_barcorde_dict[typ])]
 
-            if neuron_binary_code == binary_code:
-                bool_dict[typ][n] = True
-            else:
-                bool_dict[typ][n] = False
-        
-    neurons_per_barcode_dict = {}
-    for typ, bools in bool_dict.items():
-        if typ not in neurons_per_barcode_dict.keys():
-            neurons_per_barcode_dict[typ] = [key for key, value in bools.items()] # selected neurons
+                # correlate ideal fake traces to the barcode that this neuron matches
+                corr = np.corrcoef(arrutils.zscoring(ideal_barcorde_dict[typ]), arrutils.zscoring(mean_neuron_arr))[0, 1] 
+                corr_dict[n] = corr  
 
-    return neurons_per_barcode_dict, bool_dict, corr_dict
+    return type_dict, corr_dict, binary_codes_dict
 
-
-def barcode_binary_score(vizstimfish, one_neuron_arr, base_length = 4, frames_motion_on = None, std_thresh = 1.8, num_responding_trials = 3):
+def barcode_binary_score(vizstimfish, one_neuron_arr, stims = None, stim_start_frames = None, base_length = 4, frames_motion_on = None, 
+                         std_thresh = 1.8, num_responding_trials = 3, evoked_resp = 'median'):
     '''
     Create a binary code for each neuron
     vizstimfish -- a VizStimFish class object
@@ -99,13 +95,20 @@ def barcode_binary_score(vizstimfish, one_neuron_arr, base_length = 4, frames_mo
     '''
     if frames_motion_on is None:
         frames_motion_on = int(vizstimfish.img_hz*5)
+    if stims is None:
+        stims = vizstimfish.stim_order
+    if stim_start_frames is None:
+        stim_start_frames = vizstimfish.stim_start_frames
 
-    bool_dict_per_neuron = {key: 0 for key in vizstimfish.stim_order}
-    for e, l in enumerate(vizstimfish.stim_start_frames):
-        key = vizstimfish.stim_order[e]
+    bool_dict_per_neuron = {key: 0 for key in stims}
+    for e, l in enumerate(stim_start_frames):
+        key = stims[e]
         base_arr = np.nanmedian(one_neuron_arr[:, (l-base_length):l], axis = 1)
         base_std = np.nanstd(one_neuron_arr[:, (l-base_length):l], axis = 1)
-        evoked_arr = np.nanmedian(one_neuron_arr[:, l:(l+ frames_motion_on)], axis =1 )
+        if evoked_resp == 'median':
+            evoked_arr = np.nanmedian(one_neuron_arr[:, l:(l+ frames_motion_on)], axis =1 )
+        elif evoked_resp == 'max':
+            evoked_arr = np.nanmax(one_neuron_arr[:, l:(l+ frames_motion_on)], axis =1 )
         count = 0
         for d in range(len(evoked_arr)):
             if evoked_arr[d] > (base_arr[d] + std_thresh*base_std[d]):
@@ -116,6 +119,30 @@ def barcode_binary_score(vizstimfish, one_neuron_arr, base_length = 4, frames_mo
 
     return binary_code
 
+def find_forward_responders(vizstimfish, stim_order = ['forward', 'backward'], base_length = 4,
+                            frames_motion_on = None, std_thresh = 1.8, n_reps = 3, evoked_resp_type = 'median'):
+    '''
+    stim_order needs to include forward and backward!
+    '''
+    frw_back_stim_resps = vizstimfish.neuron_each_stim_rep_arrays(stim_order)
+    stim_start_frames = stimuli.stimulus_start_frames_for_plots(frames_motion_on = frames_motion_on, 
+                                                            length_of_total_frame_arr = np.diff(vizstimfish.offsets)[0],
+                                                            number_of_stims_in_set = len(stim_order))
+
+    forward_responders = []
+    backward_responders = []
+    for n, neuron_arr in enumerate(frw_back_stim_resps):
+        neuron_binary_code = barcode_binary_score(vizstimfish, neuron_arr, stims = stim_order, stim_start_frames = stim_start_frames,
+                                                  base_length = base_length, frames_motion_on = frames_motion_on, 
+                                                  std_thresh = std_thresh, num_responding_trials = int(n_reps*0.8), evoked_resp = evoked_resp_type)
+        if neuron_binary_code[0] == True:
+            forward_responders.append(n)
+        if neuron_binary_code[1] == True:
+            backward_responders.append(n)
+    # reset the neuron response arrays back to the original order
+    vizstimfish.neur_resps_each_stim_rep = vizstimfish.neuron_each_stim_rep_arrays(vizstimfish.stim_order)
+
+    return forward_responders, backward_responders
 
 # whit's version of barcoding
 def barcode_score_per_stim(stim_on_frame_list, motion_sensitive_pt_cal_act, n_rep = 3, r_thresh = 0.65):

@@ -196,6 +196,7 @@ def flexible_stim_shader(frames, stimmies, frames_motion_on, fs = 14, subplot = 
     import constants
     import matplotlib.pyplot as plt
 
+    y_top = ylim[1]
     if subplot == None:
         ax_n = plt
         y_top = round(max(plt.gca().get_ylim()))
@@ -205,7 +206,6 @@ def flexible_stim_shader(frames, stimmies, frames_motion_on, fs = 14, subplot = 
         y_top = round(max(ax_n.get_ylim()))
         x_top = round(max(ax_n.get_xlim()))
 
-    y_top = ylim[1]
     ylabel_pos = y_top + y_top * 0.05
 
     for s, stimmy in zip(frames, stimmies):
