@@ -114,6 +114,8 @@ class BaseFish:
                     self.data_paths["info_env"] = Path(entry.path)
                 elif entry.name.endswith("csv") and 'Voltage' in entry.name:
                     self.data_paths["voltage_signal"] = Path(entry.path)
+                elif 'output.txt' in entry.name: # from automated gui experiments
+                    self.data_paths["ps_log"] = Path(entry.path)
 
         if "image" in self.data_paths and "move_corrected_image" in self.data_paths:
             if (
@@ -787,7 +789,7 @@ class PhotostimFish(VizStimFish):
         _, self.stimmed_cell_id_list = self.identify_stim_cells()
 
         # 5 - build the photostim correlation dataframe
-        self.build_ps_corrdf(frames_pre_post = photostim_window)
+        # self.build_ps_corrdf(frames_pre_post = photostim_window)
 
     def identify_stim_cells(self):
         '''
@@ -846,7 +848,7 @@ class PhotostimFish(VizStimFish):
             photostimulated_cell_arr = self.raw_traces[0] # hardcoded for the first cell
         # photostimulated_cell_arr = self.f_cells[self.stimmed_cell_ids[0]] # hardcoded for the first cell, source extraction
 
-        self.ps_corrdf = pd.DataFrame(columns = ['correlation', 'z_corr'])
+        self.ps_corrdf = pd.DataFrame(columns = ['traces', 'correlation', 'z_corr'])
         # correlation with the stimulated cell raw traces
         for b, c in enumerate(traces_array):
             cell_arr = c[self.baseline_frames:]
@@ -857,6 +859,7 @@ class PhotostimFish(VizStimFish):
             z_corr = np.corrcoef(z_cell_arr, z_stim_arr)[0, 1]
             self.ps_corrdf.loc[b, 'correlation'] = corr
             self.ps_corrdf.loc[b, 'z_corr'] = z_corr
+            self.ps_corrdf.loc[b, 'traces'] = c
 
         ps_trial_subset = arrutils.subsection_arrays(self.ps_event_start, frames_pre_post)
         self.ps_corrdf['evoked_response'] = photostimulation.calculate_evoked_response(arr_cell_traces = traces_array, arr_subset = ps_trial_subset, 
@@ -1771,7 +1774,7 @@ class WorkingFish(VizStimFish):
         
         return self.corrdf, self.booldf, self.motion_responsive_neurons
 
-    def run_barcoding(self, stim_order, choice_barcode_dict, n_reps = 4, sec_motion_on = 8, response_threshold = 1.8):
+    def run_barcoding(self, stim_order, choice_barcode_dict, n_reps = 4, sec_motion_on = 8, response_threshold = 1.8, response_type = 'median'):
         '''
         Running barcoding functions on this same VizStimFish object, so not needed to run in notebook separately
         '''
@@ -1787,10 +1790,11 @@ class WorkingFish(VizStimFish):
                                                                                             n_reps = n_reps,
                                                                                             stim_order = stim_order,
                                                                                             length_of_total_frame_arr = np.diff(self.offsets)[0],
-                                                                                            std_thresh = response_threshold)
+                                                                                            std_thresh = response_threshold,
+                                                                                            response_type = response_type)
         
         forward_resp_cell_lst, backward_resp_cell_lst = barcoding.find_forward_responders(self, frames_motion_on = int(self.img_hz*sec_motion_on), 
-                                                                                      std_thresh =response_threshold, n_reps = n_reps)
+                                                                                      std_thresh = response_threshold, n_reps = n_reps, evoked_resp_type = response_type)
         
         #clear the dictionary of cell to barcodes of 'nan's
         self.barcode_type_dict = {key: value for key, value in self.barcode_type_dict.items() if not (isinstance(value, float) and isnan(value))}

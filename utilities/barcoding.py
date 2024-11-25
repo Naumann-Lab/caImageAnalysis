@@ -27,7 +27,7 @@ def get_stim_on_frames(somefishy, stim_set = barcoding_8stim_order, motion_on_fr
     return stim_frame_dict
 
 def barcode_with_ideal_trace(vizstimfish, barcode_dict = constants.eva_typesL, n_reps = 3, stim_order = barcoding_8stim_order, 
-                             frames_motion_on = 7, length_of_total_frame_arr = None, std_thresh = 1.8):
+                             frames_motion_on = 7, length_of_total_frame_arr = None, std_thresh = 1.8, response_type = 'median'):
     '''
     Identifying barcoded neurons with correlations to the 'ideal' trace
     vizstimfish -- a VizStimFish class object
@@ -68,7 +68,7 @@ def barcode_with_ideal_trace(vizstimfish, barcode_dict = constants.eva_typesL, n
 
         # determining the binary code for this neuron
         neuron_binary_code = barcode_binary_score(vizstimfish, neuron_arr, base_length = 4, frames_motion_on = frames_motion_on, 
-                                    std_thresh = std_thresh, num_responding_trials = int(n_reps*0.8))
+                                    std_thresh = std_thresh, num_responding_trials = int(n_reps*0.8), evoked_resp = response_type)
         binary_codes_dict[n] = neuron_binary_code
         for typ, l in barcode_dict.items():
             if l == neuron_binary_code: 
@@ -109,6 +109,8 @@ def barcode_binary_score(vizstimfish, one_neuron_arr, stims = None, stim_start_f
             evoked_arr = np.nanmedian(one_neuron_arr[:, l:(l+ frames_motion_on)], axis =1 )
         elif evoked_resp == 'max':
             evoked_arr = np.nanmax(one_neuron_arr[:, l:(l+ frames_motion_on)], axis =1 )
+        elif evoked_resp == 'mean':
+            evoked_arr = np.nanmean(one_neuron_arr[:, l:(l+ frames_motion_on)], axis =1 )
         count = 0
         for d in range(len(evoked_arr)):
             if evoked_arr[d] > (base_arr[d] + std_thresh*base_std[d]):

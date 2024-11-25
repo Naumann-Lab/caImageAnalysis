@@ -10,7 +10,8 @@ import glob
 import caiman as cm
 from scipy.signal import find_peaks
 
-from utilities import pathutils
+from utilities import pathutils, arrutils
+from fishy import BaseFish
 
 def get_frametimes(info_xml_path, voltage_path):
     '''
@@ -307,4 +308,67 @@ def get_zstep_vals(info_xml_file, etl = True):
 
     return zstep_vals
 
+def concatenate_datasets(experiment_folders, new_directory, full_duration_per_stim = None):
+    '''
+    Concatenate datasets from multiple experiments into one folder, most helpful for automated gui experiments
+    Moves over rotated images, movement corrected images, bad_frames (if present), and frametimes into the new directory
+    experiment_folders = list of folder paths that contain the individual experiments
+    new_directory = the new directory path that will contain the concatenated data
+    full_duration_per_stim = the full duration of the photostimulation event in ms
+    '''
+
+    plane_count = sum(os.path.isdir(os.path.join(Path(experiment_folders[0]).joinpath('output_folders'), item)) 
+                  for item in os.listdir(Path(experiment_folders[0]).joinpath('output_folders')))
+        
+    if not new_directory.exists():
+        new_directory.mkdir()
+    new_directory2 = Path(new_directory).joinpath("output_folders")
+    if not new_directory2.exists():
+        new_directory2.mkdir()
+    if full_duration_per_stim == None:  
+        full_duration_per_stim = 100 # hard coded for now, will need to change if length of photostimulation is longer than 100 ms
+
+    for p in range(plane_count):
+        save_fld = Path(new_directory2).joinpath(f'plane_{p}')
+        if not save_fld.exists():
+            save_fld.mkdir()
+        plane = f'plane_{p}'
+        rotated_imgs = []
+        movement_corrected_imgs = []
+        frametimes_lst = []
+        bad_frames_lst = []
+        for fld in experiment_folders:
+            frametimes_lst.append(pd.read_hdf(Path(fld).joinpath(f'output_folders/{plane}/frametimes.h5')))
+            bad_frames_lst.append(np.load(Path(fld).joinpath(f'output_folders/{plane}/bad_frames.npy')))
+            for file_path in glob.glob(os.path.join(Path(fld).joinpath(f'output_folders/{plane}'), "*.tif")):
+                if 'rotated' in os.path.basename(file_path):
+                    rotated_imgs.append(file_path)
+                if 'movement_corr' in os.path.basename(file_path):
+                    movement_corrected_imgs.append(file_path)
+
+    # images
+    m1 = cm.load_movie_chain(rotated_imgs)
+    m1.save(os.path.join(save_fld,'img_rotated.tif'))
+    m2 = cm.load_movie_chain(movement_corrected_imgs)
+    m2.save(os.path.join(save_fld,'movement_corr_img.tif'))
+
+    # frametimes
+    pd.concat(frametimes_lst).reset_index(drop = True).to_hdf(Path(save_fld).joinpath('frametimes.h5'), key = 'frametimes')
+
+    # bad frames
+    len_expt = len(frametimes_lst[0])
+    new_bad_frames_lst = []
+    for a, b in enumerate(bad_frames_lst):
+        img_hz = BaseFish.hzReturner(frametimes_lst[a])
+        interval = round(full_duration_per_stim/1000 * img_hz)
+        if interval == 0:
+            interval = 1
+        filtered_arr = arrutils.filter_list(lst = b, interval = interval)
+        if filtered_arr[0] != 0:
+            filtered_arr.insert(0, 0)   
+        arr = [l + a*len_expt for l in filtered_arr]
+        new_bad_frames_lst.append(arr)
+        
+    complete_bad_frames_arr = np.concatenate(new_bad_frames_lst)
+    np.save(Path(save_fld).joinpath('bad_frames.npy'), complete_bad_frames_arr)
 

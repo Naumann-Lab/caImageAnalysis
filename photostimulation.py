@@ -35,10 +35,13 @@ def find_no_baseline_frames(somefishclass):
 
         somefishclass.baseline_frames = baseline_img.shape[0]
 
-    elif no_planes >= 2:
+    elif no_planes >= 2 and 'ps_xml' in somefishclass.data_paths.keys():
         ps_xml_name = Path(somefishclass.data_paths['ps_xml']).name
         somefishclass.baseline_frames = int(ps_xml_name.split('Cycle')[1].split('_')[0]) # baseline frames number is given in the cycle name for the volume
     
+    else:
+        somefishclass.baseline_frames = 0
+
     return somefishclass.baseline_frames
 
 def collect_stimulation_times(somefishclass):
@@ -48,23 +51,37 @@ def collect_stimulation_times(somefishclass):
     Returns the specific times in ms for each stimulation based on the start of the T-series
     '''
 
-     # collecting stimulation timing based on ms in the xml file
-    data = read_xml_to_str(somefishclass.data_paths['ps_xml'])
-    for i in data.split("\n"):
-        if "InitialDelay" in i:
-            try:
-                initial_delay_ms = int([i][0].split("InitialDelay=")[1].split('"')[1].split('.')[1]) # weird format in the xml file for this value, should not be a decimal
-            except:
-                initial_delay_ms = int([i][0].split("InitialDelay=")[1].split('"')[1])*10 # should be times 10 for ms
-            interpointdelay_ms = int(float([i][0].split("InterPointDelay=")[1].split('"')[1]))
-            duration_ms = float([i][0].split("Duration=")[1].split('"')[1])
-        elif "Repetitions" in i:
-            no_repetitions = int([i][0].split("Repetitions=")[1].split('"')[1])
-        elif "Iterations" in i:
-            no_iterations = int([i][0].split("Iterations=")[1].split('"')[1])
-            iteration_delay_ms = int(float([i][0].split("IterationDelay=")[1].split('"')[1]))
+    # collecting stimulation timing based on ms in the xml file
+    if 'ps_xml' in somefishclass.data_paths.keys():
+        data = read_xml_to_str(somefishclass.data_paths['ps_xml'])
+        for i in data.split("\n"):
+            if "InitialDelay" in i:
+                try:
+                    initial_delay_ms = int([i][0].split("InitialDelay=")[1].split('"')[1].split('.')[1]) # weird format in the xml file for this value, should not be a decimal
+                except:
+                    initial_delay_ms = int([i][0].split("InitialDelay=")[1].split('"')[1])*10 # should be times 10 for ms
+                interpointdelay_ms = int(float([i][0].split("InterPointDelay=")[1].split('"')[1]))
+                duration_ms = float([i][0].split("Duration=")[1].split('"')[1])
+            elif "Repetitions" in i:
+                no_repetitions = int([i][0].split("Repetitions=")[1].split('"')[1])
+            elif "Iterations" in i:
+                no_iterations = int([i][0].split("Iterations=")[1].split('"')[1])
+                iteration_delay_ms = int(float([i][0].split("IterationDelay=")[1].split('"')[1]))
+        full_duration_per_stim = initial_delay_ms + (no_repetitions * duration_ms) + ((no_repetitions-1) * interpointdelay_ms)
+    
+    if 'ps_log' in somefishclass.data_paths.keys():
+        with open(somefishclass.data_paths['ps_log']) as file:
+            contents = file.read()
+        lines = contents.split("\n")
+        stim_lines = [l for l in lines if 'Stim event' in l]
 
-    full_duration_per_stim = initial_delay_ms + (no_repetitions * duration_ms) + ((no_repetitions-1) * interpointdelay_ms)
+        # full duration of a stimulation event from the output file, assuming all parameters are the same for each site
+        cmd = stim_lines[0].split('-MarkAllPoints')[1]
+        duration_ms = int(cmd.split('Monaco 1035')[0].split(' ')[-2])
+        no_repetitions = cmd.count('Monaco 1035')
+        interpointdelay_ms = int(cmd.split('True')[2].split(' ')[3])
+        spiral_size = float(cmd.split('True')[2].split(' ')[1])
+        full_duration_per_stim = (no_repetitions * duration_ms) + ((no_repetitions-1) * interpointdelay_ms)
 
     # if there is a voltage recording, can gather start signals from there
     if "voltage_signal" in somefishclass.data_paths.keys():
@@ -154,6 +171,8 @@ def save_badframes_arr(somefishclass, force = False):
     index = 1
     if "voltage_signal" in somefishclass.data_paths.keys():
         index = 2
+    if somefishclass.baseline_frames == 0:
+        index = 1
     stim_ind = [index for index, value in enumerate(frametimes) if value < 0.01][index] 
 
     # only get the relative frametimes that happen during the stimulation
@@ -342,7 +361,7 @@ def identify_stim_sites(somebasefish, rotate = True, stimulation_type = 'single_
             for i, line in enumerate(lines):
                 if "PVMarkPoints" in line and "active" in line:
                     z_step_stimulation_site = int(float(lines[i+2].split(" ")[-2].split("=")[1].split('"')[1]))
-        z_to_plane = [a for a, b in enumerate(z_planes_data) if b == z_step_stimulation_site][0]
+        z_to_plane = [a for a, b in enumerate(z_planes_data) if int(b) == int(z_step_stimulation_site)][0]
         this_plane = z_to_plane
 
     else: # ensemble stimulation
@@ -356,9 +375,9 @@ def identify_stim_sites(somebasefish, rotate = True, stimulation_type = 'single_
             ind_lines = np.arange(ind_start, ind_end, step=1)
             z_vals = [float(lines[i].split('Z')[1].split('"')[1]) for i in ind_lines]
 
-        map_z_to_plane_num = {z: i for i, z in enumerate(z_planes_data)}        
+        map_z_to_plane_num = {int(z): i for i, z in enumerate(z_planes_data)}        
         # convert z values into planes
-        z_to_plane = [map_z_to_plane_num[z] for z in z_vals]
+        z_to_plane = [map_z_to_plane_num[int(z)] for z in z_vals]
         this_plane = int(somebasefish.folder_path.name.split('_')[1])
 
     somebasefish.stim_sites_df['x_stim'] = X_stim_sites
@@ -584,6 +603,55 @@ def calculate_evoked_response(arr_cell_traces, arr_subset, ps_offset = 0, frame_
         evoked_response[a] = np.nanmean(each_trial_evoked_resp)
 
     return evoked_response
+
+
+# helpful pre processing functions for the automated gui
+def process_output_files(folder):
+    '''
+    Process the output log text file to get the stimulation times and the z plane for each stimulation, sort through the random trials
+    folder - the folder path that contains the output log file abd bruker_coordinate_list txt files, for sorting through the data
+
+    Returns a dataframe with the stimulation events and their corresponding z plane, x and y coordinates
+    '''
+
+    output_log_path = Path(folder).joinpath('output.txt')
+    with open(output_log_path) as file:
+            contents = file.read()
+    lines = contents.split("\n")
+    stim_lines = [l for l in lines if 'Stim event' in l]
+    times = [l.split(' ')[1] for l in stim_lines]
+    events = np.arange(len(times))
+    x_coord = [int(s.split('[')[1].split(',')[0]) for s in stim_lines]
+    y_coord = [int(s.split('[')[1].split(',')[1]) for s in stim_lines]
+
+    # to find the correct z plane, look at the original coordinates txt file
+    coordinate_txt_file = Path(folder).joinpath('bruker_coordinate_list.txt')
+    with open(coordinate_txt_file) as file:
+            coords_txt = file.read()
+    coords = coords_txt.split("\n")
+    og_coords_lst = [[int(d) for d in c.split(',')] for c in coords if ',' in c]
+
+    z_coord = []
+    cell_ids = []
+    for x, y in zip(x_coord, y_coord):
+            for k, j in enumerate(og_coords_lst):
+                if x == j[0] and y == j[1]:
+                    z_coord.append(f'plane_{j[2]}')
+                    cell_ids.append(k)
+
+    # full duration of a stimulation event from the output file, assuming all parameters are the same for each site
+    cmd = stim_lines[0].split('-MarkAllPoints')[1]
+    duration_ms = int(cmd.split('Monaco 1035')[0].split(' ')[-2])
+    no_repetitions = cmd.count('Monaco 1035')
+    interpointdelay_ms = int(cmd.split('True')[2].split(' ')[3])
+    spiral_size = float(cmd.split('True')[2].split(' ')[1])
+    full_duration_per_stim = (no_repetitions * duration_ms) + ((no_repetitions-1) * interpointdelay_ms)
+
+    output_df = pd.DataFrame({'ps_event': events, 'plane': z_coord, 'x': x_coord, 'y': y_coord, 'cell_ids': cell_ids })
+    output_df['sp_size'] = spiral_size
+    
+    return output_df
+
 
 
 
