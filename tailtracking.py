@@ -176,6 +176,33 @@ def process_bouts_from_tail_df(tail_df, stimulus_df, imaging_hz = 30, strength_b
     
     return cont_tuples, cont_tuples_imageframe, mean_tail_angle, max_tail_angle, cumul_tail_angle, tail_duration_s, tail_stimuli
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 # reads in the tail data into a df --> custom 2p way
 
 # def tail_reader(tail_path):

@@ -13,10 +13,10 @@ from matplotlib.patches import Circle, Patch
 import seaborn as sns
 
 # local imports
-from utilities import arrutils, plotutils, statutils
+from utilities import arrutils, plotutils, statutils, coordutils, roiutils
 from bruker_images import get_micronstopixels_scale
 
-
+# this is to check the quality of the photostimulation dataset
 class SinglePhotostimPipeline:
     def __init__(self, 
                  PhotostimFishVolume, 
@@ -357,3 +357,82 @@ class SinglePhotostimPipeline:
         
         return fig
 
+
+# make functions that would help with pulling photostim and omr data together
+     
+def build_functional_types_df(omr_fishvolume, stim_fishvolume_dict, omr_fishvolume_barcoding_df):
+    '''
+    Build the master dataframe that would contain all the functional types of neurons in the OMR stack and compared to all the stim datasets
+    omr_fishvolume = VolumeFish object, OMR dataset, needs to have tail data too
+    stim_fishvolume_dict = dictionary of VolumeFish objects, each photostimulation dataset (can have mulitple datasets)
+    volume_barcoding_df = dataframe, barcoding data for each neuron in the OMR stack
+
+    returns a dataframe with the following columns:
+    plane - int, plane number
+    omr_neur_id - int, neuron id in the OMR stack
+    neur_coords - list, coordinates of the OMR cell
+    visual_barcode - str, visual motion barcoding of the neuron
+    region - str, brain region of the neuron in the OMR stack (Pt, Hb, nMLF or nan if not in these)
+    motor_corr - float, motor correlation of the neuron in the OMR stack
+    photostim - bool, if the neuron was photostimulated
+    stim_neur_id_n - int, neuron id in the nth photostimulation dataset
+    '''
+
+    # functional types dataframe - showing visual responsivity, motor correlated cells, and each stim dataset neuron id
+    # for ALL neurons in Pt, nMLF and Hb of the OMR stack
+
+    df_lst = [] 
+    for plane in np.unique(omr_fishvolume_barcoding_df.plane.values):
+        sub_functional_types_df = pd.DataFrame(columns = ['plane', 'omr_neur_id', 'neur_coords', 'visual_barcode', 'region', 'motor_corr', 'photostim'])
+        omr_plane_barcoding_df = omr_fishvolume_barcoding_df[omr_fishvolume_barcoding_df.plane == plane]
+        omr_tailFish = omr_fishvolume.volumes[plane]
+        omr_data_rois = omr_tailFish.return_cell_rois(range(len(omr_tailFish.f_cells)))
+
+        sub_functional_types_df['omr_neur_id'] = range(len(omr_tailFish.f_cells))
+        sub_functional_types_df['neur_coords'] = omr_data_rois
+        sub_functional_types_df['plane'] = [plane] * len(sub_functional_types_df)
+        sub_functional_types_df['motor_corr'] = omr_tailFish.motor_pearson_corrs
+
+        # default is none/false for these functional identities
+        sub_functional_types_df['region'] = [np.nan] * len(sub_functional_types_df)
+        sub_functional_types_df['visual_barcode'] = ['None'] * len(sub_functional_types_df)
+        sub_functional_types_df['photostim'] = [False] * len(sub_functional_types_df)
+        
+        for l in sub_functional_types_df.omr_neur_id.values:
+            if l in omr_plane_barcoding_df.neur_ids.values:
+                sub_functional_types_df['visual_barcode'].iloc[l] = omr_plane_barcoding_df[omr_plane_barcoding_df.neur_ids == l].barcoding.values[0]
+
+            if l in omr_tailFish.return_cells_by_saved_roi('Hb'):
+                sub_functional_types_df['region'].iloc[l] = 'Hb'
+            if l in omr_tailFish.return_cells_by_saved_roi('Pt'):
+                sub_functional_types_df['region'].iloc[l] = 'Pt'
+
+            try: # sometimes there is not a nMLF region with cells, so would run an error
+                if l in omr_tailFish.return_cells_by_saved_roi('nMLF'):
+                    sub_functional_types_df['region'].iloc[l] = 'nMLF'
+            except:
+                pass
+        
+        for b, fish_vol in stim_fishvolume_dict.items():
+            planeFish = fish_vol.volumes[plane]
+            matched_cell_ids = coordutils.match_cell_ids(range(len(omr_tailFish.f_cells)), omr_tailFish.stats,
+                                                        range(len(planeFish.f_cells)), planeFish.stats)
+            
+            new_col = 'stim_neur_id' + '_' + str(b)
+            sub_functional_types_df[new_col] = matched_cell_ids
+
+            # need to identify which neurons were photostimulated
+            try: # not all planes were stimulated
+                planeFish.stimmed_cell_coords, planeFish.stimmed_cell_id_array = planeFish.identify_stim_cells(overlap = False)
+                for s in planeFish.stimmed_cell_id_array: 
+                    omr_photostim_cell_id = np.where(matched_cell_ids == s)[0][0] 
+                    sub_functional_types_df['photostim'].iloc[omr_photostim_cell_id] = True 
+            except:
+                print('no stimulation on this plane')
+
+        df_lst.append(sub_functional_types_df)   
+
+    functional_types_df = pd.concat(df_lst).reset_index(drop = True)
+    functional_types_df.dropna(inplace = True) 
+
+    return functional_types_df    

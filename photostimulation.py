@@ -5,16 +5,16 @@ from pathlib import Path
 import pandas as pd
 import numpy as np
 from tifffile import imread, imwrite
-from datetime import datetime as dt, timedelta
-import xml.etree.ElementTree as ET
-import caiman as cm
-from PIL import Image
-import math
 from scipy.signal import find_peaks 
 
-from bruker_images import read_xml_to_str, get_micronstopixels_scale, get_zstep_vals
+# local imports
+import sys
+sys.path.append(r'C:\Users\NaumannLab_KEF\PyCharmProjects\imaging\caImageAnalysis')
+from bruker_images import get_micronstopixels_scale2, get_zstep_vals, get_pixelsperline
+from bruker_images import read_xml_to_str
+import fishy 
 import process
-from utilities import arrutils
+from utilities import arrutils, pathutils
 from utilities.roiutils import create_circular_mask
 from utilities.coordutils import rotate_transform_coors, closest_coordinates
 
@@ -284,7 +284,7 @@ def run_suite2p_PS(somebasefish, input_tau = 1.5, custom_parameter_dict = None, 
             "preclassify": 0.15,
             "allow_overlap": True,
             "block_size": [32, 32],
-            "fs": BaseFish.hzReturner(somebasefish.frametimes_df),
+            "fs": fishy.BaseFish.hzReturner(somebasefish.frametimes_df),
             "tiff_list": [imagepath.name],
             "two_step_registration" : True,
             "keep_movie_raw":True,
@@ -313,7 +313,6 @@ def run_caiman_cnmf_PS(base_fish, custom_parameter_dict = None, match_suite2p = 
 # identifying stimed sites and collecting its data
 def identify_stim_sites(somebasefish, rotate = True, stimulation_type = 'single_cell'):
     '''
-    planes_stimed is hard coded, not sure how to gather the z plane info with not a clear output file 
     use a base fish, saves a stimulated site dataframe for each unique plane
     '''
     somebasefish.stim_sites_df = pd.DataFrame(columns = ['plane', 'x_stim', 'y_stim', 'sp_size'])
@@ -487,22 +486,18 @@ def return_raw_coord_trace(cell_coord, img, s=5):
 
     return np.nanmean(img[:, msk], axis=1)
 
-def collect_raw_traces(somebasefish):
+def collect_raw_traces(somephotostimfish):
     
-    stim_sites_df_path = Path(somebasefish.folder_path).joinpath("stim_sites.hdf")
-    if not stim_sites_df_path.exists():
-        identify_stim_sites(somebasefish)
-    stim_sites_df = pd.read_hdf(stim_sites_df_path)
     try:
-        img = imread(somebasefish.data_paths["move_corrected_image"])
+        img = imread(somephotostimfish.data_paths["move_corrected_image"])
     except:
-        img = imread(somebasefish.data_paths["image"])
+        img = imread(somephotostimfish.data_paths["image"])
 
-    raw_traces = np.zeros((len(stim_sites_df), img.shape[0]))
-    points = np.zeros((len(stim_sites_df), 2))
-    um_per_pxs = get_micronstopixels_scale(somebasefish.data_paths['info_xml'])
-    for point in range(len(stim_sites_df)):
-        pt = stim_sites_df.iloc[point]
+    raw_traces = np.zeros((len(somephotostimfish.stim_sites_df), img.shape[0]))
+    points = np.zeros((len(somephotostimfish.stim_sites_df), 2))
+    um_per_pxs = get_micronstopixels_scale2(somephotostimfish.data_paths['info_xml'])
+    for point in range(len(somephotostimfish.stim_sites_df)):
+        pt = somephotostimfish.stim_sites_df.iloc[point]
         pt_sp_size_pixels = pt.sp_size / um_per_pxs
         msk = create_circular_mask(img.shape[1:], pt.x_stim, pt.y_stim, pt_sp_size_pixels/2)
         msk_trace = np.nanmean(img[:, msk], axis=1)
@@ -510,7 +505,7 @@ def collect_raw_traces(somebasefish):
         points[point] = [pt.x_stim, pt.y_stim]
 
     # save the raw traces   
-    np.save(Path(somebasefish.folder_path).joinpath('raw_traces.npy'), raw_traces)
+    np.save(Path(somephotostimfish.folder_path).joinpath('raw_traces.npy'), raw_traces)
 
     return raw_traces, points
 
@@ -604,11 +599,10 @@ def calculate_evoked_response(arr_cell_traces, arr_subset, ps_offset = 0, frame_
 
     return evoked_response
 
-
 # helpful pre processing functions for the automated gui
 def process_output_files(folder):
     '''
-    Process the output log text file to get the stimulation times and the z plane for each stimulation, sort through the random trials
+    Process the output log text file to get the stimulation times and the z plane for each stimulation
     folder - the folder path that contains the output log file abd bruker_coordinate_list txt files, for sorting through the data
 
     Returns a dataframe with the stimulation events and their corresponding z plane, x and y coordinates
@@ -619,12 +613,10 @@ def process_output_files(folder):
             contents = file.read()
     lines = contents.split("\n")
     stim_lines = [l for l in lines if 'Stim event' in l]
-    times = [l.split(' ')[1] for l in stim_lines]
-    events = np.arange(len(times))
     x_coord = [int(s.split('[')[1].split(',')[0]) for s in stim_lines]
     y_coord = [int(s.split('[')[1].split(',')[1]) for s in stim_lines]
 
-    # to find the correct z plane, look at the original coordinates txt file
+    # to find the correct z plane, look at the original coordinates txt file, in python orientation
     coordinate_txt_file = Path(folder).joinpath('bruker_coordinate_list.txt')
     with open(coordinate_txt_file) as file:
             coords_txt = file.read()
@@ -639,18 +631,79 @@ def process_output_files(folder):
                     z_coord.append(f'plane_{j[2]}')
                     cell_ids.append(k)
 
-    # full duration of a stimulation event from the output file, assuming all parameters are the same for each site
+    # gather photostimulation parameters from the output file and xml information file, assuming all parameters are the same for each site    
+    with os.scandir(folder) as enteries:  # find a xml file in this folder, but if not there...
+        for entry in enteries: 
+            if 'xml' in entry.name: 
+                xml_info_path = entry.path
+    if 'xml_info_path' not in locals(): # ...use pathcrawler to find the xml file
+        xml_info_path = Path([Path(x) for x in pathutils.pathcrawler(folder, inset=set(), inlist=[], mykey = 'xml') if 'Voltage' not in x][0])
+    px_per_line = get_pixelsperline(xml_info_path)
+    um_per_px = get_micronstopixels_scale2(xml_info_path)
+
     cmd = stim_lines[0].split('-MarkAllPoints')[1]
     duration_ms = int(cmd.split('Monaco 1035')[0].split(' ')[-2])
     no_repetitions = cmd.count('Monaco 1035')
     interpointdelay_ms = int(cmd.split('True')[2].split(' ')[3])
-    spiral_size = float(cmd.split('True')[2].split(' ')[1])
+    spiral_size_perc = float(cmd.split('True')[2].split(' ')[1]) # reads the spiral size as a percent of X pixels
+    spiral_size = spiral_size_perc * px_per_line * um_per_px # now spiral size in microns
     full_duration_per_stim = (no_repetitions * duration_ms) + ((no_repetitions-1) * interpointdelay_ms)
 
-    output_df = pd.DataFrame({'ps_event': events, 'plane': z_coord, 'x': x_coord, 'y': y_coord, 'cell_ids': cell_ids })
+    output_df = pd.DataFrame({'plane': z_coord, 'x_stim': x_coord, 'y_stim': y_coord, 'cell_ids': cell_ids})
     output_df['sp_size'] = spiral_size
+    output_df['stim_duration_ms'] = full_duration_per_stim
+    output_df['data_sets'] = np.concatenate([[0 + l] * (len(og_coords_lst)) for l in range(len(og_coords_lst))])
+
+    output_df.to_hdf(Path(folder).joinpath('master_stim_sites.h5'), key="stim")
     
     return output_df
+
+def organize_output_df(folder):
+    '''
+    Organize the output dataframe to have stim sites df into each respective folder/plane
+    folder - the folder path that contains the output log file abd bruker_coordinate_list txt files, for sorting through the data
+    Make sure there are no other directories than the important data folders in the main folder
+    '''
+    try: # if already ran the output processing function
+        output_df = pd.read_hdf(Path(folder).joinpath('master_stim_sites.h5'), key="stim")
+    except: # or if not
+        output_df = process_output_files(folder)
+    
+    # gathering a dictionary of all the data folders
+    data_folder_dict = {}
+    data_count = 0
+    with os.scandir(folder) as entries:
+        for entry in entries:
+            if entry.is_dir():
+                data_folder_dict[data_count] = Path(entry.path)
+                data_count += 1
+
+    # using dictionary to index into the correct data sets in the stim sites df, adding in the stimulated frames and saving into each folder
+    new_stim_sites_df_lst = []
+    for d, p in data_folder_dict.items():
+        sub_output_df = output_df[output_df.data_sets == d].reset_index(drop = True)
+        bad_frames_start_lst = []
+        for s in range(len(sub_output_df)):
+            bad_frames_lst = np.load(Path(p).joinpath(f'output_folders/{sub_output_df.iloc[s].plane}/bad_frames.npy'))
+            img_hz = fishy.BaseFish.hzReturner(pd.read_hdf(Path(data_folder_dict[0]).joinpath(f'output_folders/{sub_output_df.iloc[s].plane}/frametimes.h5')))
+            stim_duration = np.ceil((sub_output_df.stim_duration_ms.iloc[s]/1000) * img_hz) # rounding up
+            cleaned_bad_frames_lst = arrutils.filter_list(lst = np.unique(bad_frames_lst), interval = stim_duration)
+            if cleaned_bad_frames_lst[0] != 0:
+                cleaned_bad_frames_lst.insert(0, 0)
+            bad_frames_start_lst.append(cleaned_bad_frames_lst[s])
+        sub_output_df['stim_frames'] = bad_frames_start_lst
+        sub_output_df.to_hdf(Path(p).joinpath('stim_sites_volume.h5'), key = 'stim') # save into each individual data folder
+
+        for plane in np.unique(sub_output_df.plane.values): # saving the stim sites df into each respective plane folder
+            plane_sub_output_df = sub_output_df[sub_output_df['plane'] == plane].reset_index(drop = True)
+            save_path = Path(p).joinpath(f"output_folders/{plane}/stim_sites.hdf")
+            plane_sub_output_df.to_hdf(save_path, key="stim")
+
+        new_stim_sites_df_lst.append(sub_output_df)
+
+    # save into the main folder with the stimulated frames in the dataframe for ease processing later
+    new_stim_sites_df = pd.concat(new_stim_sites_df_lst).reset_index(drop = True)
+    new_stim_sites_df.to_hdf(Path(folder).joinpath('master_stim_sites.h5'), key = 'stim') 
 
 
 

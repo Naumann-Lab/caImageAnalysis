@@ -10,8 +10,10 @@ import glob
 import caiman as cm
 from scipy.signal import find_peaks
 
+import sys
+sys.path.append(r'C:\Users\NaumannLab_KEF\PyCharmProjects\imaging\caImageAnalysis')
 from utilities import pathutils, arrutils
-from fishy import BaseFish
+# import fishy
 
 def get_frametimes(info_xml_path, voltage_path):
     '''
@@ -188,6 +190,7 @@ def bruker_img_organization(folder_path, testkey = 'Cycle', safe=False, single_p
                     else:
                         os.remove(new_location)
                 shutil.move(entry, new_location)
+    return print('done')
 
 def addSecs(tm, secs):
     '''
@@ -242,8 +245,8 @@ def move_xml_files(folder_path):
             if ps_xml_path:
                 shutil.copy(ps_xml_path, Path(fld).joinpath(Path(ps_xml_path).name))
             if voltage_path:
-                shutil.copy(voltage_path, Path(fld).joinpath(Path(voltage_path).name))
-            print('extra files copied to output folders')
+                shutil.copy(voltage_path, Path(fld).joinpath(Path(voltage_path).name))      
+    return print('done')
 
 def get_micronstopixels_scale(info_xml_file_path):
     '''
@@ -256,9 +259,36 @@ def get_micronstopixels_scale(info_xml_file_path):
 
         for i, line in enumerate(lines):
             if "micronsPerPixel" in line:
-                pixel_size = float(str(lines[i + 1]).split('"')[-2])
-                
+                pixel_size = float(str(lines[i + 1]).split('"')[-2])         
     return pixel_size
+
+def get_micronstopixels_scale2(info_xml_file_path):
+    '''
+    Getting the scale microns per pixel from the xml file
+    info_xml_file_path = info xml file path
+    Will return pixel_size = microns/pixel
+    '''
+    with open(info_xml_file_path, "r") as f:
+        lines = f.readlines()
+
+        for i, line in enumerate(lines):
+            if "micronsPerPixel" in line:
+                pixel_size = float(str(lines[i + 1]).split('"')[-2])        
+    return pixel_size
+
+def get_pixelsperline(info_xml_file_path):
+    '''
+    Getting the number of pixels per line from the xml file
+    info_xml_file_path = info xml file path
+    Will return pixels_per_line = number of pixels per line
+    '''
+    with open(info_xml_file_path, "r") as f:
+        lines = f.readlines()
+
+        for i, line in enumerate(lines):
+            if "linesPerFrame" in line:
+                pixels_per_line = int(str(lines[i]).split('"')[-2])       
+    return pixels_per_line
 
 def read_xml_to_root(xml_file_path):
     '''
@@ -275,6 +305,7 @@ def read_xml_to_str(xml_file_path):
     '''
     with open(xml_file_path, "r") as f:
         data = f.read()
+        
     return data
 
 def get_zstep_vals(info_xml_file, etl = True):
@@ -359,7 +390,7 @@ def concatenate_datasets(experiment_folders, new_directory, full_duration_per_st
     len_expt = len(frametimes_lst[0])
     new_bad_frames_lst = []
     for a, b in enumerate(bad_frames_lst):
-        img_hz = BaseFish.hzReturner(frametimes_lst[a])
+        img_hz = fishy.BaseFish.hzReturner(frametimes_lst[a])
         interval = round(full_duration_per_stim/1000 * img_hz)
         if interval == 0:
             interval = 1

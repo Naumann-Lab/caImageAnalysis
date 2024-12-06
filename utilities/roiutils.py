@@ -17,6 +17,34 @@ def create_circular_mask(img_shape, x, y, radius):
     mask = dist_from_center <= radius
     return mask
 
+
+def points_within_circle(x_center, y_center, radius):
+    '''
+    Finds all points within a certain radius of a center point
+    x_center: x coordinate of the center point
+    y_center: y coordinate of the center point
+    radius: radius of the circle
+
+    returns x_points_int, y_points_int: integers of the x and y points within the circle
+    '''
+
+    # Define a range of x and y values based on the radius
+    x_range = np.arange(x_center - radius, x_center + radius + 1, 1)
+    y_range = np.arange(y_center - radius, y_center + radius + 1, 1)
+    
+    # Collect all x_points and y_points within the radius
+    x_points = []
+    y_points = []
+    for x in x_range:
+        for y in y_range:
+            if (x - x_center)**2 + (y - y_center)**2 <= radius**2:
+                x_points.append(x)
+                y_points.append(y)
+    x_points_int = np.unique([int(x) for x in x_points])
+    y_points_int = np.unique([int(y) for y in y_points])
+                
+    return x_points_int, y_points_int
+
 # Functions for drawing and saving ROIs outside of the Fish class structure
 
 def draw_roi(ref_img, savePath, title):

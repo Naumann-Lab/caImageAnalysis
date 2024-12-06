@@ -33,6 +33,27 @@ def pandastim_to_df(pstimpath, minimode=False, addvelocity=True):
         return mini_stim_vel
     else:
         return stimulus_df
+    
+def add_repetitions_to_stimulus_df(stimulus_df):
+    stimulus_df['rep'] = 0
+    # get the number of reps for each stim, choose number of reps based on the minimum value
+    all_reps = []
+    for each_stim in stimulus_df.stim_name.unique():
+        all_reps.append(len(stimulus_df[stimulus_df.stim_name == each_stim]))
+    no_repetitions = min(all_reps)
+
+    # set the rep value into a new column in the stimulus df
+    n_stims = stimulus_df.stim_name.nunique()
+    for i in range(no_repetitions):
+        stimulus_df.iloc[(n_stims*i):(n_stims*i+n_stims)]['rep'] = i
+
+    # do not want incomplete reps, so drop the ones that are more than the minimum
+    last_rep = int(stimulus_df.rep.iloc[-1])
+    if len(stimulus_df[stimulus_df['rep'] == last_rep]) < n_stims:
+        drop_rows = stimulus_df[stimulus_df['rep'] == last_rep].index
+        stimulus_df.drop(drop_rows, axis=0, inplace = True)
+
+    return stimulus_df
 
 def csv_to_df(csvpath, minimode=False, addvelocity=True):
     stimulus_df = pd.read_csv(csvpath)
