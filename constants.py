@@ -21,7 +21,7 @@ invStimDict = {
     "backward_forward": "backward_forward",
 }
 
-# monocular are switched
+# monocular are switched (Nov 2024 - Dec 2024)
 bruker_invStimDict = {
     "medial_right": "lateral_right",
     "medial_left": "lateral_left",
@@ -44,6 +44,8 @@ bruker_invStimDict = {
     "forward_backward": "backward_forward",
     "backward_forward": "forward_backward",
 }
+
+
 
 monocular_dict = {
     "right": [1, 0.25, 0],

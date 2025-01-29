@@ -15,8 +15,279 @@ import seaborn as sns
 # local imports
 from utilities import arrutils, plotutils, statutils, coordutils, roiutils
 from bruker_images import get_micronstopixels_scale
+from fishy import PhotostimFish
 
-# this is to check the quality of the photostimulation dataset
+# make functions that would help with pulling photostim and omr data together
+     
+def build_functional_types_df(omr_fishvolume, stim_fishvolume, omr_fishvolume_barcoding_df):
+    '''
+    Build the master dataframe that would contain all the functional types of neurons in the OMR stack and compared to all the stim datasets
+    omr_fishvolume = VolumeFish object, OMR dataset, needs to have tail data too
+    stim_fishvolume = VolumeFish object, concatenated photostimulation dataset (one big dataset)
+    volume_barcoding_df = dataframe, barcoding data for each neuron in the OMR stack
+
+    will plot the plane and location of photostimulated cells
+
+    returns a dataframe with the following columns:
+    plane - int, plane number
+    omr_neur_id - int, neuron id in the OMR stack
+    neur_coords - list, coordinates of the OMR cell
+    visual_barcode - str, visual motion barcoding of the neuron
+    region - str, brain region of the neuron in the OMR stack (Pt, Hb, nMLF or nan if not in these)
+    motor_corr - float, motor correlation of the neuron in the OMR stack
+    photostim - bool, if the neuron was photostimulated
+    if photostim...
+        stim_events - list, the event order (number) of when that neuron was photostimulated
+        stim_frames - list, frames in the stim dataset of when that neuron was photostimulated
+    stim_neur_id - int, neuron id photostimulation dataset
+    '''
+
+    # process the functional information for all neurons into a giant dataframe, now just working with the OMR fish volume and the stim fish volume
+
+    df_lst = [] 
+    for plane in np.unique(omr_fishvolume_barcoding_df.plane.values):
+        # if plane == 'plane_4': # for troubleshooting, only look at one plane
+        sub_functional_types_df = pd.DataFrame(columns = ['plane', 'omr_neur_id', 'neur_coords', 'visual_barcode', 'region', 'motor_corr', 'photostim'])
+        omr_plane_barcoding_df = omr_fishvolume_barcoding_df[omr_fishvolume_barcoding_df.plane == plane]
+        omr_tailFish = omr_fishvolume.volumes[plane]
+        omr_data_rois = omr_tailFish.return_cell_rois(range(len(omr_tailFish.f_cells)))
+
+        sub_functional_types_df['omr_neur_id'] = range(len(omr_tailFish.f_cells))
+        sub_functional_types_df['neur_coords'] = omr_data_rois
+        sub_functional_types_df['plane'] = [plane] * len(sub_functional_types_df)
+        sub_functional_types_df['motor_corr'] = omr_tailFish.motor_pearson_corrs
+
+        # default is none/false for these functional identities
+        sub_functional_types_df['region'] = [np.nan] * len(sub_functional_types_df)
+        sub_functional_types_df['visual_barcode'] = ['None'] * len(sub_functional_types_df)
+        sub_functional_types_df['photostim'] = [False] * len(sub_functional_types_df)
+        sub_functional_types_df['stim_frames'] = [None] * len(sub_functional_types_df)
+        sub_functional_types_df['stim_events'] = [None] * len(sub_functional_types_df)
+        
+        for l in sub_functional_types_df.omr_neur_id.values:
+            if l in omr_plane_barcoding_df.neur_ids.values:
+                sub_functional_types_df['visual_barcode'].iloc[l] = omr_plane_barcoding_df[omr_plane_barcoding_df.neur_ids == l].barcoding.values[0]
+            if l in omr_tailFish.return_cells_by_saved_roi('Hb'):
+                sub_functional_types_df['region'].iloc[l] = 'Hb'
+            if l in omr_tailFish.return_cells_by_saved_roi('Pt'):
+                sub_functional_types_df['region'].iloc[l] = 'Pt'
+            if 'nMLF' in omr_tailFish.roi_dict.keys():  # sometimes there is not a nMLF region with cells, so would run an error
+                if l in omr_tailFish.return_cells_by_saved_roi('nMLF'):
+                    sub_functional_types_df['region'].iloc[l] = 'nMLF'
+
+        stim_photostimFish = stim_fishvolume.volumes[plane]
+        matched_cell_ids = coordutils.match_cell_ids(sub_functional_types_df.omr_neur_id.values, omr_tailFish.stats,
+                                                        range(len(stim_photostimFish.f_cells)), stim_photostimFish.stats)
+        sub_functional_types_df['stim_neur_id'] = matched_cell_ids
+            
+        # need to identify which neurons were photostimulated by matching spatially, add in the stim events and frames for each cell
+        plt.figure(figsize = (6, 6))
+        plt.imshow(stim_photostimFish.rescaled_ref, cmap = 'gray', vmax = np.percentile(stim_photostimFish.rescaled_ref, 99))
+        plt.title(f'{plane}')
+        if 'stim_sites' in stim_photostimFish.data_paths.keys():
+            stim_photostimFish.stimmed_cell_coords, stim_photostimFish.stimmed_cell_id_array = PhotostimFish.identify_stim_cells(stim_photostimFish, overlap = True)
+            omr_photostim_cell_id_lst = [np.where(matched_cell_ids == int(s))[0][0] for s in stim_photostimFish.stimmed_cell_id_array]
+            stim_frames = stim_photostimFish.stim_sites_df.stim_frames.values
+            stim_events = stim_photostimFish.stim_sites_df.stim_events.values
+            for n in range(len(stim_photostimFish.stimmed_cell_id_array)):
+                sub_functional_types_df.loc[[omr_photostim_cell_id_lst[n]], 'photostim'] = True
+                sub_functional_types_df.loc[[omr_photostim_cell_id_lst[n]], 'stim_frames'] = pd.Series([stim_frames[n]], index = sub_functional_types_df.index[[omr_photostim_cell_id_lst[n]]])
+                sub_functional_types_df.loc[[omr_photostim_cell_id_lst[n]], 'stim_events'] = pd.Series([stim_events[n]], index = sub_functional_types_df.index[[omr_photostim_cell_id_lst[n]]])
+                
+                # red is OMR-id'ed cell, white is photostim cell
+                plt.scatter(sub_functional_types_df.neur_coords.loc[omr_photostim_cell_id_lst[n]][0], 
+                            sub_functional_types_df.neur_coords.loc[omr_photostim_cell_id_lst[n]][1], color = 'red', s = 10)
+                plt.annotate(omr_photostim_cell_id_lst[n], (sub_functional_types_df.neur_coords.loc[omr_photostim_cell_id_lst[n]][0], 
+                                sub_functional_types_df.neur_coords.loc[omr_photostim_cell_id_lst[n]][1]), color = 'red')
+                plt.scatter(stim_photostimFish.stimmed_cell_coords[n][0], stim_photostimFish.stimmed_cell_coords[n][1], color = 'white', s = 10)
+                plt.annotate(stim_photostimFish.stimmed_cell_id_array[n], (stim_photostimFish.stimmed_cell_coords[n][0], 
+                                                                            stim_photostimFish.stimmed_cell_coords[n][1]), color = 'white') 
+            plt.show() 
+        else:
+            pass  
+
+        df_lst.append(sub_functional_types_df)   
+
+    functional_types_df = pd.concat(df_lst).reset_index(drop = True)
+    
+    return functional_types_df    
+
+
+# plotting functions for visualizing the photostimulation data #
+
+def prepare_data_for_plotting(data_df, fishvolume):
+    '''
+    Prepare the data for plotting
+    '''
+    f_trace_array = np.zeros(shape = (len(data_df), len(fishvolume[0].f_cells[0])))
+    normf_trace_array = np.zeros(shape = (len(data_df), len(fishvolume[0].f_cells[0])))
+    zscored_trace_array = np.zeros(shape = (len(data_df), len(fishvolume[0].zdiffcells[0])))
+    for r_ind, r_cell in enumerate(data_df.stim_neur_id.values):
+        r_cell = int(r_cell)
+        dataFish = fishvolume.volumes[data_df.plane.values[r_ind]]
+        f_trace_array[r_ind] = dataFish.f_cells[r_cell]
+        normf_trace_array[r_ind] = dataFish.normcells[r_cell]
+        zscored_trace_array[r_ind] = dataFish.zdiffcells[r_cell]
+    
+    return f_trace_array, normf_trace_array, zscored_trace_array
+
+def plotting_pairs_heatmap_and_traces(stimulated_traces, responder_traces, window_frames, img_hz, 
+                                      optional_figsuptitle = None, vmin = -3, vmax = 3, ylim = [-0.03, 0.03],
+                                      savepath = None):
+    '''
+    Plotting the trace and heatmap of every trial for pairs of stimulated and responder cells
+    stimulated_traces - the traces of the stimulated cells, shape = (stimulated cells, frames)
+    responder_traces - the traces of the responding cells, shape = (responding cells, frames)
+    window_frames - the window of frames to look at before and after the photostimulation event
+    img_hz - the hz of the imaging
+    optional_figsuptitle - optional title for the figure
+    vmin - the minimum value for the heatmap
+    vmax - the maximum value for the heatmap
+
+    returns a figure
+    '''
+    
+    fig, ax = plt.subplots(2, 2, figsize = (8, 7), sharey='row', gridspec_kw={'height_ratios': [1, 2]})
+
+    stimulated_event_frame = -window_frames[0]
+
+    for n, traces in enumerate([stimulated_traces, responder_traces]):
+        if n == 0:
+            name = 'stimulated'
+        else:
+            name = 'responder'
+        [ax[0,n].plot(np.arange(len(m)), arrutils.pretty(m), color = 'grey', alpha = 0.3) for m in traces]
+        ax[0,n].plot(np.arange(len(traces[0])), arrutils.pretty(np.nanmedian(traces, axis = 0)), color = 'k')
+        ci_lower, ci_upper = statutils.calculate_ci(traces)
+        ax[0,n].fill_between(np.arange(len(traces[0])), ci_lower, ci_upper, color='skyblue', alpha=0.4, label='95% CI') 
+        ax[0,n].set_ylabel('df/f')
+        ax[0,n].axvline(x = stimulated_event_frame, color = 'red')
+        ax[0,n].axhline(0, color = 'grey', linestyle = '--')
+        ax[0,n].set_title(name)
+        ax[0,n].set_ylim(ylim[0], ylim[1])
+
+        sns.heatmap(traces, ax = ax[1,n], cmap = 'coolwarm', cbar_kws={'label': 'df/f'}, vmin=vmin, vmax=vmax)
+        ax[1,n].axvline(x = window_frames[0], color = 'black')
+        ax[1,n].set_ylabel('stimulation trials')
+        ax[1,n].axvline(x = stimulated_event_frame, color = 'red')
+        
+        [a.set_xticks([0, -window_frames[0] , window_frames[1]], (np.array([window_frames[0], 0, window_frames[1]]) 
+                                                  * img_hz).astype(int)) for a in ax.flatten()]
+        [a.set_xlabel('time (sec)') for a in ax.flatten()]
+    
+    if optional_figsuptitle:
+        fig.suptitle(optional_figsuptitle)
+
+    plt.tight_layout()
+    if savepath:
+        plt.savefig(savepath, dpi = 300, bbox_inches = 'tight')
+    
+    return plt.show()
+
+def plotting_pairs_location_of_cells(fish_img, stimulated_roi, responder_roi, responder_alphas = None, optional_title = None, show_text = False, show_legend = True):
+    '''
+    Plotting location of the stimulated cells and either one or multiple responding cells
+    fish_img - the image of the fish, background of this image
+    stimulated_roi - the location of the stimulated cell
+    responder_roi - the location of the responding cell(s)
+    responder_alphas - the alpha of the responding cell(s), likely motor correlation values
+    optional_title - optional title for the figure
+    show_text - show the text of the responding cell index
+    show_legend - show the legend
+
+    returns a figure
+    '''
+
+    plt.figure(figsize = (9, 9))
+    plt.imshow(fish_img, cmap = 'gray', vmax = np.percentile(fish_img, 99))
+    plt.scatter(stimulated_roi[0], stimulated_roi[1], edgecolor = 'tab:red', s = 50, linewidth=2, label = 'stimulated', facecolors='none')
+    
+    alphas = [1] * len(responder_roi)
+    if responder_alphas is not None:
+        alphas = responder_alphas
+    if len(responder_roi) > 1:
+        for i, r in enumerate(responder_roi):
+            plt.scatter(r[0], r[1], edgecolor = 'tab:blue', s = 50, linewidth=2, label = f'responder_{i}', 
+            facecolors='tab:green', alpha = alphas[i])
+            if show_text:
+                plt.annotate(f'{i}', (r[0], r[1]), color = 'white')
+    else:
+        plt.scatter(responder_roi[0], responder_roi[1], edgecolor = 'tab:blue', s = 50,
+        linewidth=2, label = 'responder', facecolors='tab:green', alpha = alphas[0])   
+    
+    if optional_title:
+        plt.title(optional_title)
+
+    if show_legend:
+        plt.legend(bbox_to_anchor=(1.05, 1))
+    else:
+        plt.legend('',frameon=False)
+    plt.tight_layout()
+    plt.axis('off')
+    
+    return plt.show()
+
+def plotting_time_series_of_responders(raw_fluor_responding_traces, array_stimulated_frames, img_hz = 1, length_of_plot = None):
+    '''
+    Plotting the large time series of the responding neurons with the stimulated frames marked
+    raw_fluor_r - the raw traces of the responding neurons, shape = (neurons, entire trace)
+    array_stimulated_frames - the array of stimulated frames, shape = (stimulated neurons, frames)
+    img_hz - the hz of the recording
+    length_of_plot - the length of the plot in frames (x -axis)
+
+    returns a figure
+    '''
+    if length_of_plot is None:
+        length_of_plot = len(raw_fluor_responding_traces[0])
+
+    fig, ax = plt.subplots(figsize = (15, 8))
+
+    random_colors = np.random.rand(array_stimulated_frames.shape[0], 3) # create a list of random colors to use to plot for each stimulated cell
+
+    for n, r in enumerate(raw_fluor_responding_traces):
+        r = arrutils.norm_0to1(r)
+        plt.plot(np.arange(len(r)), arrutils.pretty(r + n), linewidth = 1)
+
+    for s, s_frames in enumerate(array_stimulated_frames):
+        stimmed_neuron = int(s)
+        color = random_colors[s]
+        [plt.axvline(w, color = color, alpha = 0.5) for w in s_frames]
+        [plt.text(w, 1.01, stimmed_neuron, color=color, ha='center', va='center', rotation=90,
+                transform=ax.get_xaxis_transform()) for w in s_frames if w < length_of_plot]
+    ax.spines[['top', 'right']].set_visible(False)
+    plt.yticks(ticks=[0.5 + x for x in range(n+1)], labels=range(n+1))
+    plt.xticks(ticks =np.arange(0, length_of_plot + 500, 500), labels = [int(i) for i in np.arange(0, length_of_plot + 500, 500) * img_hz])
+    plt.xlabel('time (sec)')
+    plt.ylabel('responding neuron')
+    plt.xlim(0, length_of_plot)
+
+    return fig    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# this is to check the quality of the photostimulation dataset - wihtout automated gui
 class SinglePhotostimPipeline:
     def __init__(self, 
                  PhotostimFishVolume, 
@@ -356,83 +627,3 @@ class SinglePhotostimPipeline:
         fig.tight_layout()
         
         return fig
-
-
-# make functions that would help with pulling photostim and omr data together
-     
-def build_functional_types_df(omr_fishvolume, stim_fishvolume_dict, omr_fishvolume_barcoding_df):
-    '''
-    Build the master dataframe that would contain all the functional types of neurons in the OMR stack and compared to all the stim datasets
-    omr_fishvolume = VolumeFish object, OMR dataset, needs to have tail data too
-    stim_fishvolume_dict = dictionary of VolumeFish objects, each photostimulation dataset (can have mulitple datasets)
-    volume_barcoding_df = dataframe, barcoding data for each neuron in the OMR stack
-
-    returns a dataframe with the following columns:
-    plane - int, plane number
-    omr_neur_id - int, neuron id in the OMR stack
-    neur_coords - list, coordinates of the OMR cell
-    visual_barcode - str, visual motion barcoding of the neuron
-    region - str, brain region of the neuron in the OMR stack (Pt, Hb, nMLF or nan if not in these)
-    motor_corr - float, motor correlation of the neuron in the OMR stack
-    photostim - bool, if the neuron was photostimulated
-    stim_neur_id_n - int, neuron id in the nth photostimulation dataset
-    '''
-
-    # functional types dataframe - showing visual responsivity, motor correlated cells, and each stim dataset neuron id
-    # for ALL neurons in Pt, nMLF and Hb of the OMR stack
-
-    df_lst = [] 
-    for plane in np.unique(omr_fishvolume_barcoding_df.plane.values):
-        sub_functional_types_df = pd.DataFrame(columns = ['plane', 'omr_neur_id', 'neur_coords', 'visual_barcode', 'region', 'motor_corr', 'photostim'])
-        omr_plane_barcoding_df = omr_fishvolume_barcoding_df[omr_fishvolume_barcoding_df.plane == plane]
-        omr_tailFish = omr_fishvolume.volumes[plane]
-        omr_data_rois = omr_tailFish.return_cell_rois(range(len(omr_tailFish.f_cells)))
-
-        sub_functional_types_df['omr_neur_id'] = range(len(omr_tailFish.f_cells))
-        sub_functional_types_df['neur_coords'] = omr_data_rois
-        sub_functional_types_df['plane'] = [plane] * len(sub_functional_types_df)
-        sub_functional_types_df['motor_corr'] = omr_tailFish.motor_pearson_corrs
-
-        # default is none/false for these functional identities
-        sub_functional_types_df['region'] = [np.nan] * len(sub_functional_types_df)
-        sub_functional_types_df['visual_barcode'] = ['None'] * len(sub_functional_types_df)
-        sub_functional_types_df['photostim'] = [False] * len(sub_functional_types_df)
-        
-        for l in sub_functional_types_df.omr_neur_id.values:
-            if l in omr_plane_barcoding_df.neur_ids.values:
-                sub_functional_types_df['visual_barcode'].iloc[l] = omr_plane_barcoding_df[omr_plane_barcoding_df.neur_ids == l].barcoding.values[0]
-
-            if l in omr_tailFish.return_cells_by_saved_roi('Hb'):
-                sub_functional_types_df['region'].iloc[l] = 'Hb'
-            if l in omr_tailFish.return_cells_by_saved_roi('Pt'):
-                sub_functional_types_df['region'].iloc[l] = 'Pt'
-
-            try: # sometimes there is not a nMLF region with cells, so would run an error
-                if l in omr_tailFish.return_cells_by_saved_roi('nMLF'):
-                    sub_functional_types_df['region'].iloc[l] = 'nMLF'
-            except:
-                pass
-        
-        for b, fish_vol in stim_fishvolume_dict.items():
-            planeFish = fish_vol.volumes[plane]
-            matched_cell_ids = coordutils.match_cell_ids(range(len(omr_tailFish.f_cells)), omr_tailFish.stats,
-                                                        range(len(planeFish.f_cells)), planeFish.stats)
-            
-            new_col = 'stim_neur_id' + '_' + str(b)
-            sub_functional_types_df[new_col] = matched_cell_ids
-
-            # need to identify which neurons were photostimulated
-            try: # not all planes were stimulated
-                planeFish.stimmed_cell_coords, planeFish.stimmed_cell_id_array = planeFish.identify_stim_cells(overlap = False)
-                for s in planeFish.stimmed_cell_id_array: 
-                    omr_photostim_cell_id = np.where(matched_cell_ids == s)[0][0] 
-                    sub_functional_types_df['photostim'].iloc[omr_photostim_cell_id] = True 
-            except:
-                print('no stimulation on this plane')
-
-        df_lst.append(sub_functional_types_df)   
-
-    functional_types_df = pd.concat(df_lst).reset_index(drop = True)
-    functional_types_df.dropna(inplace = True) 
-
-    return functional_types_df    

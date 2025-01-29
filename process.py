@@ -59,7 +59,7 @@ def run_movement_correction(
             "downsample_ratio": 0.2,
         }
     c, dview, n_processes = cm.cluster.setup_cluster(
-        backend="local", n_processes=12, single_thread=False
+        backend="local", n_processes=14, single_thread=False
     )
     mc = cm.motion_correction.MotionCorrect(
         [original_image_path.as_posix()],

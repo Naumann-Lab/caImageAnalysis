@@ -25,7 +25,7 @@ def find_no_baseline_frames(somefishclass):
     volume = set to True if this is a volume stack since the baseline frame number is calculated differently
     '''
     no_planes = identify_number_planes_in_expt(somefishclass)
-    if no_planes < 2:
+    if no_planes < 2: # if this is a single plane imaging file
         original_imgs = Path(somefishclass.folder_path).parents[1].joinpath("bruker_images")
         with os.scandir(original_imgs) as entries:
             for entry in entries:
@@ -35,10 +35,12 @@ def find_no_baseline_frames(somefishclass):
 
         somefishclass.baseline_frames = baseline_img.shape[0]
 
-    elif no_planes >= 2 and 'ps_xml' in somefishclass.data_paths.keys():
+    elif no_planes >= 2 and 'ps_xml' in somefishclass.data_paths.keys(): # if this is a volume, but there is the MarkPoints xml file
         ps_xml_name = Path(somefishclass.data_paths['ps_xml']).name
         somefishclass.baseline_frames = int(ps_xml_name.split('Cycle')[1].split('_')[0]) # baseline frames number is given in the cycle name for the volume
     
+    # elif no_planes >= 2 and 'ps_log' in somefishclass.data_paths.keys(): # if this is a volume, but there is the MarkPoints xml file
+
     else:
         somefishclass.baseline_frames = 0
 
@@ -99,7 +101,10 @@ def collect_stimulation_times(somefishclass):
         stim_times = [time[i] for i in trial_starts] # convert the peak start indices to the time in ms
     
     else: # if no voltage recording, then calculate from mark points xml file
-        stim_times = [(full_duration_per_stim/1000)*m + (iteration_delay_ms/1000)*m for m in range(no_iterations)]
+        try:
+            stim_times = [(full_duration_per_stim/1000)*m + (iteration_delay_ms/1000)*m for m in range(no_iterations)]
+        except:
+            stim_times = []
 
 
     return full_duration_per_stim, stim_times
@@ -141,25 +146,34 @@ def identify_stimmed_planes(omr_tseries_folder_path, clst_label):
     return stimmed_planes
 
 # identifying the ps events
-def save_badframes_arr(somefishclass, force = False):
+def save_badframes_arr(somefishclass, automated_gui = False):
+    '''
+    Calculate the bad frames array based on the photostimulation events
+    somefishclass = the fishy class that you are working with
+    automated_gui = if you are using the automated gui to process the data (this changes some of the functions to use)
 
+    Returns the bad frames array (and is saved)
+    '''
     somefishclass.process_filestructure(somefishclass.midnight_noon_keyword) # update file structure
     no_planes = identify_number_planes_in_expt(somefishclass)
-    somefishclass.baseline_frames = find_no_baseline_frames(somefishclass)
 
-    full_duration_per_stim, stim_times = collect_stimulation_times(somefishclass)
+    if automated_gui == False:
+        somefishclass.baseline_frames = find_no_baseline_frames(somefishclass)
+        full_duration_per_stim, stim_times = collect_stimulation_times(somefishclass)
+    else:
+        somefishclass.baseline_frames, stim_times, full_duration_per_stim = utils_for_save_badframes_arr(somefishclass)
+
     somefishclass.ps_event_duration = full_duration_per_stim
     stim_times_secs = [x/1000 for x in stim_times] # needs to be in seconds for comparing with the relative times in the xml file
 
     # using the information xml file to calculate the frames and times for each stimulation
     if no_planes > 1: # if volume stimulation
-        plane_num = int(somefishclass.data_paths['info_xml'].parents[0].name.split('_')[1])
+        plane_num = int(somefishclass.folder_path.name.split('_')[1])
     else:
         plane_num = 0
 
     frametimes = []
     info_data = read_xml_to_str(somefishclass.data_paths["info_xml"])
-
     for i in info_data.split("\n"):
         if "relativeTime" in i:
             relative_time = [i.split("relativeTime=")[1].split('"')[1]][0]
@@ -169,11 +183,15 @@ def save_badframes_arr(somefishclass, force = False):
     # presuming that you are doing 2 t-series cycles:
     # the first occurence is the baseline recording, second is the markpoints start, then third value is the frame
     index = 1
-    if "voltage_signal" in somefishclass.data_paths.keys():
+    if ("voltage_signal" in somefishclass.data_paths.keys()) & (automated_gui == False):
         index = 2
-    if somefishclass.baseline_frames == 0:
+    elif somefishclass.baseline_frames == 0:
         index = 1
-    stim_ind = [index for index, value in enumerate(frametimes) if value < 0.01][index] 
+    elif automated_gui == True:
+        index = 1
+
+    stim_ind = [index for index, value in enumerate(frametimes) if value < 0.01][index]
+    print(stim_ind) 
 
     # only get the relative frametimes that happen during the stimulation
     stimulation_frametimes = frametimes[stim_ind:]
@@ -187,14 +205,11 @@ def save_badframes_arr(somefishclass, force = False):
     ps_events = [somefishclass.baseline_frames + f for f in frames]
     ps_events = np.unique(ps_events)
     somefishclass.badframes_arr = np.array(ps_events)
+
     # saving the bad frames array
-    save_path = Path(somefishclass.data_paths['info_xml']).parents[0].joinpath('bad_frames.npy')
-    if force == False:
-        somefishclass.badframes_arr = np.array(np.load(save_path)) # load in badframes
-        print('load in bad frames array')
-    elif force == True:
-        np.save(save_path, somefishclass.badframes_arr)  # save badframes
-        print('saved bad frames array')
+    save_path = Path(somefishclass.folder_path).joinpath('bad_frames.npy')
+    np.save(save_path, somefishclass.badframes_arr)  # save badframes
+    print('saved bad frames array')
    
     return somefishclass.badframes_arr
 
@@ -247,8 +262,10 @@ def create_new_ps_events_array(base_fish):
 
 # running source extraction
 
-# troubleshooting on 10/10/24 - found these to be important params to change for photostim datasets
+# troubleshooting on 10/10/24 - found these to be important params to change for photostim datasets, makes more cells than are actually cells
 suite2p_params = { 'preclassify' : 0.01, 'threshold_scaling': 0.7, 'max_overlap':1}
+# as of 12/09/24 - found this found more realistic cells
+suite2p_params2 = { 'preclassify' : 0.05, 'threshold_scaling': 0.8, 'max_overlap':1}
 
 def run_suite2p_PS(somebasefish, input_tau = 1.5, custom_parameter_dict = None, move_corr = False, force = False):
     '''
@@ -491,7 +508,7 @@ def collect_raw_traces(somephotostimfish):
     try:
         img = imread(somephotostimfish.data_paths["move_corrected_image"])
     except:
-        img = imread(somephotostimfish.data_paths["image"])
+        img = imread(somephotostimfish.data_paths["rotated_image"])
 
     raw_traces = np.zeros((len(somephotostimfish.stim_sites_df), img.shape[0]))
     points = np.zeros((len(somephotostimfish.stim_sites_df), 2))
@@ -599,7 +616,7 @@ def calculate_evoked_response(arr_cell_traces, arr_subset, ps_offset = 0, frame_
 
     return evoked_response
 
-# helpful pre processing functions for the automated gui
+# helpful pre processing functions for the automated gui, keeping datasets all in separate folders
 def process_output_files(folder):
     '''
     Process the output log text file to get the stimulation times and the z plane for each stimulation
@@ -610,37 +627,57 @@ def process_output_files(folder):
 
     output_log_path = Path(folder).joinpath('output.txt')
     with open(output_log_path) as file:
-            contents = file.read()
+        contents = file.read()
     lines = contents.split("\n")
     stim_lines = [l for l in lines if 'Stim event' in l]
     x_coord = [int(s.split('[')[1].split(',')[0]) for s in stim_lines]
     y_coord = [int(s.split('[')[1].split(',')[1]) for s in stim_lines]
+    z_coord = [int(s.split('[')[1].split(',')[2].split(']')[0]) for s in stim_lines]
 
     # to find the correct z plane, look at the original coordinates txt file, in python orientation
     coordinate_txt_file = Path(folder).joinpath('bruker_coordinate_list.txt')
     with open(coordinate_txt_file) as file:
-            coords_txt = file.read()
+        coords_txt = file.read()
     coords = coords_txt.split("\n")
     og_coords_lst = [[int(d) for d in c.split(',')] for c in coords if ',' in c]
+    unique_stimmed_z_planes = np.unique(sorted([i[2] for i in og_coords_lst]))
 
-    z_coord = []
+    # gathering x, y, z plane for each unique cell id
+    z_planes = []
     cell_ids = []
-    for x, y in zip(x_coord, y_coord):
+    for each_sequence in range(int(len(x_coord)/len(og_coords_lst))):
+        each_sequence_inds = [each_sequence*len(og_coords_lst), (each_sequence+1)*len(og_coords_lst)] # start and stop seq inds
+        specific_z_coords = z_coord[each_sequence_inds[0]:each_sequence_inds[1]]
+        unique_specific_z_coords = np.unique(sorted(specific_z_coords))
+        z_coords_to_planes = {zc: zp for zc, zp in zip(unique_specific_z_coords, unique_stimmed_z_planes)}
+        for e in range(len(x_coord[each_sequence_inds[0]:each_sequence_inds[1]])):
+            x = x_coord[each_sequence_inds[0]:each_sequence_inds[1]][e]
+            y = y_coord[each_sequence_inds[0]:each_sequence_inds[1]][e]
+            z = z_coords_to_planes[z_coord[each_sequence_inds[0]:each_sequence_inds[1]][e]]
             for k, j in enumerate(og_coords_lst):
-                if x == j[0] and y == j[1]:
-                    z_coord.append(f'plane_{j[2]}')
+                if x == j[0] and y == j[1] and z == j[2]:
+                    z_planes.append(f'plane_{j[2]}')
                     cell_ids.append(k)
+    
+    # gathering unique stim events for each cell id
+    ps_events_per_cell = {}
+    for c in cell_ids[:len(og_coords_lst)]:
+        if c not in ps_events_per_cell.keys():
+            ps_events_per_cell[c] = []
+        ps_events_per_cell[c] = np.array([i for i, item in enumerate(cell_ids) if item == c])
 
     # gather photostimulation parameters from the output file and xml information file, assuming all parameters are the same for each site    
-    with os.scandir(folder) as enteries:  # find a xml file in this folder, but if not there...
-        for entry in enteries: 
-            if 'xml' in entry.name: 
-                xml_info_path = entry.path
-    if 'xml_info_path' not in locals(): # ...use pathcrawler to find the xml file
-        xml_info_path = Path([Path(x) for x in pathutils.pathcrawler(folder, inset=set(), inlist=[], mykey = 'xml') if 'Voltage' not in x][0])
-    px_per_line = get_pixelsperline(xml_info_path)
-    um_per_px = get_micronstopixels_scale2(xml_info_path)
-
+    try:
+        with os.scandir(folder) as entries:  # find a xml file in this folder, but if not there...
+            for entry in entries: 
+                if 'xml' in entry.name: 
+                    xml_info_path = entry.path
+        px_per_line = get_pixelsperline(xml_info_path)
+        um_per_px = get_micronstopixels_scale2(xml_info_path)
+    except: # default values in case there is no xml file in the complete dataset folder
+        px_per_line = 512
+        um_per_px = 0.602463686424765
+    
     cmd = stim_lines[0].split('-MarkAllPoints')[1]
     duration_ms = int(cmd.split('Monaco 1035')[0].split(' ')[-2])
     no_repetitions = cmd.count('Monaco 1035')
@@ -649,24 +686,29 @@ def process_output_files(folder):
     spiral_size = spiral_size_perc * px_per_line * um_per_px # now spiral size in microns
     full_duration_per_stim = (no_repetitions * duration_ms) + ((no_repetitions-1) * interpointdelay_ms)
 
-    output_df = pd.DataFrame({'plane': z_coord, 'x_stim': x_coord, 'y_stim': y_coord, 'cell_ids': cell_ids})
+    output_df = pd.DataFrame({'plane': z_planes, 'x_stim': x_coord, 'y_stim': y_coord, 'cell_ids': cell_ids})
     output_df['sp_size'] = spiral_size
     output_df['stim_duration_ms'] = full_duration_per_stim
-    output_df['data_sets'] = np.concatenate([[0 + l] * (len(og_coords_lst)) for l in range(len(og_coords_lst))])
+    output_df['stim_events'] = np.nan
+    for c_id, unique_events in ps_events_per_cell.items():
+        i = output_df.loc[output_df['cell_ids'] == c_id].index[0] # index of the first cell id 
+        output_df.loc[[i], 'stim_events'] = pd.Series([unique_events], index=output_df.index[[i]]) # put in the unique events
+    # trim the dataframe to only include the unique cell ids
+    output_df = output_df.drop_duplicates(subset = 'cell_ids').reset_index(drop = True)
 
     output_df.to_hdf(Path(folder).joinpath('master_stim_sites.h5'), key="stim")
     
     return output_df
 
-def organize_output_df(folder):
+def organize_bad_frames_in_individual_folders(folder):
     '''
     Organize the output dataframe to have stim sites df into each respective folder/plane
     folder - the folder path that contains the output log file abd bruker_coordinate_list txt files, for sorting through the data
     Make sure there are no other directories than the important data folders in the main folder
     '''
-    try: # if already ran the output processing function
+    if Path(folder).joinpath('master_stim_sites.h5').exists(): # if already ran the output processing function
         output_df = pd.read_hdf(Path(folder).joinpath('master_stim_sites.h5'), key="stim")
-    except: # or if not
+    else: # or if not
         output_df = process_output_files(folder)
     
     # gathering a dictionary of all the data folders
@@ -674,37 +716,114 @@ def organize_output_df(folder):
     data_count = 0
     with os.scandir(folder) as entries:
         for entry in entries:
-            if entry.is_dir():
+            if (entry.is_dir()) & ('complete' not in entry.name):
                 data_folder_dict[data_count] = Path(entry.path)
                 data_count += 1
 
+    # using dictionary to index into the correct data sets in the stim sites df (stim duration), then save bad frames for each folder
+    new_stim_sites_df_lst = []
+    stim_duration_ms = output_df.stim_duration_ms.iloc[0] # assuming they are all the same
+    for d, p in data_folder_dict.items():
+        if 'output_folders' != p.name: 
+            p = Path(p).joinpath('output_folders')
+        with os.scandir(p) as entries:
+            for entry in entries:
+                if 'plane' in entry.name:
+                    plane_path = Path(entry.path)
+                    quick_fish = fishy.BaseFish(folder_path = plane_path, frametimes_key= 'frametimes')
+                    bad_frames_lst = save_badframes_arr(quick_fish, automated_gui = True)
+                    img_hz = fishy.BaseFish.hzReturner(pd.read_hdf(plane_path.joinpath('frametimes.h5')))
+                    stim_duration_frames = np.ceil((stim_duration_ms/1000) * img_hz) # rounding up
+                    cleaned_bad_frames_lst = arrutils.filter_list(lst = np.unique(bad_frames_lst), interval = stim_duration_frames)
+                    if len(cleaned_bad_frames_lst) < len(output_df): # if there are less bad frames than stim sites, meaning there was no baseline
+                        cleaned_bad_frames_lst.insert(0, 0)
+                    np.save(Path(plane_path).joinpath('bad_frames.npy'), cleaned_bad_frames_lst)
+
+def organize_output_df(folder):
+    '''
+    Organize the output dataframe to have stim sites df if this is a complete volume dataset 
+    All collected datasets need to be concatenated into one folder
+    folder - the folder path that contains the output log file abd bruker_coordinate_list txt files, for sorting through the data
+    Make sure there are no other directories than the important data folders in the main folder
+    '''
+    if Path(folder).joinpath('master_stim_sites.h5').exists(): # if already ran the output processing function
+        output_df = pd.read_hdf(Path(folder).joinpath('master_stim_sites.h5'), key="stim")
+    else: # or if not
+        output_df = process_output_files(folder)
+    
+    # gathering a dictionary of all the data folders
+    data_folder_dict = {}
+    with os.scandir(Path(folder).joinpath('output_folders')) as entries:
+        for entry in entries:
+            if 'plane' in entry.name:
+                data_folder_dict[entry.name] = Path(entry.path)
+
     # using dictionary to index into the correct data sets in the stim sites df, adding in the stimulated frames and saving into each folder
     new_stim_sites_df_lst = []
-    for d, p in data_folder_dict.items():
-        sub_output_df = output_df[output_df.data_sets == d].reset_index(drop = True)
-        bad_frames_start_lst = []
-        for s in range(len(sub_output_df)):
-            bad_frames_lst = np.load(Path(p).joinpath(f'output_folders/{sub_output_df.iloc[s].plane}/bad_frames.npy'))
-            img_hz = fishy.BaseFish.hzReturner(pd.read_hdf(Path(data_folder_dict[0]).joinpath(f'output_folders/{sub_output_df.iloc[s].plane}/frametimes.h5')))
-            stim_duration = np.ceil((sub_output_df.stim_duration_ms.iloc[s]/1000) * img_hz) # rounding up
+    for plane_key, plane_path in data_folder_dict.items():
+        if plane_key in output_df.plane.values:
+            sub_output_df = output_df[output_df.plane == plane_key].reset_index(drop = True) # each plane's data
+            sub_output_df['stim_frames'] = [None] * len(sub_output_df) # add in a column for the stimulated frames
+            bad_frames_lst = np.load(Path(plane_path).joinpath(f'bad_frames.npy'))
+            print(bad_frames_lst)
+            img_hz = fishy.BaseFish.hzReturner(pd.read_hdf(Path(plane_path).joinpath(f'frametimes.h5')))
+            stim_duration = np.ceil((sub_output_df.stim_duration_ms.iloc[0]/1000) * img_hz) # rounding up
             cleaned_bad_frames_lst = arrutils.filter_list(lst = np.unique(bad_frames_lst), interval = stim_duration)
-            if cleaned_bad_frames_lst[0] != 0:
-                cleaned_bad_frames_lst.insert(0, 0)
-            bad_frames_start_lst.append(cleaned_bad_frames_lst[s])
-        sub_output_df['stim_frames'] = bad_frames_start_lst
-        sub_output_df.to_hdf(Path(p).joinpath('stim_sites_volume.h5'), key = 'stim') # save into each individual data folder
-
-        for plane in np.unique(sub_output_df.plane.values): # saving the stim sites df into each respective plane folder
-            plane_sub_output_df = sub_output_df[sub_output_df['plane'] == plane].reset_index(drop = True)
-            save_path = Path(p).joinpath(f"output_folders/{plane}/stim_sites.hdf")
-            plane_sub_output_df.to_hdf(save_path, key="stim")
-
-        new_stim_sites_df_lst.append(sub_output_df)
+            print(cleaned_bad_frames_lst)
+            #index into the correct stim events
+            for ind in range(len(sub_output_df)):
+                stim_event_indices = sub_output_df.stim_events[ind]
+                print(stim_event_indices)
+                specific_stim_frames = [cleaned_bad_frames_lst[e] for e in stim_event_indices]
+                sub_output_df.loc[[ind], 'stim_frames'] = pd.Series([specific_stim_frames], index=sub_output_df.index[[ind]]) 
+            sub_output_df.to_hdf(Path(plane_path).joinpath('stim_sites.hdf'), key="stim")
+            new_stim_sites_df_lst.append(sub_output_df)
 
     # save into the main folder with the stimulated frames in the dataframe for ease processing later
     new_stim_sites_df = pd.concat(new_stim_sites_df_lst).reset_index(drop = True)
     new_stim_sites_df.to_hdf(Path(folder).joinpath('master_stim_sites.h5'), key = 'stim') 
 
+def utils_for_save_badframes_arr(base_fish):
+    '''
+    Helper function to save the bad frames array for each plane in the fishy class if using the automated gui
+    base_fish = the fishy class that you are working with
+    '''
 
+    with open(base_fish.folder_path.parents[2].joinpath('output.txt')) as file:
+        contents = file.read()
+    lines = contents.split("\n")
+
+    finish_stim_lines_inds = [k-1 for k, l in enumerate(lines) if ('finished' in l)]
+    first_stim_lines_inds = [k for k, l in enumerate(lines) if ('Stim event' in l) & ('cell 0' in l)]
+
+    # finding the start of the stim events for that specific dataset, using matching frametimes hours and minutes
+    first_stim_lines = [l for l in lines if ('Stim event' in l) & ('cell 0' in l)]
+    first_datetimes = [f.split(' ')[1] for f in first_stim_lines]
+    datetimes_dtformat = [pd.Timestamp(i).time() for i in pd.to_datetime(first_datetimes)]
+    datetimes_hours_minutes = [[i.hour, i.minute] for i in datetimes_dtformat]
+    frametimes_hours_minutes = [[i.hour, i.minute] for i in base_fish.frametimes_df.time.values]
+    ps_sequence = [event for event, i in enumerate(datetimes_hours_minutes) if i in frametimes_hours_minutes][0]
+
+    # gather the STIM TIMES from that specific sequence
+    stim_times = []
+    for i in lines[first_stim_lines_inds[ps_sequence]: finish_stim_lines_inds[ps_sequence]]:
+        stim_times.append(pd.Timestamp(i.split(' ')[1]).time())
+    total_seconds = [t.hour * 3600 + t.minute * 60 + t.second + t.microsecond / 1e6 for t in stim_times]
+    stim_times_ms = [(s - total_seconds[0]) * 1000 for s in total_seconds] # Calculate relative time in milliseconds
+
+    # gather the FULL DURATION PER STIM event 
+    output_df = pd.read_hdf(base_fish.folder_path.parents[2].joinpath('master_stim_sites.h5'))
+    full_duration_per_stim = output_df['stim_duration_ms'].iloc[0]
+
+    # gather the BASELINE FRAMES in this dataset
+    count = 0
+    for dt in base_fish.frametimes_df.time.values:
+        if dt < stim_times[0]:
+            count += 1
+    baseline_frames = count - 1
+
+    base_fish.baseline_frames = baseline_frames
+
+    return base_fish.baseline_frames, stim_times_ms, full_duration_per_stim
 
 

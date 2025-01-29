@@ -1,6 +1,9 @@
 
-
-import SimpleITK as sitk
+try:
+    import SimpleITK as sitk
+except:
+    print("SimpleITK not available")
+    
 import numpy as np
 
 import os

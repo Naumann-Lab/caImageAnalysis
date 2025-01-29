@@ -42,7 +42,7 @@ class BaseFish:
         self.midnight_noon_keyword = midnight_noon  
 
         self.invert = invert
-        self.bruker_invert = bruker_invert # inverts the stim names since bruker projector was displayed differently
+        self.bruker_invert = bruker_invert
 
         self.process_filestructure(midnight_noon) # generates self.data_paths
         try:
@@ -89,7 +89,7 @@ class BaseFish:
                         self.frametimes_df.time = [dt.strptime(time, "%H:%M:%S.%f").time() for time in list]
 
                 elif os.path.isdir(entry.path):
-                    if entry.name == "suite2p":
+                    if entry.name == "suite2p" or entry.name == "suite_2p":
                         self.data_paths["suite2p"] = Path(entry.path).joinpath("plane0")
                     if entry.name == 'caiman':
                         self.data_paths["caiman"] = Path(entry.path)
@@ -323,16 +323,17 @@ class BaseFish:
             for entry in entries:
                 self.roi_dict[Path(entry.path).stem] = entry.path
 
-    def return_cells_by_saved_roi(self, roi_name):
+    def return_cells_by_saved_roi(self, roi_name, overwrite=False):
         try:
             self.load_saved_rois()
         except FileNotFoundError:
             pass
-
-        if roi_name not in self.roi_dict:
-            print("roi not found, please select")
-            self.draw_roi(title=roi_name)
-            self.load_saved_rois()
+        
+        if overwrite:
+            if roi_name not in self.roi_dict:
+                print("roi not found, please select")
+                self.draw_roi(title=roi_name)
+                self.load_saved_rois()
 
         roi_points = np.load(self.roi_dict[roi_name])
         import matplotlib.path as mpltPath
@@ -355,13 +356,14 @@ class BaseFish:
             pass
 
     def load_image(self):
-        try:
-            if "move_corrected_image" in self.data_paths.keys():
-                image = imread(self.data_paths["move_corrected_image"])
-            else:
-                image = imread(self.data_paths["rotated_image"])
-        except:
+        if "move_corrected_image" in self.data_paths.keys():
+            image = imread(self.data_paths["move_corrected_image"])
+        elif "rotated_image" in self.data_paths.keys():
+            image = imread(self.data_paths["rotated_image"])
+        elif "image" in self.data_paths.keys():
             image = imread(self.data_paths["image"])
+        else:
+            image = imread(self.data_paths["original_image"])
 
         return image
 
@@ -511,7 +513,7 @@ class TailTrackedFish(BaseFish):
         self.motor_pearson_corrs = [scipy.stats.pearsonr(trace[:len(tail_trace)], tail_trace)[0] for trace in cell_arr]
         self.motor_pearson_pvals = [scipy.stats.pearsonr(trace[:len(tail_trace)], tail_trace)[1] for trace in cell_arr]
 
-class VizStimFish(BaseFish):
+class VizStimFish(TailTrackedFish):
     def __init__(
         self,
         stim_key="stims",
@@ -771,16 +773,16 @@ class PhotostimFish(TailTrackedFish):
             self.baseline_frames = 0
 
         # 2 - gather and make the stim sites dataframe for different outputs #
-        if ('stim_sites' not in self.data_paths.keys()) & (stimmed_plane == True):
+        if ('stim_sites' not in self.data_paths.keys()) & (stimmed_plane == True): # need to create a stim sites df from scratch (works with MP files, voltage recording)
             self.ps_event_duration, _ = photostimulation.collect_stimulation_times(self)
             try:
                 self.ps_event_start = arrutils.filter_list(lst = np.unique(self.badframes_arr), interval = self.ps_event_duration_frames)
             except:
                 self.ps_event_start = self.badframes_arr
             self.stim_sites_df = photostimulation.identify_stim_sites(self, rotate, stimulation_type = stim_type_keyword)
-        elif ('stim_sites' in self.data_paths.keys()) & (stimmed_plane == True):
+        elif ('stim_sites' in self.data_paths.keys()) & (stimmed_plane == True): # need to upload current stim sites df (works with new automated output, normal outputs)
             self.stim_sites_df = pd.read_hdf(self.data_paths['stim_sites'])
-            if 'stim_duration_ms' in self.stim_sites_df.columns:
+            if 'stim_duration_ms' in self.stim_sites_df.columns: # if special output type
                 self.ps_event_duration = self.stim_sites_df.stim_duration_ms.iloc[0] # assuming all the same
                 self.ps_event_start = self.stim_sites_df.stim_frames.values # already put these into the dataframe
                 if 'x_stim' not in self.stim_sites_df.columns:
@@ -792,12 +794,8 @@ class PhotostimFish(TailTrackedFish):
                 except:
                     self.ps_event_start = self.badframes_arr
                 self.stim_sites_df = photostimulation.identify_stim_sites(self, rotate, stimulation_type = stim_type_keyword)
-        else:
-            self.ps_event_duration, _ = photostimulation.collect_stimulation_times(self)
-            try:
-                self.ps_event_start = arrutils.filter_list(lst = np.unique(self.badframes_arr), interval = self.ps_event_duration_frames)
-            except:
-                self.ps_event_start = self.badframes_arr
+        else: # if there is not a stimulation happening on this plane at all
+            pass
 
         if 'caiman' in self.data_paths.keys(): # not working for the automated gui yet
             photostimulation.create_new_ps_events_array(self) # making a new ps_events start array since trimmed frames from caiman processing
@@ -1346,7 +1344,7 @@ class WorkingFish(VizStimFish):
 
         return stim_dict, err_dict, neuron_dict
 
-    def build_booldf_corr(self, stim_arr=None, zero_arr=True, force=False):
+    def build_booldf_corr(self, stim_arr=None, zero_arr=True):
 
         if not stim_arr:
             provided = False
@@ -2527,6 +2525,8 @@ class VolumeFish:
                 newKey = new_fish.folder_path.parents[1].name.split('-')[0].split('_')[1]
             except IndexError:
                 newKey = new_fish.folder_path.parents[1].name
+            if 'gcamp6s' in str(newKey):
+                newKey = new_fish.folder_path.name
 
         self.volumes[newKey] = new_fish
         if ind:
