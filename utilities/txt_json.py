@@ -38,3 +38,26 @@ def load_and_convert_to_json(input_file_path, output_file_path):
 
     except Exception as e:
         print(f"An error occurred: {e}")
+
+
+def load_and_convert_random(input_file_path, output_file_path):
+    dictList = []
+    with open(input_file_path, 'r') as f:
+        data = f.read()
+        for item in data.split('\n'):
+            newItem = item.replace('[', '').replace(']', '')
+            for subitem in newItem.split('},'):
+                if (len(subitem) > 0):
+                    newSubitem = '{' + subitem.replace('{', '').replace('}', '') + '}'
+                    stim_dict = ast.literal_eval(newSubitem)
+                    # print(stim_dict,'\n\n\n\n')
+                    dictList.append(stim_dict)
+
+    dataDict = {'laser_on_list':dictList}
+
+    with open(output_file_path, 'w') as json_file:
+        json.dump(dataDict, json_file, indent=4)
+
+
+if __name__ == "__main__":
+    load_and_convert_to_json('/media/gromit/124d7bfb-0e91-4cf0-8c38-dc3142188881/Binblows-Share/sweep aug 12/TSeries-08122024-1422-011/photostim command essential.txt', '/media/gromit/124d7bfb-0e91-4cf0-8c38-dc3142188881/Binblows-Share/sweep aug 12/TSeries-08122024-1422-011/photostim_info.json')

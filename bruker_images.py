@@ -269,3 +269,6 @@ def read_xml_to_str(xml_file_path):
     with open(xml_file_path, "r") as f:
         data = f.read()
     return data
+
+if __name__ == "__main__":
+    bruker_img_organization('/media/gromit/124d7bfb-0e91-4cf0-8c38-dc3142188881/Binblows-Share/TSeries-05122024-1646-011',testkey = 'ome', single_plane = True, pstim_file=False)

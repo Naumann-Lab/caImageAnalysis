@@ -22,7 +22,7 @@ import sys
 
 def parse_command(commandIn):
 
-        numPoints = commandIn['numPoints']
+        numPoints = commandIn['num_points']
         complete_sweep_first = commandIn['complete_sweep_first']
         complete_iterations_first = commandIn['complete_iterations_first']
         laser_on_list = []
@@ -264,15 +264,30 @@ def parse_command(commandIn):
                         laser_on_list.append(photostimulation_instance)
         return laser_on_list
 
+def load_and_parse(input, output):
+    data = json.load(open(input))
+    summary_command = data['summary_command']
+    photostim_record = parse_command(summary_command)
 
+
+    new_data = {}
+    new_data['summary_command'] = summary_command
+    new_data['laser_on_list'] = photostim_record
+    with open(output, mode='w') as output_file:
+        json.dump(new_data, output_file)
 
 if __name__ == '__main__':
-    data = json.load(open("/media/gromit/124d7bfb-0e91-4cf0-8c38-dc3142188881/Binblows-Share/Tyler-Style Sweep/16 March/TSeries-03162024-1620-001/photostim_info.json"))
-    summary_command = data["summary_command"]
-    command_sent = data["command"]
+    data = json.load(open("/media/gromit/124d7bfb-0e91-4cf0-8c38-dc3142188881/Binblows-Share/sweep aug 12/TSeries-08122024-1500-012/output_folders/single_plane/photostim_info.json"))#Tyler-Style Sweep/16 March/TSeries-03162024-1620-001/photostim_info.json"))
+    summary_command = data['summary_command']
 
     photostim_record = parse_command(summary_command)
 
+    new_data = {}
+    new_data['summary_command'] = summary_command
+    new_data['laser_on_list'] = photostim_record
+
+    with open ("/media/gromit/124d7bfb-0e91-4cf0-8c38-dc3142188881/Binblows-Share/sweep aug 12/TSeries-08122024-1500-012/output_folders/single_plane/photostim_info_2.json", 'w') as json_file:
+        json.dump(new_data, json_file)
 
     photostim_block_indices = []
 

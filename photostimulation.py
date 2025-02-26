@@ -1,9 +1,11 @@
 # functions to preprocess photostimulation data
 import copy
 import os
+from getopt import error
 from pathlib import Path
 import pandas as pd
 import numpy as np
+from numpy.f2py.auxfuncs import throw_error
 from tifffile import imread, imwrite
 from datetime import datetime as dt, timedelta
 import xml.etree.ElementTree as ET
@@ -46,6 +48,12 @@ def find_no_baseline_frames(somefishclass, no_planes = 0):
     return somefishclass.baseline_frames
 
 def collect_stimulation_times(somefishclass):
+
+    #this is a hack to deal with recordings in random order
+    #TODO fix this
+    random_order = True
+    variableStimLength  = False
+
     '''
     Calculating the stimulation times from either the voltage recording output (channel input 2)
     if not voltage recording, then can finid this based on the mark point xml file (not as exact)
@@ -75,47 +83,97 @@ def collect_stimulation_times(somefishclass):
     except KeyError:
         #this will load an alternative photostim information class
         data = json.load(open(somefishclass.data_paths['ps_json']))
-        summary_command = data['summary_command']
-        #command_sent = data['command']
+        try:
+            summary_command = data['summary_command']
+            photostim_record = parse_command(summary_command)
+        except KeyError:
+            laser_on_list = data['laser_on_list']
+            photostim_record = laser_on_list
 
-        photostim_record = parse_command(summary_command)
         #print(photostim_record)
         photostim_block_indices = []
         #each block of repetitions may have a different duration so this will replace full_duration_per_stim
         durations_for_stims = []
 
+        photostim_block_indices_random = []
+        true_photostim_count = 0
+
         addNextRepetition = True
 
         currentDuration = 0
         for recordIndex, record in enumerate(photostim_record):
-            if record['delay_type'] == 'repetition':
-                if(addNextRepetition):
-                    #in this case, we have just entered another block of repetitions and the current duration we know of
-                    #is just the duration of this laser on
-                    currentDuration = record['duration']
-                    photostim_block_indices.append(record['photostimulation_count'])
-                    addNextRepetition = False
-
+            print(record)
+            try:
+                if record['delay_type'] == 'repetition':
+                    if(addNextRepetition):
+                        #in this case, we have just entered another block of repetitions and the current duration we know of
+                        #is just the duration of this laser on
+                        currentDuration = record['duration']
+                        photostim_block_indices.append(record['photostimulation_count'])
+                        photostim_block_indices_random.append(true_photostim_count)
+                        addNextRepetition = False
+                        true_photostim_count = true_photostim_count + 1
+                    else:
+                        #in this case, we're within a block of repetitions, so we add the duration of the laser on and
+                        #the delay after the prior repetition
+                        currentDuration += record['duration'] + photostim_record[recordIndex-1]['delay']
+                        true_photostim_count = true_photostim_count + 1
                 else:
-                    #in this case, we're within a block of repetitions, so we add the duration of the laser on and
-                    #the delay after the prior repetition
-                    currentDuration += record['duration'] + photostim_record[recordIndex-1]['delay']
+                    #this will be the end of a repetition block
+                    if(not addNextRepetition):
+                        currentDuration += record['duration'] + photostim_record[recordIndex-1]['delay']
+                        durations_for_stims.append(currentDuration)
+                        true_photostim_count = true_photostim_count + 1
 
-            else:
-                #this will be the end of a repetition block
-                if(not addNextRepetition):
-                    currentDuration += record['duration'] + photostim_record[recordIndex-1]['delay']
+                    else:
+                        photostim_block_indices.append(record['photostimulation_count'])
+                        photostim_block_indices_random.append(true_photostim_count)
 
-                    durations_for_stims.append(currentDuration)
+                        currentDuration = record['duration']
+                        durations_for_stims.append(currentDuration)
+                        true_photostim_count = true_photostim_count  + 1
+                    #cleared to add new repetitions
+                    addNextRepetition = True
+            except:
+                print(record)
+                record['delay_type'] = 'not repetition'
+                if record['delay_type'] == 'repetition':
+                    if(addNextRepetition):
+                        #in this case, we have just entered another block of repetitions and the current duration we know of
+                        #is just the duration of this laser on
+                        currentDuration = record['duration']
+                        photostim_block_indices.append(record['photostimulation_count'])
+                        photostim_block_indices_random.append(true_photostim_count)
+                        addNextRepetition = False
+                        true_photostim_count = true_photostim_count + 1
+                    else:
+                        #in this case, we're within a block of repetitions, so we add the duration of the laser on and
+                        #the delay after the prior repetition
+                        currentDuration += record['duration'] + photostim_record[recordIndex-1]['delay']
+                        true_photostim_count = true_photostim_count + 1
+                else:
+                    #this will be the end of a repetition block
+                    if(not addNextRepetition):
+                        currentDuration += record['duration'] + photostim_record[recordIndex-1]['delay']
+                        durations_for_stims.append(currentDuration)
+                        true_photostim_count = true_photostim_count + 1
 
-                #cleared to add new repetitions
-                addNextRepetition = True
+                    else:
+                        photostim_block_indices.append(record['photostimulation_count'])
+                        photostim_block_indices_random.append(true_photostim_count)
+
+                        currentDuration = record['duration']
+                        durations_for_stims.append(currentDuration)
+                        true_photostim_count = true_photostim_count  + 1
+                    #cleared to add new repetitions
+                    addNextRepetition = True
+
 
         full_duration_per_stim = durations_for_stims
 
         variableStimLength = True
 
-
+        print(photostim_block_indices,'\n\n\n\n', photostim_block_indices_random)
 
     # if there is a voltage recording, can gather start signals from there
     if "voltage_signal" in somefishclass.data_paths.keys():
@@ -139,7 +197,30 @@ def collect_stimulation_times(somefishclass):
             #print(peak_starts)
             #print(len(peak_starts))
             #print(len(photostim_block_indices))
-            trial_starts = [peak_starts[index] for index in  photostim_block_indices]
+            print("PEAK STARTS" , len(peak_starts), max(peak_starts), min(peak_starts))
+            print("Photostim block indices", len(photostim_block_indices), max(photostim_block_indices), min(photostim_block_indices))
+            #print("Trial starts", len(trial_starts), max(trial_starts), min(trial_starts))
+
+
+
+            try:
+                trial_starts = [peak_starts[index] for index in  photostim_block_indices]
+
+            except IndexError:
+
+
+                if(max(photostim_block_indices) > len(peak_starts)):
+                    print(f"It appears voltage recording was stopped before photostim, including first {len(peak_starts)} stims")
+
+                    truncated_photostim_block_indices = [block_index for block_index in photostim_block_indices_random if block_index < len(peak_starts)]
+
+
+                    print(len(peak_starts))
+                    print(len(truncated_photostim_block_indices))
+                    print(truncated_photostim_block_indices)
+                    trial_starts = [peak_starts[index] for index in  truncated_photostim_block_indices]
+                    full_duration_per_stim = full_duration_per_stim[:len(peak_starts)]
+
 
         stim_times = [time[i] for i in trial_starts] # convert the peak start indices to the time in ms
     
@@ -197,7 +278,7 @@ def save_badframes_arr(somefishclass, no_planes = 1):
         ##TODO: make it simpler code, combine this to just do what I am doing for volumes
         # only looking at stimulation cycle here for the right relative times
 
-        if (len(full_duration_per_stim)) > 1:
+        if (type(full_duration_per_stim) != float and len(full_duration_per_stim) > 1):
             num_badframe_blocks = 0
             with open(somefishclass.data_paths['info_xml']) as f:
                 xml_info_dict = xmltodict.parse(f.read())
@@ -212,6 +293,7 @@ def save_badframes_arr(somefishclass, no_planes = 1):
             somefishclass.imaging_frequency = sampling_rate
 
             root = read_xml_to_root(somefishclass.data_paths["info_xml"])
+            print(somefishclass.data_paths["info_xml"])
             frametimes = []
             for child in root:
                 #print(child)
@@ -223,13 +305,29 @@ def save_badframes_arr(somefishclass, no_planes = 1):
                             frametimes.append(float(subchild.attrib['relativeTime']))
                             #print(subchild.attrib['relativeTime'])
 
+
             #print(frametimes)
             frametimes_copy = copy.deepcopy(frametimes)
+
+
+            print("FRAMETIMES COPY LENGTH:",len(frametimes_copy))
+
             frametimes_counter = 0
             badframes_arr = []
 
+            # this may be in a random order due to the photostim block indexes potentially being in random order
+            # so we will fix this for the algorithm, which expects them to be in order
+            stim_times_secs = sorted(stim_times_secs)
             stim_times_secs = np.array(stim_times_secs, dtype=float)
+
+
+
+            #print("num stim time secs:",len(stim_times_secs),'\n', stim_times_secs)
+
             full_duration_per_stim = np.array(full_duration_per_stim, dtype=float)/1000 #this converts to seconds
+
+            #print("full_duration_per_stim:",full_duration_per_stim)
+
 
             #THIS CODE WILL BREAK IF YOU HAVE MULTIPLE STIMS IN ONE FRAME BUT NOT MULTIPLE FRAMES PER STIM
             #go through every stimulation and find the bad frames associated with it
@@ -243,7 +341,7 @@ def save_badframes_arr(somefishclass, no_planes = 1):
                     #print("check frame:",check_frame, "to", check_frame + frame_period)
                     #print("check time:", stim_time, "to", stim_time + full_duration_per_stim[time_index])
                     frametimes_counter += 1
-
+                    print("check frame:", check_frame, "stim_time", stim_time)
                     #check if frame is bad
                     if((stim_time < check_frame and stim_time + full_duration_per_stim[time_index] > check_frame) or (stim_time > check_frame and check_frame + frame_period > stim_time + full_duration_per_stim[time_index] )):
                         num_badframe_blocks += 1
@@ -281,27 +379,41 @@ def save_badframes_arr(somefishclass, no_planes = 1):
             # calculate the duration of one ps event in frame numbers
 
 
-
+            print(somefishclass.data_paths["info_xml"])
             root = read_xml_to_root(somefishclass.data_paths["info_xml"])
             frametimes = []
             for child in root:
-                if child.tag == 'Sequence' and child.attrib['cycle'] == '2':
+                if child.tag == 'Sequence' :#and child.attrib['cycle'] == '2':
                     for subchild in child:
                         if subchild.tag == 'Frame':
                             frametimes.append(float(subchild.attrib['relativeTime']))
+                            #print('appended frametime')
 
             # calculate ps events in frame numbers
-            time_matches = [min(frametimes, key=lambda y: abs(x - y)) for x in stim_times] # list of frametimes values that match with the stim_times
+            #This is a big place to be aware of, some stim times are in ms, some are in seconds,
+            #it is up to YOU to know which is the right one 
+            time_matches = [min(frametimes, key=lambda y: abs(x - y)) for x in np.array(stim_times)/1000.0]  # list of frametimes values that match with the stim_times
+            print(time_matches)
+            print(stim_times)
             frames = [frametimes.index(x) for x in time_matches] # list of frames that match with the stim_times
+            print(frames)
+            print(somefishclass.baseline_frames)
+                
             frame_dur = min(frametimes, key=lambda y: abs(full_duration_per_stim / 1000 - y))
             duration_in_frames = frametimes.index(frame_dur)
 
             #in the case you have variable duration of stimulation
 
-    if (len(full_duration_per_stim)) ==  1:
+    if (type(full_duration_per_stim == float) or len(full_duration_per_stim) ==  1):
 
-        ps_events = [somefishclass.baseline_frames + f for f in frames]
+        #under some circumstances, you may need this baseline_fames, I think if you have 
+        #two cycles in one recording, but otherwise not
+        try:
+            ps_events = frames #[somefishclass.baseline_frames + f for f in frames]
+        except:
+            ps_events = badframes_arr
         somefishclass.badframes_arr = np.array(ps_events)
+        print(ps_events)
 
     else:
         somefishclass.badframes_arr = np.array(badframes_arr)
@@ -316,7 +428,7 @@ def save_badframes_arr(somefishclass, no_planes = 1):
    
     return somefishclass.badframes_arr
 
-def identify_stim_sites(somebasefish, rotate = True, planes_stimed = [1,2,3,4]):
+def identify_stim_sites(somebasefish, rotate = True, planes_stimed = [1]):
     '''
     planes_stimed is hard coded, not sure how to gather the z plane info with not a clear output file 
     use a base fish, saves a stimulated site dataframe for each unique plane
@@ -331,6 +443,7 @@ def identify_stim_sites(somebasefish, rotate = True, planes_stimed = [1,2,3,4]):
         if "linesPerFrame" in i:
             lines_per_frame = int(i.split('value=')[1].split('"')[1])
 
+    gotKeyError = False
 
     try:
         # use the ps xml file to get the stim site data
@@ -349,21 +462,31 @@ def identify_stim_sites(somebasefish, rotate = True, planes_stimed = [1,2,3,4]):
 
                     spiral_size = float(i.split('SpiralSizeInMicrons')[1].split('"')[1])
                     spiral_size_lst.append(round(spiral_size))
+        print(X_stim_sites, Y_stim_sites)
 
 
 
     #if there is no ps_xml, then use the althernative json
     except KeyError:
+        print("GOT KEY ERROR")
+        gotKeyError = True
         X_stim_sites = []
         Y_stim_sites = []
         spiral_size_lst = []
 
         # this will load an alternative photostim information class
         data = json.load(open(somebasefish.data_paths['ps_json']))
-        summary_command = data['summary_command']
+        #if I specify the entire series of commands, as I do in random order, there will be a key error
+        try:
+            summary_command = data['summary_command']
+            photostim_record = parse_command(summary_command)
+        except KeyError:
+            laser_on_list = data['laser_on_list']
+            photostim_record = laser_on_list
+            gotKeyError = True
         #command_sent = data['command']
 
-        photostim_record = parse_command(summary_command)
+
         # print(photostim_record)
         photostim_block_indices = []
         # each block of repetitions may have a different duration so this will replace full_duration_per_stim
@@ -380,6 +503,7 @@ def identify_stim_sites(somebasefish, rotate = True, planes_stimed = [1,2,3,4]):
 
         currentDuration = 0
         for recordIndex, record in enumerate(photostim_record):
+            #print(record['x_coord'], record['y_coord'])
             X_stim_sites.append(record['x_coord'])
             Y_stim_sites.append(record['y_coord'])
             spiral_size_lst.append(record['spiral_size'])
@@ -389,19 +513,125 @@ def identify_stim_sites(somebasefish, rotate = True, planes_stimed = [1,2,3,4]):
         spiral_size_lst = np.array(spiral_size_lst) * float(microns_per_pixel_x)
         X_stim_sites = np.array(X_stim_sites)
         Y_stim_sites = np.array(Y_stim_sites)
+        print(X_stim_sites, Y_stim_sites)
 
-    # need to rotate and transform the coordinates if the image is rotated from off the Bruker
-    if rotate:
-        coord_stim_sites = list(zip(X_stim_sites, Y_stim_sites))
+    # print("IN IDENTIFY STIM SITES")
+    # print(X_stim_sites)
+    # print(Y_stim_sites)
+    if(gotKeyError):
 
-        ##TODO: make this cleaner to find the correct y and x coords, i should not have to do this separately
-        correct_y_coords = rotate_transform_coors(coord_stim_sites, 90, translation=(pixels_per_line, 0))
-        correct_x_coords = rotate_transform_coors(coord_stim_sites, -90, translation=(0, pixels_per_line))
+        X_prev = copy.deepcopy(X_stim_sites)
+        Y_prev = copy.deepcopy(Y_stim_sites)
 
-        X_stim_sites = [x[0] for x in correct_x_coords]
-        Y_stim_sites = [-y[1] + pixels_per_line for y in correct_y_coords]
+        uniquePrevCells = []
+        for x_cell in X_prev:
+            for y_cell in Y_prev:
+                #cell = [x_cell, y_cell]
+                cell = str(x_cell)+str(y_cell)
+                # print(cell)
+                if not cell in uniquePrevCells:
+                    uniquePrevCells.append(cell)
+
+
+        photostim_record_copy = copy.deepcopy(photostim_record)
+
+        somebasefish.photostim_record_copy = photostim_record_copy
+
+
+        if rotate:
+
+            for recordIndex, record in enumerate(photostim_record):
+                #coord_stim_sites = [record['x_coord']*pixels_per_line, record['y_coord']*pixels_per_line]
+                #correct_x_coords = -record['y_coord']*pixels_per_line + 512 if gotKeyError else -record['y_coord'] + 512
+                correct_x_coords = record['y_coord'] 
+                #correct_y_coords = record['x_coord']*pixels_per_line if gotKeyError else record['x_coord']
+                correct_y_coords = -record['x_coord'] +512
+
+
+                photostim_record_copy[recordIndex]['x_coord'] = correct_x_coords#-correct_x_coords+512
+                photostim_record_copy[recordIndex]['y_coord'] = correct_y_coords#-correct_y_coords+512
+
+
+        uniqueCells = []
+        for recordIndex, record in enumerate(photostim_record_copy):
+            cell = [record['x_coord'], record['y_coord'], record['spiral_size']]
+            # print(cell)
+            if not cell in uniqueCells:
+                uniqueCells.append(cell)
+
+
+        X_stim_sites = []
+        Y_stim_sites = []
+        spiral_size_lst = []
+        for cell in uniqueCells:
+            X_stim_sites.append(cell[0])
+            Y_stim_sites.append(cell[1])
+            spiral_size_lst.append(cell[2])
+    else:
+        
+        coord_stim_sites = np.hstack((X_stim_sites, Y_stim_sites))
+        print(coord_stim_sites)
+        new_stim_sites = []
+        
+        
+        
+        
+        uniqueCells = []
+        if len(coord_stim_sites.shape) > 1 :
+            print(coord_stim_sites.shape)
+            
+            for stim_site in coord_stim_sites:
+        
+        
+                new_stim_sites.append([pixels_per_line-stim_site[1], lines_per_frame - stim_site[0]])
+        
+            new_stim_sites = np.array(new_stim_sites)
+            
+            for recordIndex, record in enumerate(new_stim_sites):
+                cell = [record[0], record[1]]
+                # print(cell)
+                if not cell in uniqueCells:
+                    uniqueCells.append(cell)
+            new_stim_sites = np.array(uniqueCells)
+            print(new_stim_sites)
+            X_stim_sites = new_stim_sites[:,0]
+            Y_stim_sites = new_stim_sites[:,1]
+        else:
+            X_stim_sites = coord_stim_sites[1]
+            Y_stim_sites = lines_per_frame-coord_stim_sites[0]
+        
+        
+        
+#     print("Length of DataFrame index:", len(somebasefish.stim_sites_df))
+#     print("Length of X_stim_sites:", len(X_stim_sites))
+#     print("Length of Y_stim_sites:", len(Y_stim_sites))
+#     print("Length of spiral_size_lst:", len(spiral_size_lst))
+
+    somebasefish.stim_sites_df['x_stim'] = X_stim_sites
+    somebasefish.stim_sites_df['y_stim'] = Y_stim_sites
+    somebasefish.stim_sites_df['sp_size'] = spiral_size_lst
+
+    # # need to rotate and transform the coordinates if the image is rotated from off the Bruker
+    # if rotate:
+    #     coord_stim_sites = list(zip(X_stim_sites, Y_stim_sites))
+    #
+    #     ##TODO: make this cleaner to find the correct y and x coords, i should not have to do this separately
+    #     correct_y_coords = rotate_transform_coors(coord_stim_sites, 90, translation=(pixels_per_line, 0))
+    #     correct_x_coords = rotate_transform_coors(coord_stim_sites, -90, translation=(0, pixels_per_line))
+    #
+    #     X_stim_sites = [x[0]*pixels_per_line for x in correct_x_coords]
+    #     Y_stim_sites = [-y[1]*pixels_per_line + pixels_per_line for y in correct_y_coords]
+    # # print("LOC1")
+    #
+
+
+
+
+
+
 
     if len(planes_stimed) > 1:
+        print("inif")
         # get values for the z steps in the info env file
         with open(somebasefish.data_paths['info_env'], "r") as f:
             lines = f.readlines()
@@ -425,7 +655,7 @@ def identify_stim_sites(somebasefish, rotate = True, planes_stimed = [1,2,3,4]):
     else:
         z_to_plane = 0 # just the plane that you recorded from
         this_plane = 0
-
+    # print("LOC2")
     somebasefish.stim_sites_df['x_stim'] = X_stim_sites
     somebasefish.stim_sites_df['y_stim'] = Y_stim_sites
     somebasefish.stim_sites_df['sp_size'] = spiral_size_lst
@@ -497,22 +727,37 @@ def collect_raw_traces(somebasefish):
     stim_sites_df_path = Path(somebasefish.folder_path).joinpath("stim_sites.hdf")
     if not stim_sites_df_path.exists():
         identify_stim_sites(somebasefish)
+
+    #print("loc3")
     stim_sites_df = pd.read_hdf(stim_sites_df_path)
     stim_sites_df.drop_duplicates(inplace=True)
     img = imread(somebasefish.data_paths["move_corrected_image"])
 
+    print(stim_sites_df)
+
     raw_traces = np.zeros((len(stim_sites_df), img.shape[0]))
     points = np.zeros((len(stim_sites_df), 2))
+    print("loc4")
+
+    #print(stim_sites_df)
+    print(len(stim_sites_df))
     for point in range(len(stim_sites_df)):
         pt = stim_sites_df.iloc[point]
+        print(pt)
+        #print(pt)
+
         msk = create_circular_mask(img.shape[1:], pt.x_stim, pt.y_stim, pt.sp_size*3)
         msk_trace = np.nanmean(img[:, msk], axis=1)
+
+        print(msk_trace)
+
         raw_traces[point] = msk_trace
         points[point] = [pt.x_stim, pt.y_stim]
 
+    print("loc5")
     # save the raw traces   
     np.save(Path(somebasefish.folder_path).joinpath('raw_traces.npy'), raw_traces)
-
+    print(raw_traces)
     return raw_traces, points
 
 def all_stimmed_traces_array(stimulated_fishvolume):

@@ -134,12 +134,22 @@ class BaseFish:
 
                 #This will create the json if one is not already made
                 elif entry.name.endswith('txt') and 'photostim' in entry.name:
-                    print("found photostim txt in liue of json")
-                    parent = os.path.dirname(entry.path)
-                    print( entry.path,  entry.path[:-4]+'.json')
+                    if('shuffled' in entry.name):
+                        print("found photostim txt in liue of json")
+                        parent = os.path.dirname(entry.path)
+                        print(entry.path, entry.path[:-4] + '.json')
 
-                    txt_json.load_and_convert_to_json(entry.path,  entry.path[:-4]+'.json')
-                    self.data_paths["ps_json"] = Path(entry.path[:-4]+'.json')
+                        txt_json.load_and_convert_random(entry.path, entry.path[:-4] + '.json')
+                        self.data_paths["ps_json"] = Path(entry.path[:-4] + '.json')
+
+
+                    else:
+                        print("found photostim txt in liue of json")
+                        parent = os.path.dirname(entry.path)
+                        print( entry.path,  entry.path[:-4]+'.json')
+
+                        txt_json.load_and_convert_to_json(entry.path,  entry.path[:-4]+'.json')
+                        self.data_paths["ps_json"] = Path(entry.path[:-4]+'.json')
 
         if "image" in self.data_paths and "move_corrected_image" in self.data_paths:
             if (
