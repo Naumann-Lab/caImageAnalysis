@@ -19,14 +19,14 @@ from scipy.signal import find_peaks
 from sklearn.mixture import GaussianMixture
 from scipy.cluster.hierarchy import linkage, fcluster
 from scipy.spatial.distance import pdist
-from scipy.stats import pearsonr
+from scipy.stats import pearsonr, zscore
 import random
 
 from fishy import BaseFish
 from datetime import datetime as dt
 hzReturner = BaseFish.hzReturner
 
-def analyze_tail(frametimes_df, stimulus_df, tail_df, tail_hz, stimuli_s = 5, strength_boundary = 0.25, min_on_s = 0.05, cont_cutoff_s = 0.2):
+def analyze_tail(frametimes_df, stimulus_df, tail_df, tail_hz, stimulus_s = 5, strength_boundary = 0.25, min_on_s = 0.1, cont_cutoff_s = 0.05):
     """
     capture tail events happened in the current inputs. Also produce a graph for the raw trace, smoothed trace, and positive/negative smoothed trace for the bouts
         frametimes_df: the dataframe for the frames and corresponding real times
@@ -54,75 +54,57 @@ def analyze_tail(frametimes_df, stimulus_df, tail_df, tail_hz, stimuli_s = 5, st
     fig, ax = plt.subplots(3, 1, dpi = 400, figsize = (20, 6))
     tail_df = tail_df.ffill()
 
-    ax[0].plot(tail_df.index, list(tail_df.tail_sum), linewidth = 0.5, color = 'black')
-    ax[0].set_xlim([0, tail_df.shape[0]])
-    ax[0].set_xticks([0, tail_df.shape[0]])
+    ax[0].plot(tail_df.frame, list(tail_df.tail_sum), linewidth = 0.5, color = 'black')
+    ax[0].set_xlim([0, np.max(tail_df.frame)])
 
-
-    #smooth tail
-    #tail_df.tail_sum = arrutils.gaussian_convolve(tail_df.tail_sum, 5, 2, 'same')
     #calibrate to mean
     baseline = np.nanmean(tail_df.tail_sum)
     tail_df.tail_sum = np.subtract(tail_df.tail_sum, baseline)
     tail_df.tail_sum = tail_df.tail_sum.ffill()
-    #group/smooth by interval of ~100ms
-    smooth_tailframe = int(0.1 * tail_hz)
-    sm_group = list(range(len(tail_df)//smooth_tailframe)) * smooth_tailframe \
-            + len(tail_df)%smooth_tailframe * [len(tail_df)//smooth_tailframe]
-    tail_df['sm_group'] = np.sort(sm_group)
-
-
 
     #collect positive and negative tail movement
-    pos = tail_df.drop(['t_dt'], axis = 1)
-    pos.tail_sum = np.where(pos.tail_sum > 0,pos.tail_sum, 0)
-    pos_smooth = np.array((pos.groupby(['sm_group']).mean().tail_sum)).flatten()
-    posmax_smooth = np.array((pos.groupby(['sm_group']).max().tail_sum)).flatten()
-    neg = tail_df.drop(['t_dt'], axis = 1)
-    neg.tail_sum = np.where(neg.tail_sum < 0, neg.tail_sum, 0)
-    neg_smooth = np.array((neg.groupby(['sm_group']).mean().tail_sum)).flatten()
-    negmin_smooth = np.array((neg.groupby(['sm_group']).min().tail_sum)).flatten()
+    pos = np.where(tail_df.tail_sum > 0,tail_df.tail_sum, 0)
+    neg = np.where(tail_df.tail_sum < 0,tail_df.tail_sum, 0)
+    ax[1].plot(tail_df.frame, pos, linewidth = 0.5, color = 'maroon')
+    ax[1].plot(tail_df.frame, neg, linewidth = 0.5, color = 'midnightblue')
 
-    ax[1].plot(np.unique(tail_df.sm_group), pos_smooth, linewidth = 0.5, color = 'maroon')
-    ax[1].plot(np.unique(tail_df.sm_group), neg_smooth, linewidth = 0.5, color = 'midnightblue')
-    #collect tail strength
-    std_smooth = np.array((tail_df.drop(['t_dt'], axis = 1).groupby(['sm_group']).std().tail_sum)).flatten()
-    ax[2].plot(np.unique(tail_df.sm_group), std_smooth, linewidth = 0.5, color = 'black')
-    #ax[2].set_ylim([0, 1])
-    bout_on = std_smooth > strength_boundary
+    # group/smooth by running window  of ~100ms
+    smooth_tailframe = int(0.05 * tail_hz)
+    std = [np.std(tail_df.tail_sum[i - smooth_tailframe:i + smooth_tailframe]) for i in range(smooth_tailframe, len(tail_df.tail_sum) - smooth_tailframe)]
+    tail_df['std'] =[0] * smooth_tailframe + std + [0] * smooth_tailframe
+    ax[2].plot(tail_df.frame, tail_df['std'], linewidth = 0.5, color = 'black')
+    bout_on = tail_df['std']> strength_boundary
     bout_on = [int(x) for x in bout_on]
     on_index = np.where(np.diff(bout_on) == 1)[0]
+    on_index = [i + smooth_tailframe for i in on_index]
     off_index = np.where(np.diff(bout_on) == -1)[0]
-    on_tuples = []
+    off_index = [i + smooth_tailframe for i in off_index]
     if len(on_index) != 0 and len(off_index) != 0:
         if on_index[0] > off_index[0]:
             on_index = np.concatenate([[0], on_index])
         if on_index[-1] > off_index[-1]:
-            off_index = np.concatenate([off_index, [len(std_smooth) - 1]])
-        on_tuples = [(on, off) for on, off in zip(on_index, off_index) if off - on < len(std_smooth) and off > on]
+            off_index = np.concatenate([off_index, [len(tail_df) - 1]])
+        on_tuples = [(on, off) for on, off in zip(on_index, off_index) if off - on < len(tail_df) and off > on]
     cont_on_index = []
     cont_off_index = []
     if len(on_tuples) > 0:
         cont_on_index = [on_tuples[0][0]]
         if len(on_tuples) > 1:
             big_interval = np.array([on_tuples[i][0] - on_tuples[i - 1][1] for i in range(1, len(on_tuples))]) \
-                           > (cont_cutoff_s * tail_hz / smooth_tailframe)
+                           > (cont_cutoff_s * tail_hz)
             for i in range(0, len(big_interval)):
                 if big_interval[i]:
                     cont_on_index = cont_on_index + [on_tuples[i + 1][0]]
                     cont_off_index = cont_off_index + [on_tuples[i][1]]
         cont_off_index = cont_off_index + [on_tuples[-1][1]]
-    cont_tuples = [(on, off) for on, off in zip(cont_on_index, cont_off_index)
-                   if off - on >  (min_on_s * tail_hz / smooth_tailframe)]
+    cont_tuples = [(on, off) for on, off in zip(cont_on_index, cont_off_index) if off - on > (min_on_s * tail_hz)]
 
     #calculate the actual frame(approx.) and image onset index/frames
-    cont_tuples_tailindex = [(tail_df[tail_df['sm_group'] == tu[0]].iloc[0].name,
-                        tail_df[tail_df['sm_group'] == tu[1]].iloc[-1].name) for tu in cont_tuples]
-    cont_tuples_imageframe = [(tail_df[tail_df['sm_group'] == tu[0]].iloc[0].frame,
-                              tail_df[tail_df['sm_group'] == tu[1]].iloc[-1].frame) for tu in cont_tuples]
+    cont_tuples_imageframe = [(tail_df.iloc[tu[0]].frame, tail_df.iloc[tu[1]].frame) for tu in cont_tuples]
 
     ax[2].axhline(strength_boundary, linewidth = 1, linestyle = ':', color = 'purple')
     tail_strength = np.full(len(cont_tuples), np.nan)
+    tail_angle = np.full(len(cont_tuples), np.nan)
     tail_angle_pos = np.full(len(cont_tuples), np.nan)
     tail_angle_posmax = np.full(len(cont_tuples), np.nan)
     tail_angle_neg = np.full(len(cont_tuples), np.nan)
@@ -131,15 +113,15 @@ def analyze_tail(frametimes_df, stimulus_df, tail_df, tail_hz, stimuli_s = 5, st
     tail_frequency_s = np.full(len(cont_tuples), np.nan)
     tail_stimuli = ['spontaneous'] *len(cont_tuples)
     for i in range(len(cont_tuples)):
-        ax[2].axvspan(cont_tuples[i][0], cont_tuples[i][1], color = 'pink', alpha = 0.5)
-        tail_strength[i] = np.nanmean(std_smooth[cont_tuples[i][0]:cont_tuples[i][1]])
-        tail_angle_pos[i] = np.nanmean(pos_smooth[cont_tuples[i][0]:cont_tuples[i][1]])
-        tail_angle_posmax[i] = np.max(posmax_smooth[cont_tuples[i][0]:cont_tuples[i][1]])
-        tail_angle_neg[i] = np.nanmean(neg_smooth[cont_tuples[i][0]:cont_tuples[i][1]])
-        tail_angle_negmin[i] = np.min(negmin_smooth[cont_tuples[i][0]:cont_tuples[i][1]])
-        tail_duration_s[i] = np.divide((cont_tuples[i][1] - cont_tuples[i][0]) * smooth_tailframe, tail_hz)
-        tail_of_interest = list(
-            tail_df[(tail_df.sm_group >= cont_tuples[i][0] + 1) & (tail_df.sm_group < cont_tuples[i][1] + 2)].tail_sum)
+        ax[2].axvspan(cont_tuples_imageframe[i][0], cont_tuples_imageframe[i][1], color = 'pink', alpha = 0.5)
+        tail_strength[i] = np.nanmean(tail_df['std'][cont_tuples[i][0]:cont_tuples[i][1]])
+        tail_angle[i] = np.nanmean(tail_df.tail_sum[cont_tuples[i][0]:cont_tuples[i][1]])
+        tail_angle_pos[i] = np.nanmean(pos[cont_tuples[i][0]:cont_tuples[i][1]])
+        tail_angle_posmax[i] = np.max(pos[cont_tuples[i][0]:cont_tuples[i][1]])
+        tail_angle_neg[i] = np.nanmean(neg[cont_tuples[i][0]:cont_tuples[i][1]])
+        tail_angle_negmin[i] = np.min(neg[cont_tuples[i][0]:cont_tuples[i][1]])
+        tail_duration_s[i] = np.divide((cont_tuples[i][1] - cont_tuples[i][0]), tail_hz)
+        tail_of_interest = list(tail_df.iloc[cont_tuples[i][0]:cont_tuples[i][1]].tail_sum)
         mean_line = np.mean(tail_of_interest)
         crossing = np.subtract(arrutils.pretty(tail_of_interest, 3), mean_line)
         crossing = np.sign(crossing)
@@ -148,7 +130,7 @@ def analyze_tail(frametimes_df, stimulus_df, tail_df, tail_hz, stimuli_s = 5, st
         if not stimulus_df.empty:
             if cont_tuples_imageframe[i][0] > stimulus_df.iloc[0]['frame'] :
                 stimulus_responding = stimulus_df[stimulus_df['frame'] <= cont_tuples_imageframe[i][0]].iloc[-1]#find the nearest stimuli before and see if tail happens within the stimulus
-                if stimulus_responding['frame'] + stimuli_s * hz >= cont_tuples_imageframe[i][0]:#if tail starts before the stimulus ends
+                if stimulus_responding['frame'] + stimulus_s * hz >= cont_tuples_imageframe[i][0]:#if tail starts before the stimulus ends
                     tail_stimuli[i] = stimulus_responding['stim_name']
     #plot stimulus
     ax_stimuli = ax[1].twiny()
@@ -158,37 +140,41 @@ def analyze_tail(frametimes_df, stimulus_df, tail_df, tail_hz, stimuli_s = 5, st
     if not stimulus_df.empty:
         for i, stim_row in stimulus_df.iterrows():
             c = constants.allcolor_dict[stim_row['stim_name']]
-            ax_stimuli.axvspan(stim_row['frame'] - 1,stim_row['frame'] - 1 + 5*hz/2, color = c[0], alpha = 0.2)
-            ax_stimuli.axvspan(stim_row['frame'] - 1 + 5*hz/2 + 0.1, stim_row['frame'] - 1 + 5*hz, color = c[1], alpha = 0.2)
+            ax_stimuli.axvspan(stim_row['frame'] - 1,stim_row['frame'] - 1 + stimulus_s*hz/2, color = c[0], alpha = 0.2)
+            ax_stimuli.axvspan(stim_row['frame'] - 1 + stimulus_s*hz/2 + 0.1, stim_row['frame'] - 1 + stimulus_s*hz, color = c[1], alpha = 0.2)
 
     #make plot prettier
     ax[0].set_xlabel('tail frames')
     ax[0].set_ylabel('raw tail angle (rad)')
     #ax[0].set_yticks([3.14, 0, -3.14])
     ax[1].set_ylabel('smooth tail angle (rad)')
+    ax[1].set_xlim([0, np.max(tail_df.frame)])
     ax[1].set_xticks([])
     #ax[1].set_yticks([3.14, 0, -3.14])
-    ax[1].set_xlim([0, np.max(sm_group)])
     ax[2].set_ylabel('tail strength (std)')
     ax[2].set_xlabel('frames')
     #ax[2].set_yticks([0.5, 0])
     ax[2].sharex(ax[1])
 
     tail_bout_df = pd.DataFrame(
-        {'cont_tuples_tailindex': cont_tuples_tailindex, 'cont_tuples_imageframe': cont_tuples_imageframe,
-         'tail_strength': tail_strength, 'tail_angle_pos': tail_angle_pos,
+        {'cont_tuples_tailindex': cont_tuples, 'cont_tuples_imageframe': cont_tuples_imageframe,
+         'tail_strength': tail_strength, 'tail_angle': tail_angle, 'tail_angle_pos': tail_angle_pos,
          'tail_angle_posmax': tail_angle_posmax, 'tail_angle_neg': tail_angle_neg, 'tail_angle_negmin': tail_angle_negmin,
          'tail_duration_s': tail_duration_s, 'tail_frequency_s': tail_frequency_s,'tail_stimuli': tail_stimuli})
     return tail_bout_df
 
-def tail_angle_all(stimulus_df, tail_bout_df, stimuli_s = 5):
+def tail_angle_all(frametimes_df, stimulus_df, tail_bout_df, stimulus_s = 5):
     """
     Plot the tail response against all angles, including spontanesous response
+        frametimes_df: the dataframe for the frames and corresponding real times
         stimulus_df: the dataframe contain all the stimulus and their onset frames
         tail_bout_df: the dataframe of the tail bouts movement details, which includes cont_tuples, tail_strength, tail_angle_pos, tail_angle_neg, tail_duration_s, tail_stimuli
         stimuli_s: the second that the stimuli was on
+    Return:
+        stimuli_presenting_responding_df: a dataframe containing all the stimuli, how many times they are presented,
+         and how many times they are responded to
     """
-
+    hz = hzReturner(frametimes_df)
     # make prettier
     def fix_ax(ax):
         """
@@ -210,53 +196,80 @@ def tail_angle_all(stimulus_df, tail_bout_df, stimuli_s = 5):
         axes.remove()
     ax_hist = fig.add_subplot(gs[0:, 0])
     all_stimuli_list = list(constants.deg_dict.keys()) + ['spontaneous']
-    all_stimuli_color_list = []
+    all_stimuli_color_list = {}
     for s in all_stimuli_list:
         if s in constants.monocular_dict.keys():
-            all_stimuli_color_list = all_stimuli_color_list + [constants.monocular_dict[s]]
-    all_stimuli_color_list = all_stimuli_color_list + [constants.monocular_dict['left']] * 2 \
-                             + [constants.monocular_dict['right']] * 2 + ['brown'] * 3
+            all_stimuli_color_list[s] = constants.monocular_dict[s]
+    all_stimuli_color_list['lateral_left'] = constants.monocular_dict['left']
+    all_stimuli_color_list['medial_left'] = constants.monocular_dict['left']
+    all_stimuli_color_list['lateral_right'] = constants.monocular_dict['right']
+    all_stimuli_color_list['medial_right'] = constants.monocular_dict['right']
+    all_stimuli_color_list['diverging'] = 'brown'
+    all_stimuli_color_list['converging'] = 'brown'
+    all_stimuli_color_list['spontaneous'] = 'brown'
+    #all_stimuli_color_list = all_stimuli_color_list + [constants.monocular_dict['left']] * 2 \
+    #                         + [constants.monocular_dict['right']] * 2 + ['brown'] * 3
 
     stimuli_presentation = {stimuli: 0 for stimuli in all_stimuli_list}
     stimuli_responding = {stimuli: 0 for stimuli in all_stimuli_list}
     stimuli_responding_duration_s = {stimuli: [] for stimuli in all_stimuli_list}
+    tail_bout_on = np.array([list(tail_bout_df.cont_tuples_imageframe)[i][0] for i in range(len(tail_bout_df))])
     for stimuli in all_stimuli_list:
-        stimuli_presentation[stimuli] = list(stimulus_df.stim_name).count(stimuli)
-        stimuli_responding[stimuli] = tail_bout_df[tail_bout_df.tail_stimuli == stimuli].shape[0]
+        stimulus_df_thisstim = stimulus_df[stimulus_df.stim_name == stimuli]
+        stimuli_presentation[stimuli] = len(stimulus_df_thisstim)
+        for rep in range(len(stimulus_df_thisstim)):
+            stim_on = list(stimulus_df_thisstim.frame)[rep]
+            stim_tuple = (stim_on, stim_on + stimulus_s * hz)
+            if np.any((tail_bout_on <= stim_tuple[1])&(tail_bout_on >= stim_tuple[0] )):
+                stimuli_responding[stimuli] += 1
         stimuli_responding_duration_s[stimuli] = list(tail_bout_df[tail_bout_df.tail_stimuli == stimuli].tail_duration_s)
     ax_hist.barh(all_stimuli_list + ['all'], list(stimuli_presentation.values()) + [np.nan], color = 'grey', alpha = 0.5)
-    ax_hist.barh(all_stimuli_list + ['all'], list(stimuli_responding.values()) + [np.nan], color = all_stimuli_color_list, alpha = 0.8)
+    ax_hist.barh(all_stimuli_list + ['all'], list(stimuli_responding.values()) + [np.nan], color = all_stimuli_color_list.values(), alpha = 0.8)
+    stimuli_presenting_responding_df = pd.DataFrame(data = {'stimuli': all_stimuli_list,
+        'presenting': stimuli_presentation.values(), 'responding': stimuli_responding.values()})
     ax_hist.set_xlabel('bout/stim occurance')
     ax_hist.set_ylim([-1, len(all_stimuli_list) + 1])
+    #plot scatter/violin plot for bout durations
+    tail_bout_df_copy = tail_bout_df.copy()
+    tail_bout_df_copy['tail_stimuli'] = ['all'] * len(tail_bout_df_copy)
+    tail_bout_df_copy = pd.concat([tail_bout_df, tail_bout_df_copy])
+    all_stimuli_color_list['all'] = 'black'
     gs = ax[0, 1].get_gridspec()
     for axes in ax[0:, 1]:
         axes.remove()
     ax_time = fig.add_subplot(gs[0:, 1])
+    sns.violinplot(data=tail_bout_df_copy, y='tail_stimuli', x='tail_duration_s', order=all_stimuli_list + ['all'], ax=ax_time,
+                   hue = 'tail_stimuli', palette=all_stimuli_color_list, alpha=0.2, linewidth = 0, log_scale = True,
+                   inner_kws=dict(box_width=5, whis_width=1, color = 'silver',  alpha = 1, zorder = 0), zorder = 0)
     for i in range(0, len(all_stimuli_list)):
         y = all_stimuli_list[i]
         x = stimuli_responding_duration_s[y]
-        ax_time.scatter(y= np.add([i] * len(x), np.random.uniform(-0.1, 0.1, len(x))), x= x, color = all_stimuli_color_list[i], alpha = 0.5, s = 2)
+        ax_time.scatter(y= np.add([i] * len(x), np.random.uniform(-0.1, 0.1, len(x))), x= x,
+                        color = all_stimuli_color_list[y], alpha = 0.5, s = 2, zorder = 1)
     x = [a for b in stimuli_responding_duration_s.values() for a in b]
-    ax_time.scatter(y=np.add([len(all_stimuli_list)] * len(x), np.random.uniform(-0.1, 0.1, len(x))), x=x,
-                    color='black', alpha=0.5, s=2)
-    ax_time.set_yticklabels([])
+    ax_time.scatter(y= np.add([len(all_stimuli_list)] * len(x), np.random.uniform(-0.1, 0.1, len(x))), x= x,
+                        color = all_stimuli_color_list['all'], alpha = 0.5, s = 2, zorder = 1)
+    ax_time.invert_yaxis()
     ax_time.set_ylim([-1, len(all_stimuli_list) + 1])
+    ax_time.set_yticks(all_stimuli_list)
+    ax_time.set_yticklabels([])
+    ax_time.set_ylabel('')
     ax_time.set_xlim([0.02, 20])
     ax_time.set_xscale('log')
     ax_time.set_xticks([0.02, 0.2, 1, 2, 20])
     ax_time.set_xticklabels([0.02, 0.2,1, 2, 20])
     ax_time.axvline(0.2, linestyle = ':', color = 'grey', linewidth = 1)
     ax_time.set_xlabel('bout duration (s)')
-
     #separate binocular visually evoked response and spontaneous response
     bi_response_index = []
     spon_response_index = []
-    for index in range(0, tail_bout_df.tail_stimuli.shape[0]):
+    for index in tail_bout_df.index:
         if tail_bout_df.tail_stimuli[index] in constants.monocular_dict.keys():
            bi_response_index = bi_response_index + [index]
         elif not tail_bout_df.tail_stimuli[index] in constants.deg_dict.keys():
             spon_response_index = spon_response_index + [index]
     bi_tail_strength = [tail_bout_df.tail_strength[index] for index in bi_response_index]
+    bi_tail_angle = [tail_bout_df.tail_angle[index] for index in bi_response_index]
     bi_tail_angle_pos = [tail_bout_df.tail_angle_pos[index] for index in bi_response_index]
     bi_tail_angle_neg = [tail_bout_df.tail_angle_neg[index] for index in bi_response_index]
     bi_tail_duration_s = [tail_bout_df.tail_duration_s[index] for index in bi_response_index]
@@ -264,6 +277,7 @@ def tail_angle_all(stimulus_df, tail_bout_df, stimuli_s = 5):
     bi_tail_stimuli_color = [constants.monocular_dict.get(stimuli) for stimuli in bi_tail_stimuli]
 
     spon_tail_strength = [tail_bout_df.tail_strength[index] for index in spon_response_index]
+    spon_tail_angle = [tail_bout_df.tail_angle[index] for index in spon_response_index]
     spon_tail_angle_pos = [tail_bout_df.tail_angle_pos[index] for index in spon_response_index]
     spon_tail_angle_neg = [tail_bout_df.tail_angle_neg[index] for index in spon_response_index]
     spon_tail_duration_s = [tail_bout_df.tail_duration_s[index] for index in spon_response_index]
@@ -281,7 +295,7 @@ def tail_angle_all(stimulus_df, tail_bout_df, stimuli_s = 5):
         gs = ax[2, 2].get_gridspec()
         ax[2, 2].remove()
         ax_bia = fig.add_subplot(gs[2, 2], projection = 'polar')
-        ax_bia.bar(np.add(bi_tail_angle_neg,bi_tail_angle_pos), bi_tail_strength, color = bi_tail_stimuli_color , width = 0.02, alpha = 0.5, zorder = 10)
+        ax_bia.bar(bi_tail_angle, bi_tail_strength, color = bi_tail_stimuli_color , width = 0.02, alpha = 0.5, zorder = 10)
         gs = ax[3, 2].get_gridspec()
         ax[3, 2].remove()
         ax_bid = fig.add_subplot(gs[3, 2], projection = 'polar')
@@ -312,7 +326,7 @@ def tail_angle_all(stimulus_df, tail_bout_df, stimuli_s = 5):
         gs = ax[2, 3].get_gridspec()
         ax[2, 3].remove()
         ax_spona = fig.add_subplot(gs[2, 3], projection = 'polar')
-        ax_spona.bar(np.add(spon_tail_angle_neg,spon_tail_angle_pos), spon_tail_strength, color = 'brown' , width = 0.04, alpha = 0.5, zorder = 10)
+        ax_spona.bar(spon_tail_angle, spon_tail_strength, color = 'brown' , width = 0.04, alpha = 0.5, zorder = 10)
         ax[3, 3].axis('off')
         fix_ax(ax_sponp)
         ax_sponp.axvspan(np.deg2rad(180), np.deg2rad(360), color='lightgrey', alpha=0.3)
@@ -320,7 +334,7 @@ def tail_angle_all(stimulus_df, tail_bout_df, stimuli_s = 5):
         ax_sponn.axvspan(np.deg2rad(0), np.deg2rad(180), color='lightgrey', alpha=0.3)
         fix_ax(ax_spona)
         ax_sponp.set_title('spontaneous')
-
+    return stimuli_presenting_responding_df
 
 def tail_angle_binocular(tail_bout_df, stimuli_s = 5):
     """
@@ -339,7 +353,6 @@ def tail_angle_binocular(tail_bout_df, stimuli_s = 5):
         """
         ax.set_theta_offset(np.deg2rad(90))
         ax.set_theta_direction('clockwise')
-        ax.set_ylim([0, 0.8])
         ax.set_yticks([])
         ax.set_xticks([])
         ax.set_xticklabels([])
@@ -350,6 +363,7 @@ def tail_angle_binocular(tail_bout_df, stimuli_s = 5):
     for stimuli in list(constants.monocular_dict.keys()):# + ['all binocular']:
         response_df = tail_bout_df[tail_bout_df.tail_stimuli == stimuli]
         response_tail_strength = list(response_df.tail_strength)
+        response_tail_angle = list(response_df.tail_angle)
         response_tail_angle_pos = list(response_df.tail_angle_pos)
         response_tail_angle_neg = list(response_df.tail_angle_neg)
         response_tail_duration_s = list(response_df.tail_duration_s)
@@ -369,7 +383,7 @@ def tail_angle_binocular(tail_bout_df, stimuli_s = 5):
         ax_scatter.scatter(np.add([1] * count, np.random.uniform(-0.1, 0.1, count)), np.divide(response_tail_duration_s, 7.5/80), color = stimuli_color, alpha = 0.5, s = 3, zorder = 1)
         #ax_scatter.set_ylim([0, 7.5])
         ax_scatter.set_xlim([-0.5, 1.5])
-        ax_scatter.axhline(stimuli_s/7.5*80, xmin = 0.5, xmax =2, linestyle = ':', color = 'grey', linewidth = 1)
+        ax_scatter.axhline(0.2/7.5*80, xmin = 0.5, xmax =2, linestyle = ':', color = 'grey', linewidth = 1)
         ax_scatter.set_yticks([])
         ax_scatter.set_xticks([])
         ax_scatter.set_xticklabels([])
@@ -388,7 +402,7 @@ def tail_angle_binocular(tail_bout_df, stimuli_s = 5):
         gs = ax[3, stimuli_n].get_gridspec()
         ax[3, stimuli_n].remove()
         axa = figall.add_subplot(gs[3, stimuli_n], projection = 'polar')
-        axa.bar(np.add(response_tail_angle_neg,response_tail_angle_pos), response_tail_strength, color = 'darkgrey' , width = 0.1, alpha = 0.5, zorder = 1)
+        axa.bar(response_tail_angle, response_tail_strength, color = 'darkgrey' , width = 0.1, alpha = 0.5, zorder = 1)
         #plot the mean tail response
         if len(response_tail_strength) > 0:
             axp.bar(np.nanmean(response_tail_angle_pos), np.nanmean(response_tail_strength), color = stimuli_color , width = 0.1, alpha = 1, zorder = 2)
@@ -408,7 +422,7 @@ def tail_angle_binocular(tail_bout_df, stimuli_s = 5):
         fix_ax(axd)
         axd.set_xlabel(str(stimuli))
         if stimuli_n == 0:
-            ax_hist.set_ylabel('bout/stim\nbout duration (s)')
+            ax_hist.set_ylabel('bout\nbout duration (s)')
             axp.set_ylabel('pos max\ntail angle')
             axn.set_ylabel('neg max\ntail angle')
             axa.set_ylabel('sum max\ntail angle')
@@ -416,7 +430,7 @@ def tail_angle_binocular(tail_bout_df, stimuli_s = 5):
         stimuli_n += 1
 
 def plot_trace_loc(frametimes_df, stimulus_df, refImg, trace, tracename, loc, minbar = 0, maxbar = 1, byregion = False,
-                   tail_byframe = np.ndarray([])):
+                   stimulus_s = 5, tail_byframe = np.ndarray([])):
     """
     Plot the cell traces heatmap with their corresponding location on the ref image
         frametimes_df: the dataframe for frames and corresponding time
@@ -451,8 +465,8 @@ def plot_trace_loc(frametimes_df, stimulus_df, refImg, trace, tracename, loc, mi
     if not stimulus_df.empty:
         for i, stim_row in stimulus_df.iterrows():
             c = constants.allcolor_dict[stim_row['stim_name']]
-            ax[0, 2].axvspan(stim_row['frame']- 1 ,stim_row['frame'] - 1 + 5*hz/2, color = c[0], alpha = 0.2)
-            ax[0, 2].axvspan(stim_row['frame'] - 1 + 5*hz/2 + 0.1, stim_row['frame'] - 1 + 5*hz, color = c[1], alpha = 0.2)
+            ax[0, 2].axvspan(stim_row['frame']- 1 ,stim_row['frame'] - 1 + stimulus_s*hz/2, color = c[0], alpha = 0.2)
+            ax[0, 2].axvspan(stim_row['frame'] - 1 + stimulus_s*hz/2 + 0.1, stim_row['frame'] - 1 + stimulus_s*hz, color = c[1], alpha = 0.2)
         #ax[0, 2].set_ylim([-1, 1])
     if not tail_byframe.size == 0:
         ax[0, 2].plot(tail_byframe, linewidth = 0.5, color = 'black')
@@ -506,15 +520,15 @@ def plot_trace_loc(frametimes_df, stimulus_df, refImg, trace, tracename, loc, mi
         ax_show.scatter(location['xpos'], location['ypos'], c = location['ypos'],
                         s = 3, cmap = colormap)
         region_row += 1
-    #ax[region_count - 1, 2].set_xticks(range(0, len(frametimes_df), 200))
-    #ax[region_count - 1, 2].set_xticklabels(range(0, len(frametimes_df), 200))
+    ax[region_count - 1, 2].set_xticks(range(0, len(frametimes_df), 200))
+    ax[region_count - 1, 2].set_xticklabels(range(0, len(frametimes_df), 200))
     ax[region_count - 1, 2].set_xlabel('frames')
     ax_show.set_ylabel('cell location')
     ax_show.set_xticks([])
     ax_show.set_yticks([])
 
 def plot_trace_loc_example(frametimes_df, stimulus_df, refImg, trace, tracename, loc, minbar = 0, maxbar = 1,
-                           byregion = False, tail_byframe = np.ndarray([])):
+                           stimulus_s=5, byregion = False, tail_byframe = np.ndarray([])):
     """
     Randomly select 30 cells, plot the cell traces line graph with their corresponding location on the ref image
         frametimes_df: the dataframe for frames and corresponding time
@@ -582,8 +596,8 @@ def plot_trace_loc_example(frametimes_df, stimulus_df, refImg, trace, tracename,
         if not stimulus_df.empty:
             for i, stim_row in stimulus_df.iterrows():
                 c = constants.allcolor_dict[stim_row['stim_name']]
-                ax_lineplot.axvspan(stim_row['frame']- 1,stim_row['frame'] - 1+ 5*hz/2, color = c[0], alpha = 0.2)
-                ax_lineplot.axvspan(stim_row['frame'] - 1+ 5*hz/2 + 0.1, stim_row['frame'] - 1+ 5*hz, color = c[1], alpha = 0.2)
+                ax_lineplot.axvspan(stim_row['frame']- 1,stim_row['frame'] - 1+ stimulus_s*hz/2, color = c[0], alpha = 0.2)
+                ax_lineplot.axvspan(stim_row['frame'] - 1+ stimulus_s*hz/2 + 0.1, stim_row['frame'] - 1+ stimulus_s*hz, color = c[1], alpha = 0.2)
         ax_lineplot.set_ylabel(regionname + ' cells ' + tracename)
         if region_row < region_count - 1:
             ax_lineplot.xaxis.set_ticklabels([])
@@ -619,10 +633,13 @@ def corr(trace, region_trace, tracename):
     fig, ax= plt.subplots(region_count, 3, gridspec_kw={'width_ratios': [3, 1, 1], 'hspace': 0.2, 'wspace':0},
             figsize = (12, 5), dpi = 240)
     #add gridspace for all neuron correlation plot
-    gs = ax[0, 0].get_gridspec()
-    for axes in ax[0:, 0]:
-        axes.remove()
-    ax_all = fig.add_subplot(gs[0:, 0])
+    if region_count == 1:#one dimensional axes
+        ax_all = ax[0]
+    else:
+        gs = ax[0, 0].get_gridspec()
+        for axes in ax[0:, 0]:
+            axes.remove()
+        ax_all = fig.add_subplot(gs[0:, 0])
     cof = np.corrcoef(trace)
     sns.heatmap(cof, cmap = 'RdBu_r', vmin = -1, vmax = 1, square = True, xticklabels = False, yticklabels = False,
             ax = ax_all, cbar_kws =dict(location="left", label = 'r2', ticks = [-1, 1]))
@@ -633,7 +650,13 @@ def corr(trace, region_trace, tracename):
     # region_length = 0
     for region in region_trace.keys():
         #plot heatmap for each region
-        region_heat_ax = ax[region_row, 1]
+        if region_count == 1:
+            region_heat_ax = ax[1]
+            region_hist_ax = ax[2]
+        else:
+            region_heat_ax = ax[region_row, 1]
+            region_hist_ax = ax[region_row, 2]
+
         region_cof[region] = np.corrcoef(region_trace[region])
         sns.heatmap(region_cof[region], ax = region_heat_ax, cmap = 'RdBu_r', square = True, xticklabels = False,
                     yticklabels = False, cbar = False, vmin = -1, vmax = 1)
@@ -642,7 +665,7 @@ def corr(trace, region_trace, tracename):
         # ax_all.axvline(region_length)
         # ax_all.axhline(region_length)
         #plot cof distribution for each region
-        region_hist_ax = ax[region_row, 2]
+
         sns.histplot(region_cof[region].flatten(), ax = region_hist_ax, element = 'step', fill = True,
                      color = constants.cmaplist[region](0.5), stat = 'percent', shrink = 0.8)
         region_hist_ax.set_ylabel('%cell')
@@ -656,8 +679,8 @@ def corr(trace, region_trace, tracename):
         region_row += 1
     return cof, region_cof
 
-def corr_clustering(frametimes_df, stimulus_df, refImg, region_trace, tracename, loc, minbar = 0, maxbar = 1,
-                    tail_byframe = np.ndarray([])):
+def corr_clustering(frametimes_df, stimulus_df, refImg, trace, tracename, loc, minbar = 0, maxbar = 1,
+                    stimulus_s = 5, tail_byframe = np.ndarray([])):
     """
     Perform hierarchical clustering according to the correlation matrix input.
     (@https://github.com/TheLoneNut/CorrelationMatrixClustering/blob/master/CorrelationMatrixClustering.ipynb)
@@ -678,10 +701,10 @@ def corr_clustering(frametimes_df, stimulus_df, refImg, region_trace, tracename,
     """
     hz = hzReturner(frametimes_df)
     #rebuild trace and ROIs from regions
-    trace = pd.concat(region_trace.values())
-    trace = trace.loc[~trace.index.duplicated(keep='first')]
-    loc = pd.concat(loc.values())
-    loc = loc.loc[~loc.index.duplicated(keep='first')]
+    # trace = pd.concat(region_trace.values())
+    # trace = trace.loc[~trace.index.duplicated(keep='first')]
+    #loc = pd.concat(loc.values())
+    #loc = loc.loc[~loc.index.duplicated(keep='first')]
     trace_reindex = trace.reset_index(drop=False)
     cof_reindex = np.corrcoef(trace_reindex.drop('index', axis=1))
     cbar = plt.get_cmap('rainbow_r')
@@ -697,8 +720,8 @@ def corr_clustering(frametimes_df, stimulus_df, refImg, region_trace, tracename,
     if not stimulus_df.empty:
         for i, stim_row in stimulus_df.iterrows():
             c = constants.allcolor_dict[stim_row['stim_name']]  # constants.allcolor_dict[stim_row['stim_name']]
-            ax_stimulus.axvspan(stim_row['frame']- 1, stim_row['frame'] - 1+ 5 * hz / 2, color=c[0], alpha=0.2)
-            ax_stimulus.axvspan(stim_row['frame'] - 1+ 5 * hz / 2 + 0.1, stim_row['frame']- 1 + 5 * hz, color=c[1], alpha=0.2)
+            ax_stimulus.axvspan(stim_row['frame']- 1, stim_row['frame'] - 1+ stimulus_s * hz / 2, color=c[0], alpha=0.2)
+            ax_stimulus.axvspan(stim_row['frame'] - 1+ stimulus_s * hz / 2 + 0.1, stim_row['frame']- 1 + stimulus_s * hz, color=c[1], alpha=0.2)
     if not tail_byframe.size == 0:
         ax_stimulus.plot(tail_byframe, linewidth = 0.5, color = 'black')
     # plot pre-proessed correlation
@@ -768,7 +791,7 @@ def corr_clustering(frametimes_df, stimulus_df, refImg, region_trace, tracename,
     return cluster_dict
 
 
-def plot_trace_stimuli(frametimes_df, offsets, stim_dict, tracename, loc, minbar = 0, maxbar = 1, byregion = False):
+def plot_trace_stimuli(frametimes_df, offsets, stim_dict, tracename, loc, minbar = 0, maxbar = 1, stimulus_s = 5, byregion = False):
     """
     Plot the mean cell traces heatmap in the response window for each stimuli, with their corresponding y location on the right
         frametimes_df: the dataframe for frames and corresponding time
@@ -805,8 +828,8 @@ def plot_trace_stimuli(frametimes_df, offsets, stim_dict, tracename, loc, minbar
     for stim in constants.dir_sort: #sort stim bar according to a sequence that makes more sense
         #plot stimulus traces
         c = constants.allcolor_dict[stim]
-        ax[0, stim_col].axvspan(0, 0 + 5*hz/2, facecolor = c[0], alpha = 0.5, )
-        ax[0, stim_col].axvspan(0 + 5*hz/2 + 0.05, 0 + 5*hz, facecolor = c[1], alpha = 0.5)
+        ax[0, stim_col].axvspan(0, 0 + stimulus_s*hz/2, facecolor = c[0], alpha = 0.5, )
+        ax[0, stim_col].axvspan(0 + stimulus_s*hz/2 + 0.05, 0 + stimulus_s*hz, facecolor = c[1], alpha = 0.5)
         ax[0, stim_col].sharex(ax[1, stim_col])
         ax[0, stim_col].axis('off')
         #plot heatmap for each region
@@ -1168,7 +1191,7 @@ def plot_tuning_specificity(all_degree_dict, all_response_dict, all_booldf,
                       rotation = 'vertical', verticalalignment = 'center', horizontalalignment = 'center')
         region_row += 1
 
-def cluster_on(frametimes_df, min_on_s, trace):
+def cluster_on(frametimes_df, min_on_s, trace, tail_bout_dfs):
     """
     pull out traces when the cell is "on", according to a cluster method that fit the neuron fluorscence into "silent"
     cluster and "on" cluster. Cell traces that fire for more than min_on_s are classified as on. Note that the input needs
@@ -1186,13 +1209,17 @@ def cluster_on(frametimes_df, min_on_s, trace):
     on_tuples_list = np.full(trace.shape[0], np.nan, dtype = object)
     hz = hzReturner(frametimes_df)
     min_on_hz = min_on_s * hz
+    trace = np.nan_to_num(trace, nan=0)
+    if type(tail_bout_dfs) == pd.DataFrame:
+        tail_bout_dfs = tail_bout_dfs[tail_bout_dfs.bouts_nearby <=1]
     for row in range(0, trace.shape[0]):
         gm = GaussianMixture(n_components=2, random_state=0).fit(pd.DataFrame(trace[row]))
         if gm.means_[0] > gm.means_[1]:
             calm = 1
         else:
             calm = 0
-        boundary = (gm.means_[calm] + 1.8 * np.sqrt(gm.covariances_[calm]))[0][0]
+        boundary = (gm.means_[calm] + 3 * np.sqrt(gm.covariances_[calm]))[0][0]
+        #boundary = 0.2
         above = trace[row] > boundary
         above = [int(x) for x in above]
         #get on index, get off index
@@ -1204,15 +1231,18 @@ def cluster_on(frametimes_df, min_on_s, trace):
             if on_index[-1] > off_index[-1]:
                 off_index = np.concatenate([off_index, [len(list(trace[row, :])) - 1]])
             on_tuples_list[row] = [(on, off) for on, off in zip(on_index, off_index) if off - on > min_on_hz]
+            if type(tail_bout_dfs) == pd.DataFrame:
+                on_tuples_list[row] = [i for i in on_tuples_list[row] if any(tailstart - 0.5*hz <= i[0] <= tailend + 0.5*hz for tailstart, tailend in tail_bout_dfs.cont_tuples_imageframe)]#any(start <= b <= end for start, end in a)
             on_durations = [tuple[1] - tuple[0] for tuple in on_tuples_list[row]]
-            on_signals = np.full((len(on_tuples_list[row]), np.max(on_durations)), boundary)
-            for i in range(0, len(on_tuples_list[row])):
-                on_signals[i][0:on_durations[i]]= trace.iloc[row, :][on_tuples_list[row][i][0]:on_tuples_list[row][i][1]]
-        mean_spike_trace[row][0:np.max(on_durations)] = np.mean(on_signals, axis = 0)
-        mean_spike_duration[row] = np.mean(on_durations)
+            if len(on_durations) > 0:#only if any on was captured
+                on_signals = np.full((len(on_tuples_list[row]), np.max(on_durations)), boundary)
+                for i in range(0, len(on_tuples_list[row])):
+                    on_signals[i][0:on_durations[i]]= trace[row, :][on_tuples_list[row][i][0]:on_tuples_list[row][i][1]]
+                mean_spike_trace[row][0:np.max(on_durations)] = np.mean(on_signals, axis = 0)
+                mean_spike_duration[row] = np.nanmean(on_durations)
     return mean_spike_trace, mean_spike_duration, on_tuples_list
 
-def mean_on(frametimes_df, min_on_s, trace):
+def mean_on(frametimes_df, min_on_s, trace, tail_bout_dfs):
     """
     pull out traces when the cell is "on", according the on threshold defined by the mean fluorscence. Cell traces that fire
     for more than min_on_s seconds are classified as on. Note that the input needs to be raw fluorscence and are realtively
@@ -1227,9 +1257,14 @@ def mean_on(frametimes_df, min_on_s, trace):
     """
     mean_spike_trace = np.full((trace.shape[0], frametimes_df.shape[0]), np.nan)
     mean_spike_duration = np.full(trace.shape[0], np.nan)
+    mean_spike_tailduration = pd.DataFrame(columns = ['neuron_index', 'neuron_on_time', 'tail_duration'])
     on_tuples_list = np.full(trace.shape[0], np.nan, dtype = object)
     hz = hzReturner(frametimes_df)
     min_on_hz = min_on_s * hz
+    if type(tail_bout_dfs) == pd.DataFrame:
+        tail_bout_dfs_raw = tail_bout_dfs.copy()
+        tail_bout_dfs = tail_bout_dfs[tail_bout_dfs.bouts_nearby <= 1]
+        tail_bout_dfs = tail_bout_dfs[tail_bout_dfs.tail_magnitude <= np.pi]
     for row in range(0, trace.shape[0]):
         boundary = np.mean(trace[row, :])
         above = trace[row] > boundary
@@ -1243,14 +1278,27 @@ def mean_on(frametimes_df, min_on_s, trace):
             if on_index[-1] > off_index[-1]:
                 off_index = np.concatenate([off_index, [len(list(trace[row, :])) - 1]])
             on_tuples_list[row] = [(on, off) for on, off in zip(on_index, off_index) if off - on > min_on_hz and off - on < frametimes_df.shape[0]]
+            if type(tail_bout_dfs) == pd.DataFrame:
+                on_tuples_list[row] = [i for i in on_tuples_list[row] if any(tailstart - 0.5*hz <= i[0] and i[0] <= tailstart + 0.5*hz for tailstart, tailend in tail_bout_dfs.cont_tuples_imageframe)]
+                on_tuples_list[row] = [i for i in on_tuples_list[row] if len([tailend - tailstart for tailstart, tailend in
+                    tail_bout_dfs_raw.cont_tuples_imageframe if tailstart - 0.5 * hz <= i[1] and i[0] <= tailend + 0.5 * hz ]) == 1]
             if len(on_tuples_list[row]) != 0:
                 on_durations = [tuple[1] - tuple[0] for tuple in on_tuples_list[row]]
-                on_signals = np.full((len(on_tuples_list[row]), np.max(on_durations)), boundary)
+                on_signals = np.full((len(on_tuples_list[row]), np.max(on_durations)), np.nan)
                 for i in range(0, len(on_tuples_list[row])):
-                    on_signals[i][0:on_durations[i]]= trace[row, :][on_tuples_list[row][i][0]:on_tuples_list[row][i][1]]
+                    on_tuple = on_tuples_list[row][i]
+                    overlap = next(((j, tailstart, tailend) for j, (tailstart, tailend) in enumerate(tail_bout_dfs.cont_tuples_imageframe) if tailstart - 1*hz <= on_tuple[1] and tailend + 1*hz >= on_tuple[0]), None)
+                    if overlap:
+                        tail_duration = tail_bout_dfs.iloc[overlap[0]]['tail_duration_s']
+                    #tail_duration = tail_bout_dfs.iloc[np.argmin(np.abs([on_tuples_list[row][i][0] - j[0] for j in tail_bout_dfs.cont_tuples_imageframe]))]['tail_duration_s']
+                        mean_spike_tailduration = pd.concat([mean_spike_tailduration,
+                                                             pd.DataFrame(data = {'neuron_index': [row],
+                                                                        'tail_duration': [tail_duration],
+                                                                        'neuron_on_time': [on_tuple[1] -on_tuple[0]]})])
+                    on_signals[i][0:on_durations[i]]= trace[row, :][on_tuple[0]:on_tuple[1]]
                 mean_spike_trace[row][0:np.nanmax(on_durations)] = np.nanmean(on_signals, axis=0)
                 mean_spike_duration[row] = np.nanmean(on_durations)
-    return mean_spike_trace, mean_spike_duration, on_tuples_list
+    return mean_spike_trace, mean_spike_duration, on_tuples_list, mean_spike_tailduration
 
 def peak_on(frametimes_df, min_on_s, trace, peak_height = 0.05):
     """
@@ -1292,7 +1340,7 @@ def peak_on(frametimes_df, min_on_s, trace, peak_height = 0.05):
                 mean_spike_duration[row] = np.nanmean(on_durations)
     return mean_spike_trace, mean_spike_duration, on_tuples_list
 
-def plot_on(frametimes_df, region_trace, tracename, loc, on_method, min_on_s, cutoff_s, refImg, smooth = True):
+def specialplot_on(neuron_tail_df, frametimes_df, trace, tracename, loc, on_method, min_on_s, cutoff_s, refImg, smooth = True):
     """
     Plot the mean "on" trace for each neuron. Note that the traces are normalized and smoothed when selecting "on periods".
      The smoothing factor is determined by frame rate * 10
@@ -1310,7 +1358,14 @@ def plot_on(frametimes_df, region_trace, tracename, loc, on_method, min_on_s, cu
     cbar = plt.get_cmap('rainbow')
 
     #preparing figure space
-    region_count = len(region_trace.keys())
+    # DECIDE TOP RESPONDERS
+    toppercentage = 1 - 0.2
+    neuron_tail_df['tail_total_predictresponse_rate'] = neuron_tail_df.tail_total_predict_rate + neuron_tail_df.tail_total_response_rate
+    top_all_cutoff = neuron_tail_df['tail_total_predictresponse_rate'].quantile(toppercentage)
+    top_neurons = neuron_tail_df[neuron_tail_df['tail_total_predictresponse_rate'] >= top_all_cutoff]
+    region_trace = {'tail': trace.loc[top_neurons.index]}
+
+    region_count = 2
     fig, ax= plt.subplots(region_count + 1, 4,
                           gridspec_kw={'hspace': 0, 'wspace': 0.2, 'height_ratios':  [20] * region_count + [1]},
             figsize = (15, 6), dpi = 240, sharex = 'col')
@@ -1323,13 +1378,13 @@ def plot_on(frametimes_df, region_trace, tracename, loc, on_method, min_on_s, cu
     ax_scatter.set_yticks([])
     ax_scatter.set_xticks([])
     # plot cbar
-    color_cutoff = 60
+    color_cutoff = 20
     for i in range(0, 3):
         ax_cbar = ax[region_count, i]
         #if heatmap ax cbar, transfer to frames
         if i == 1:
             color_cutoff_hz = int(color_cutoff * hz)
-            plotting_frame = int(np.floor(150 * hz) + 1)
+            plotting_frame = int(np.floor(20 * hz) + 1)
             ax_cbar.scatter(np.linspace(0, color_cutoff_hz, color_cutoff_hz + 1), [0] * (color_cutoff_hz + 1),
                             c=np.linspace(0, color_cutoff_hz, color_cutoff_hz + 1), cmap=cbar)
             ax_cbar.scatter(np.linspace(color_cutoff_hz + 1, plotting_frame,
@@ -1339,7 +1394,7 @@ def plot_on(frametimes_df, region_trace, tracename, loc, on_method, min_on_s, cu
         else:
             ax_cbar.scatter(np.linspace(0, color_cutoff, color_cutoff + 1), [0] * (color_cutoff + 1),
                         c=np.linspace(0, color_cutoff, color_cutoff + 1), cmap=cbar)
-            ax_cbar.scatter(np.linspace(color_cutoff + 1, 150, 150 - color_cutoff), [0] * (150 - color_cutoff), c='red')
+            ax_cbar.scatter(np.linspace(color_cutoff + 1, 20, 20 - color_cutoff), [0] * (20 - color_cutoff), c='red')
         ax_cbar.spines[['top', 'left', 'bottom', 'right']].set_color('white')
         ax_cbar.set_yticks([])
         ax_cbar.sharex(ax[0, i])
@@ -1352,17 +1407,17 @@ def plot_on(frametimes_df, region_trace, tracename, loc, on_method, min_on_s, cu
         trace = region_trace[region]
         for neuron in trace.index:
             if smooth:
-                trace.loc[neuron, :] = arrutils.pretty(trace.loc[neuron, :], int(10 * hz))
+                trace.loc[neuron, :] = arrutils.pretty(trace.loc[neuron, :], int(20 * hz))
         trace = arrutils.norm_0to1(trace.to_numpy())
         if on_method == 'cluster':
-            mean_on_trace[region], mean_on_duration[region], _ = cluster_on(frametimes_df, min_on_s, trace)
+            mean_on_trace, mean_on_duration, _ = cluster_on(frametimes_df, min_on_s, trace)
         elif on_method == 'mean':
-            mean_on_trace[region], mean_on_duration[region], _ = mean_on(frametimes_df, min_on_s, trace)
+            mean_on_trace, mean_on_duration, _ = mean_on(frametimes_df, min_on_s, trace)
         #transfer everything to seconds
-        mean_on_duration[region] = np.divide(mean_on_duration[region], hz)
+        mean_on_duration = np.divide(mean_on_duration, hz)
         #sort neuron by duration
-        sort_duration = np.argsort(mean_on_duration[region])
-        sort_mean_on_trace = mean_on_trace[region][sort_duration]
+        sort_duration = np.argsort(mean_on_duration)
+        sort_mean_on_trace = mean_on_trace[sort_duration]
         # plot heatmap
         region_heat_ax = ax[region_row, 1]
         sns.heatmap(sort_mean_on_trace[:, :plotting_frame], ax=region_heat_ax, cmap='viridis',
@@ -1371,16 +1426,16 @@ def plot_on(frametimes_df, region_trace, tracename, loc, on_method, min_on_s, cu
         region_heat_ax.set_xticks([])
         # plot histogram for each region
         region_hist_ax = ax[region_row, 2]
-        peaky = mean_on_duration[region][np.where(mean_on_duration[region] < cutoff_s)[0]]
-        onoff = mean_on_duration[region][np.where(mean_on_duration[region] >= cutoff_s)[0]]
-        bins = np.linspace(0, 150, 11)
-        peaky = np.divide(np.histogram(peaky, bins)[0], len(mean_on_duration[region])) *100#transfer to percentage
-        onoff = np.divide(np.histogram(onoff, bins)[0], len(mean_on_duration[region])) *100
-        bins_center = np.linspace(7.5, 142.5, 10)
+        peaky = mean_on_duration[np.where(mean_on_duration < cutoff_s)[0]]
+        onoff = mean_on_duration[np.where(mean_on_duration >= cutoff_s)[0]]
+        bins = np.linspace(0, 20, 11)
+        peaky = np.divide(np.histogram(peaky, bins)[0], len(mean_on_duration)) *100#transfer to percentage
+        onoff = np.divide(np.histogram(onoff, bins)[0], len(mean_on_duration)) *100
+        bins_center = np.linspace(1, 19, 10)
         region_hist_ax.bar(bins_center, peaky, color = 'deepskyblue', alpha = 0.5, edgecolor = 'deepskyblue',
-                           width = 15)
+                           width = 1)
         region_hist_ax.bar(bins_center, onoff, color='coral', alpha=0.5, edgecolor='coral',
-                          width = 15)
+                          width = 1)
         region_hist_ax.set_ylim(0, 70)
         region_hist_ax.set_yticks([0, 70])
         region_hist_ax.axvline(cutoff_s, linestyle = ':', color = 'black', linewidth = 1)
@@ -1388,13 +1443,13 @@ def plot_on(frametimes_df, region_trace, tracename, loc, on_method, min_on_s, cu
         region_hist_ax.spines['right'].set_visible(False)
         region_hist_ax.spines['bottom'].set_visible(False)
         #plot line plot for each region, plot after the other graphs because the duration is clipped
-        mean_on_duration[region] = np.clip(mean_on_duration[region], 0, color_cutoff)/color_cutoff
+        mean_on_duration = np.clip(mean_on_duration, 0, color_cutoff)/color_cutoff
         region_line_ax = ax[region_row, 0]
-        for neuron in range(0, mean_on_trace[region].shape[0]):
-            region_line_ax.plot(np.arange(0, 150, 1/hz), mean_on_trace[region][neuron][:plotting_frame],
-                                c = cbar(mean_on_duration[region][neuron]), linewidth = 0.1)
+        for neuron in range(0, mean_on_trace.shape[0]):
+            region_line_ax.plot(np.arange(0, 20, 1/hz), mean_on_trace[neuron][:plotting_frame],
+                                c = cbar(mean_on_duration[neuron]), linewidth = 0.1)
         region_line_ax.axvline(cutoff_s, linestyle = ':', color = 'black', linewidth =1)
-        region_line_ax.set_xlim(0, 150)
+        region_line_ax.set_xlim(0, 20)
         region_line_ax.set_ylim(0, 1)
         region_line_ax.set_xticks([])
         region_line_ax.set_yticks([0, 1])
@@ -1411,9 +1466,127 @@ def plot_on(frametimes_df, region_trace, tracename, loc, on_method, min_on_s, cu
             region_line_ax.set_yticklabels([])
             region_hist_ax.set_ylabel('')
             region_hist_ax.set_yticklabels([])
-        ax_scatter.scatter(loc[region]['xpos'], loc[region]['ypos'], c = mean_on_duration[region], s = 1, cmap = cbar)
+        ax_scatter.scatter(loc.loc[top_neurons.index, 'xpos'], loc.loc[top_neurons.index, 'ypos'],
+                           c = mean_on_duration, s = 1, cmap = cbar)
         region_row += 1
     return color_cutoff, mean_on_duration
+
+def plot_on(frametimes_df, region_trace, loc, on_method, min_on_s, cutoff_s, refImg, smooth = True, tail_bout_dfs = None):
+    """
+    Plot the mean "on" trace for each neuron. Note that the traces are normalized and smoothed when selecting "on periods".
+     The smoothing factor is determined by frame rate * 10
+        frametimes_df: the dataframe for all frames and their corresponding raw time
+        region_trace: dictionary containing dataframe containing all traces for all regions, raw F!
+        loc: a dataframe containing all regions and their corresponding ROIs for each cell
+        on_method: the method to selecton "on periods" ('cluster', 'mean')
+        min_on_s: the minimal on seconds to be counted as a spike (recommend: GCaMP6s 5 seconds; GCaMP6f: 2 seconds)
+        cutoff_s: the cut off seconds to differentiate on/off and peaky neurons
+        refImg: the dataframe to plot the original fish plane
+        smooth: boolean that determines if the cell trace will be smoothed
+        tail_bout_dfs: if the tail bout df is included, only counting on during -0.5s to 0.5s after a tail bout, if not
+         the variable is None
+    """
+    hz = hzReturner(frametimes_df)
+    #cbar = plt.get_cmap('rainbow')
+    maxx = 100
+    plotting_frame = int(maxx * hz) + 1
+    #preparing figure space
+    region_count = len(region_trace.keys())
+    # fig, ax= plt.subplots(region_count + 1, 3,
+    #                       gridspec_kw={'hspace': 0, 'wspace': 0.2, 'height_ratios':  [20] * region_count + [1]},
+    #         figsize = (12, 6), dpi = 240, sharex = 'col')
+    # add gridspace for all neuron correlation plot
+    # gs = ax[0, 2].get_gridspec()
+    # for axes in ax[0:, 2]:
+    #     axes.remove()
+    # ax_scatter = fig.add_subplot(gs[0:, 2])
+    # ax_scatter.imshow(refImg, cmap='grey', alpha=0.8, vmax=100)
+    # ax_scatter.set_yticks([])
+    # ax_scatter.set_xticks([])
+    # plot cbar
+    color_cutoff = cutoff_s
+    #for i in range(0, 2):
+        # ax_cbar = ax[region_count, i]
+        # ax_cbar.scatter(np.linspace(0, color_cutoff, color_cutoff + 1), [0] * (color_cutoff + 1),
+        #                 c=np.linspace(0, color_cutoff, color_cutoff + 1), cmap=cbar)
+        # ax_cbar.scatter(np.linspace(color_cutoff + 1, maxx, maxx - color_cutoff), [0] * (maxx - color_cutoff), c='red')
+        # ax_cbar.spines[['top', 'left', 'bottom', 'right']].set_color('white')
+        # ax_cbar.set_yticks([])
+        # ax_cbar.sharex(ax[0, i])
+        # ax_cbar.set_xlabel('time (s)')
+    mean_on_trace_hz = {key: np.empty((region_trace[key].shape[0], frametimes_df.shape[0])) for key in region_trace.keys()}
+    mean_on_duration = {key: np.empty(region_trace[key].shape[0]) for key in region_trace.keys()}
+    mean_on_tailduration = {key: np.empty(region_trace[key].shape[0]) for key in region_trace.keys()}
+    #mean_on_duration_toplot = {key: np.empty(region_trace[key].shape[0]) for key in region_trace.keys()}
+    region_row = 0
+    for region in region_trace.keys():
+        #process data for each region
+        trace = region_trace[region]
+        for neuron in trace.index:
+            if smooth:
+                try:
+                    trace.loc[neuron, :] = arrutils.pretty(trace.loc[neuron, :], int(3 * hz))
+                except ValueError:
+                    print(trace.loc[neuron, :])
+        trace = arrutils.norm_0to1(trace.to_numpy())
+        if on_method == 'cluster':
+            mean_on_trace_hz[region], mean_on_duration[region], _ = cluster_on(frametimes_df, min_on_s, trace, tail_bout_dfs)
+        elif on_method == 'mean':
+            mean_on_trace_hz[region], mean_on_duration[region], _, mean_on_tailduration[region] = mean_on(frametimes_df, min_on_s, trace, tail_bout_dfs)
+
+        #transfer everything to seconds
+        mean_on_duration[region] = np.divide(mean_on_duration[region], hz)
+        mean_on_tailduration[region]['neuron_on_time'] = np.divide(mean_on_tailduration[region]['neuron_on_time'], hz)
+        mean_on_tailduration[region]['neuron_index'] = [region_trace[region].index[i] for i in mean_on_tailduration[region]['neuron_index']]
+        mean_on_duration[region] = pd.DataFrame(index=region_trace[region].index, data=mean_on_duration[region])
+        mean_on_trace_hz[region] = pd.DataFrame(index = region_trace[region].index, data = mean_on_trace_hz[region])
+        #sort neuron by duration
+        #sort_duration = np.argsort(mean_on_duration[region])
+        #plot histogram for each region
+        # region_hist_ax = ax[region_row, 1]
+        # peaky = mean_on_duration[region][np.where(mean_on_duration[region] < cutoff_s)[0]]
+        # onoff = mean_on_duration[region][np.where(mean_on_duration[region] >= cutoff_s)[0]]
+        # bins = np.linspace(0, maxx, int(maxx/5) + 1)
+        # peaky = np.divide(np.histogram(peaky, bins)[0], len(mean_on_duration[region])) *100#transfer to percentage
+        # onoff = np.divide(np.histogram(onoff, bins)[0], len(mean_on_duration[region])) *100
+        # bins_center = np.linspace(2.5, maxx - 2.5, int(maxx/5))
+        # region_hist_ax.bar(bins_center, peaky, color = 'deepskyblue', alpha = 0.5, edgecolor = 'deepskyblue',
+        #                    width = 5)
+        # region_hist_ax.bar(bins_center, onoff, color='coral', alpha=0.5, edgecolor='coral',
+        #                   width = 5)
+        # region_hist_ax.set_ylim(0, 30)
+        # region_hist_ax.set_yticks([0, 30])
+        # region_hist_ax.axvline(cutoff_s, linestyle = ':', color = 'black', linewidth = 1)
+        # region_hist_ax.spines['top'].set_visible(False)
+        # region_hist_ax.spines['right'].set_visible(False)
+        # region_hist_ax.spines['bottom'].set_visible(False)
+        #plot line plot for each region, plot after the other graphs because the duration is clipped
+        #mean_on_duration_toplot[region] = np.clip(mean_on_duration[region], 0, color_cutoff)/color_cutoff
+
+        # region_line_ax = ax[region_row, 0]
+        # for neuron in range(0, mean_on_trace[region].shape[0]):
+        #     region_line_ax.plot(np.arange(0, maxx, 1/hz), mean_on_trace[region][neuron][:plotting_frame],
+        #                         c = cbar(mean_on_duration_toplot[region][neuron]), linewidth = 0.01)
+        # region_line_ax.axvline(cutoff_s, linestyle = ':', color = 'black', linewidth =1)
+        # region_line_ax.set_xlim(0, maxx)
+        # region_line_ax.set_ylim(0, 1)
+        # region_line_ax.set_xticks([])
+        # region_line_ax.set_yticks([0, 1])
+        # region_line_ax.set_ylabel(region)
+        # region_line_ax.spines['top'].set_visible(False)
+        # region_line_ax.spines['right'].set_visible(False)
+        # region_line_ax.spines['bottom'].set_visible(False)
+        # if region_row == 0:
+        #     region_line_ax.set_yticklabels([0, 1])
+        #     region_hist_ax.set_yticklabels([0, 30])
+        #     region_hist_ax.set_ylabel('cell%')
+        # else:
+        #     region_line_ax.set_yticklabels([])
+        #     region_hist_ax.set_ylabel('')
+        #     region_hist_ax.set_yticklabels([])
+        # ax_scatter.scatter(loc[region]['xpos'], loc[region]['ypos'], marker = ',', linewidth = 0, c = mean_on_duration_toplot[region], s = 1, cmap = cbar)
+        # region_row += 1
+    return color_cutoff, mean_on_duration, mean_on_tailduration, mean_on_trace_hz
 
 
 def mean_on_cont(frametimes_df, min_on_s, interval_s, trace):
@@ -1465,10 +1638,10 @@ def mean_on_cont(frametimes_df, min_on_s, interval_s, trace):
         if len(cont_tuples) != 0:
             for i in range(0, len(cont_tuples)):
                 all_spiking[row][cont_tuples[i][0]:cont_tuples[i][1]] = 1
-            mean_spike_duration[row] = np.nanmax(cont_durations)
+            mean_spike_duration[row] = np.nanmean(cont_durations)
     return all_spiking, mean_spike_duration
 
-def peak_on_cont(frametimes_df, min_on_s, interval_s, trace):
+def peak_on_cont(frametimes_df, min_on_s, interval_s, trace, tail_bout_dfs):
     """
     pull out traces when the cell is "on", according the on threshold defined by the find_peak method. Cell traces that fire
     for more than 5 seconds are classified as on. Note that the input needs to be raw fluorscence and are smoothed with a 30
@@ -1483,8 +1656,11 @@ def peak_on_cont(frametimes_df, min_on_s, interval_s, trace):
     """
     all_spiking = np.full((trace.shape[0], frametimes_df.shape[0]), 0)
     mean_spike_duration = np.full(trace.shape[0], 0)
+    mean_spike_tailduration = pd.DataFrame(columns=['neuron_index', 'neuron_on_time', 'tail_duration'])
     hz = hzReturner(frametimes_df)
     min_on_hz = min_on_s * hz
+    if type(tail_bout_dfs) == pd.DataFrame:
+        tail_bout_dfs = tail_bout_dfs[tail_bout_dfs.bouts_nearby <= 1]
     for row in range(0, trace.shape[0]):
         #get on index, get off index
         on_index = find_peaks(trace[row], height=0.05, distance= 1)[0]
@@ -1510,14 +1686,27 @@ def peak_on_cont(frametimes_df, min_on_s, interval_s, trace):
                         cont_off_index = cont_off_index + [on_tuples[i][1]]
             cont_off_index = cont_off_index + [on_tuples[-1][1]]
         cont_tuples = [(on, off) for on, off in zip(cont_on_index, cont_off_index)]
+        if type(tail_bout_dfs) == pd.DataFrame:
+            cont_tuples = [i for i in cont_tuples if any(
+                tailstart - 1 * hz <= i[1] and i[0] <= tailend + 1 * hz for tailstart, tailend in
+                tail_bout_dfs.cont_tuples_imageframe)]
         cont_durations = [tuple[1] - tuple[0] for tuple in cont_tuples]
         if len(cont_tuples) != 0:
             for i in range(0, len(cont_tuples)):
+                cont_tuple = cont_tuples[i]
+                overlap = next(((j, tailstart, tailend) for j, (tailstart, tailend) in enumerate(tail_bout_dfs.cont_tuples_imageframe) if tailstart - 1*hz <= cont_tuple[1] and tailend + 1*hz >= cont_tuple[0]), None)
+                if overlap:
+                    tail_duration = tail_bout_dfs.iloc[overlap[0]]['tail_duration_s']
+                    #tail_duration = tail_bout_dfs.iloc[np.argmin(np.abs([on_tuples_list[row][i][0] - j[0] for j in tail_bout_dfs.cont_tuples_imageframe]))]['tail_duration_s']
+                    mean_spike_tailduration = pd.concat([mean_spike_tailduration,
+                                                        pd.DataFrame(data = {'neuron_index': [row],
+                                                                        'tail_duration': [tail_duration],
+                                                                        'neuron_on_time': [cont_tuple[1] -cont_tuple[0]]})])
                 all_spiking[row][cont_tuples[i][0]:cont_tuples[i][1]] = 1
-            mean_spike_duration[row] = np.nanmax(cont_durations)
-    return all_spiking, mean_spike_duration
+            mean_spike_duration[row] = np.nanmean(cont_durations)
+    return all_spiking, mean_spike_duration, mean_spike_tailduration
 
-def plot_on_cont(frametimes_df, region_trace, tracename, loc, on_method, min_on_s, cutoff_s, interval_s, refImg, smooth = False):
+def plot_on_cont(frametimes_df, region_trace, loc, on_method, min_on_s, cutoff_s, interval_s, refImg, smooth = False, tail_bout_dfs = None):
     """
     Plot the mean "on" trace for each neuron. Note that the traces are normalized and smoothed when selecting "on periods".
      The smoothing factor is determined by frame rate * 10
@@ -1533,292 +1722,114 @@ def plot_on_cont(frametimes_df, region_trace, tracename, loc, on_method, min_on_
         smooth: boolean that determines if the cell trace will be smoothed
     """
     hz = hzReturner(frametimes_df)
-    cbar = plt.get_cmap('rainbow')
+    # cbar = plt.get_cmap('rainbow')
 
     #preparing figure space
     region_count = len(region_trace.keys())
-    fig, ax= plt.subplots(region_count + 1, 4,
-                          gridspec_kw={'hspace': 0, 'wspace': 0.2, 'height_ratios':  [20] * region_count + [1]},
-            figsize = (15, 6), dpi = 240, sharex = 'col')
+    #fig, ax= plt.subplots(region_count + 1, 4,
+    #                      gridspec_kw={'hspace': 0, 'wspace': 0.2, 'height_ratios':  [20] * region_count + [1]},
+    #        figsize = (15, 6), dpi = 240, sharex = 'col')
     # add gridspace for all neuron correlation plot
-    gs = ax[0, 3].get_gridspec()
-    for axes in ax[0:, 3]:
-        axes.remove()
-    ax_scatter = fig.add_subplot(gs[0:, 3])
-    ax_scatter.imshow(refImg, cmap='grey', alpha=0.8, vmax=100)
-    ax_scatter.set_yticks([])
-    ax_scatter.set_xticks([])
+    # gs = ax[0, 3].get_gridspec()
+    # for axes in ax[0:, 3]:
+    #     axes.remove()
+    # ax_scatter = fig.add_subplot(gs[0:, 3])
+    # ax_scatter.imshow(refImg, cmap='grey', alpha=0.8, vmax=100)
+    # ax_scatter.set_yticks([])
+    # ax_scatter.set_xticks([])
     # plot cbar
     color_cutoff = 60
-    plotting_cutoff = 150
-    ax[region_count, 1].axis('off')
-    for i in [0, 2]:
-        ax_cbar = ax[region_count, i]
-        ax_cbar.scatter(np.linspace(0, color_cutoff, color_cutoff + 1), [0] * (color_cutoff + 1),
-                        c=np.linspace(0, color_cutoff, color_cutoff + 1), cmap=cbar, s = 10)
-        ax_cbar.scatter(np.linspace(color_cutoff + 1, plotting_cutoff, plotting_cutoff - color_cutoff),
-                        [0] * (plotting_cutoff - color_cutoff),
-                        c='red', s=10)
-        ax_cbar.spines[['top', 'right', 'bottom', 'left']].set_color('white')
-        ax_cbar.set_yticks([])
-        ax_cbar.sharex(ax[0, i])
-        ax_cbar.set_xlabel('max on duration (s)')
+    # plotting_cutoff = 150
+    # ax[region_count, 1].axis('off')
+    # for i in [0, 2]:
+    #     ax_cbar = ax[region_count, i]
+    #     ax_cbar.scatter(np.linspace(0, color_cutoff, color_cutoff + 1), [0] * (color_cutoff + 1),
+    #                     c=np.linspace(0, color_cutoff, color_cutoff + 1), cmap=cbar, s = 10)
+    #     ax_cbar.scatter(np.linspace(color_cutoff + 1, plotting_cutoff, plotting_cutoff - color_cutoff),
+    #                     [0] * (plotting_cutoff - color_cutoff),
+    #                     c='red', s=10)
+    #     ax_cbar.spines[['top', 'right', 'bottom', 'left']].set_color('white')
+    #     ax_cbar.set_yticks([])
+    #     ax_cbar.sharex(ax[0, i])
+    #     ax_cbar.set_xlabel('max on duration (s)')
     on_trace = {key: np.empty((region_trace[key].shape[0], frametimes_df.shape[0])) for key in region_trace.keys()}
     mean_on_duration = {key: np.empty(region_trace[key].shape[0]) for key in region_trace.keys()}
-    region_row = 0
+    #mean_on_duration_plot = {key: np.empty(region_trace[key].shape[0]) for key in region_trace.keys()}
+    mean_on_tailduration = {key: np.empty(region_trace[key].shape[0]) for key in region_trace.keys()}
+    #region_row = 0
     for region in region_trace.keys():
         #process data for each region
         trace = region_trace[region]
         for neuron in trace.index:
             if smooth:
-                trace.loc[neuron, :] = arrutils.pretty(trace.loc[neuron, :], int(10 * hz))
+                trace.loc[neuron, :] = arrutils.pretty(trace.loc[neuron, :], int(3 * hz))
         trace = np.array(trace)
         if on_method == 'mean_cont':
             on_trace[region], mean_on_duration[region] = mean_on_cont(frametimes_df, min_on_s, interval_s, trace)
         elif on_method == 'peak_cont':
-            on_trace[region], mean_on_duration[region] = peak_on_cont(frametimes_df, min_on_s, interval_s, trace)
+            on_trace[region], mean_on_duration[region], mean_on_tailduration[region] = peak_on_cont(frametimes_df, min_on_s, interval_s, trace, tail_bout_dfs)
         #transfer everything to seconds
         mean_on_duration[region] = np.divide(mean_on_duration[region], hz)
-        # sort neuron by duration
-        sort_duration = np.argsort(mean_on_duration[region])
-        sort_on_trace = on_trace[region][sort_duration]
-        sort_mean_on_duration = mean_on_duration[region][sort_duration]
-        sort_mean_on_duration = np.clip(sort_mean_on_duration, 0, plotting_cutoff)
-        mean_on_duration[region] = np.clip(mean_on_duration[region], 0, color_cutoff) / color_cutoff
-        # plot heatmap
-        region_heat_ax = ax[region_row, 1]
-        sns.heatmap(on_trace[region], ax=region_heat_ax, cmap='viridis', vmin=0, vmax=1, cbar=False)
-        region_heat_ax.set_yticks([])
-        region_heat_ax.set_xticks([])
-        # plot histogram for each region
-        region_hist_ax = ax[region_row, 2]
-        peaky = sort_mean_on_duration[np.where(sort_mean_on_duration < cutoff_s)[0]]
-        onoff = sort_mean_on_duration[np.where(sort_mean_on_duration >= cutoff_s)[0]]
-        bins = np.linspace(0, plotting_cutoff, 11)
-        peaky = np.divide(np.histogram(peaky, bins)[0], len(sort_mean_on_duration)) *100#transfer to percentage
-        onoff = np.divide(np.histogram(onoff, bins)[0], len(sort_mean_on_duration)) *100
-        bins_center = np.linspace(plotting_cutoff/20, plotting_cutoff - plotting_cutoff/20, 10)
-        region_hist_ax.bar(bins_center, peaky, color = 'deepskyblue', alpha = 0.5, edgecolor = 'deepskyblue',
-                           width = plotting_cutoff/10)
-        region_hist_ax.bar(bins_center, onoff, color='coral', alpha=0.5, edgecolor='coral',
-                          width = plotting_cutoff/10)
-        region_hist_ax.set_ylim(0, 70)
-        region_hist_ax.set_yticks([0, 70])
-        region_hist_ax.axvline(cutoff_s, linestyle = ':', color = 'black', linewidth = 1)
-        region_hist_ax.spines[['top', 'right', 'bottom']].set_visible(False)
-        #plot line plot for each region, plot after the other graphs because the duration is clipped and normalized
-        region_line_ax = ax[region_row, 0]
-        for neuron in range(0, sort_on_trace.shape[0]):
-            region_line_ax.plot(np.arange(0, int(sort_mean_on_duration[neuron]), 1), [neuron] * int(sort_mean_on_duration[neuron]),
-                                c = cbar(np.min([color_cutoff, sort_mean_on_duration[neuron]])/color_cutoff), linewidth = 1)
-        region_line_ax.axvline(cutoff_s, linestyle = ':', color = 'black', linewidth =1)
-        region_line_ax.set_xlim(0, plotting_cutoff)
-        region_line_ax.sharey(region_heat_ax)
-        region_line_ax.set_xticks([])
-        region_line_ax.set_ylabel(region + ' max on duration (s)')
-        region_line_ax.spines[['top', 'right', 'bottom']].set_visible(False)
-        if region_row == 0:
-            region_heat_ax.set_ylabel(tracename + ' on segments')
-            region_hist_ax.set_yticklabels([0, 70])
-            region_hist_ax.set_ylabel('cell%')
-        elif region_row == region_count - 1:
-            region_heat_ax.set_xlabel('time (s)')
-        ax_scatter.scatter(loc[region]['xpos'], loc[region]['ypos'],
-                           c = mean_on_duration[region], s = 1, cmap = cbar)
-        region_row += 1
-    return color_cutoff, mean_on_duration
+        mean_on_tailduration[region]['neuron_on_time'] = np.divide(mean_on_tailduration[region]['neuron_on_time'], hz)
+        mean_on_tailduration[region]['neuron_index'] = [region_trace[region].index[i] for i in
+                                                        mean_on_tailduration[region]['neuron_index']]
+        mean_on_duration[region] = pd.DataFrame(index=region_trace[region].index, data=mean_on_duration[region])
+        # mean_on_duration_plot[region] = mean_on_duration[region].copy()
+        # # sort neuron by duration
+        # sort_duration = np.argsort(mean_on_duration[region])
+        # sort_on_trace = on_trace[region][sort_duration]
+        # sort_mean_on_duration = mean_on_duration[region][sort_duration]
+        # sort_mean_on_duration = np.clip(sort_mean_on_duration, 0, plotting_cutoff)
+        # mean_on_duration_plot[region] = np.clip(mean_on_duration_plot[region], 0, color_cutoff) / color_cutoff
+        # # plot heatmap
+        # region_heat_ax = ax[region_row, 1]
+        # sns.heatmap(on_trace[region], ax=region_heat_ax, cmap='viridis', vmin=0, vmax=1, cbar=False)
+        # region_heat_ax.set_yticks([])
+        # region_heat_ax.set_xticks([])
+        # # plot histogram for each region
+        # region_hist_ax = ax[region_row, 2]
+        # peaky = sort_mean_on_duration[np.where(sort_mean_on_duration < cutoff_s)[0]]
+        # onoff = sort_mean_on_duration[np.where(sort_mean_on_duration >= cutoff_s)[0]]
+        # bins = np.linspace(0, plotting_cutoff, 11)
+        # peaky = np.divide(np.histogram(peaky, bins)[0], len(sort_mean_on_duration)) *100#transfer to percentage
+        # onoff = np.divide(np.histogram(onoff, bins)[0], len(sort_mean_on_duration)) *100
+        # bins_center = np.linspace(plotting_cutoff/20, plotting_cutoff - plotting_cutoff/20, 10)
+        # region_hist_ax.bar(bins_center, peaky, color = 'deepskyblue', alpha = 0.5, edgecolor = 'deepskyblue',
+        #                    width = plotting_cutoff/10)
+        # region_hist_ax.bar(bins_center, onoff, color='coral', alpha=0.5, edgecolor='coral',
+        #                   width = plotting_cutoff/10)
+        # region_hist_ax.set_ylim(0, 70)
+        # region_hist_ax.set_yticks([0, 70])
+        # region_hist_ax.axvline(cutoff_s, linestyle = ':', color = 'black', linewidth = 1)
+        # region_hist_ax.spines[['top', 'right', 'bottom']].set_visible(False)
+        # #plot line plot for each region, plot after the other graphs because the duration is clipped and normalized
+        # region_line_ax = ax[region_row, 0]
+        # for neuron in range(0, sort_on_trace.shape[0]):
+        #     region_line_ax.plot(np.arange(0, int(sort_mean_on_duration[neuron]), 1), [neuron] * int(sort_mean_on_duration[neuron]),
+        #                         c = cbar(np.min([color_cutoff, sort_mean_on_duration[neuron]])/color_cutoff), linewidth = 1)
+        # region_line_ax.axvline(cutoff_s, linestyle = ':', color = 'black', linewidth =1)
+        # region_line_ax.set_xlim(0, plotting_cutoff)
+        # region_line_ax.sharey(region_heat_ax)
+        # region_line_ax.set_xticks([])
+        # region_line_ax.set_ylabel(region + ' max on duration (s)')
+        # region_line_ax.spines[['top', 'right', 'bottom']].set_visible(False)
+        # if region_row == 0:
+        #     region_heat_ax.set_ylabel(tracename + ' on segments')
+        #     region_hist_ax.set_yticklabels([0, 70])
+        #     region_hist_ax.set_ylabel('cell%')
+        # elif region_row == region_count - 1:
+        #     region_heat_ax.set_xlabel('time (s)')
+        # ax_scatter.scatter(loc[region]['xpos'], loc[region]['ypos'],
+        #                    c = mean_on_duration_plot[region], s = 1, cmap = cbar)
+        # region_row += 1
+    all_mean_on_duration = pd.DataFrame()
+    for region in mean_on_duration.keys():
+        i = pd.DataFrame(mean_on_duration[region], index = region_trace[region].index)
+        all_mean_on_duration = pd.concat([all_mean_on_duration, i], axis = 0)
+    return color_cutoff, all_mean_on_duration, mean_on_tailduration
 
 
-def firingrate(frametimes_df, min_on_s, trace, trial_s):
-    """
-    Find the peaks of individual firing event. Cell traces that fire for more than 5 seconds and with a peak fluorscence
-    > 0.2 are classified as a firing event. Note that the input needs to be raw fluorscence normalized without smoothing.
-        frametimes_df: the dataframe for all frames and their corresponding raw time
-        min_on_s: the min seconds a spike should be on
-        trace: dictionary containing dataframe containing all traces for all regions, already noramlized and hopefull
-         no need to smooth
-         trial_s: the seonds per trial
-    Return:
-        all_peaks_index: an ndarray that contains all cells, with the frame with a peak labeled 1 and the rest 0
-        all_fr_min: an ndarray that contains all cells, and their rolling firing rate per trial in each frame
-        all_fr_min_mean: an ndarray that contains all cells, and their mean firing rate/min only when they are responding
-    """
-    all_peaks = np.empty((trace.shape[0], frametimes_df.shape[0]))
-    all_fr_min = np.empty((trace.shape[0], frametimes_df.shape[0]))
-    hz = hzReturner(frametimes_df)
-    min_on_time = min_on_s * hz
-    for row in range(0, trace.shape[0]):
-        peaks_index = find_peaks(trace[row], height = 0.2, distance = min_on_time + 1)[0]
-        peaks = np.full(len(trace[row]), 0)
-        peaks[peaks_index] = 1
-        #print(peaks_index)
-        #peaks = [1 for frame in range(0, len(trace[row])) if frame in peaks_index else 0]
-        frames_pertrial = int(hz * trial_s)
-        fr_min = np.cumsum(peaks)
-        fr_min[frames_pertrial:] = fr_min[frames_pertrial:] - fr_min[:-frames_pertrial]
-        all_peaks[row] = peaks
-        all_fr_min[row] = fr_min
-    all_fr_min_mean = np.nanmean(np.ma.masked_equal(all_fr_min, 0), axis = 1)#np.max(all_fr_min, axis = 1)
-    return all_peaks, all_fr_min, all_fr_min_mean
-
-def plot_fr(frametimes_df, region_trace, tracename, loc, min_on_s, cutoff_fr, trial_s, refImg):
-    """
-    Plot the peaks in calcium signals that symbolizing firing events and the relative firing rate of each cell.
-        frametimes_df: the dataframe for all frames and their corresponding raw time
-        region_trace: dictionary containing dataframe containing all traces for all regions, normalized F!
-        tracename: the cell trace name, used to label the graph
-        loc: a dataframe containing all regions and their corresponding ROIs for each cell
-        on_method: the method to selecton "on periods" ('cluster', 'mean')
-        cutoff_fr: the cut off spikes/min to differentiate on/off and peaky neurons
-        trial_s: the seonds per trial
-        refImg: the dataframe to plot the original fish plane
-    """
-    hz = hzReturner(frametimes_df)
-    cbar = plt.get_cmap('rainbow')
-
-    # preparing figure space
-    region_count = len(region_trace.keys())
-    fig, ax = plt.subplots(region_count + 1, 4,
-                           gridspec_kw={'hspace': 0, 'wspace': 0.2, 'height_ratios': [20] * region_count + [1]},
-                           figsize=(15, 6), dpi=240, sharex='col')
-    # add gridspace for all neuron correlation plot
-    gs = ax[0, 3].get_gridspec()
-    for axes in ax[0:, 3]:
-        axes.remove()
-    ax_scatter = fig.add_subplot(gs[0:, 3])
-    ax_scatter.imshow(refImg, cmap='grey', alpha=0.8, vmax=100)
-    ax_scatter.set_yticks([])
-    ax_scatter.set_xticks([])
-    # plot cbar
-    color_cutoff = 8
-    plotting_cutoff = 8
-    ax[region_count, 0].axis('off')
-    ax[region_count, 1].axis('off')
-    ax_cbar = ax[region_count, 2]
-    ax_cbar.scatter(np.linspace(0, color_cutoff, color_cutoff + 1), [0] * (color_cutoff + 1),
-                    c=np.linspace(0, color_cutoff, color_cutoff + 1), cmap=cbar, s=10)
-    ax_cbar.scatter(np.linspace(color_cutoff + 1, plotting_cutoff, plotting_cutoff - color_cutoff),
-                    [0] * (plotting_cutoff - color_cutoff),
-                    c='red', s=10)
-    ax_cbar.spines['top'].set_color('white')
-    ax_cbar.spines['right'].set_color('white')
-    ax_cbar.spines['bottom'].set_color('white')
-    ax_cbar.spines['left'].set_color('white')
-    ax_cbar.set_yticks([])
-    ax_cbar.sharex(ax[0, 2])
-    ax_cbar.set_xlabel('firing rate (spikes/trial)')
-
-    all_peaks = {key: np.empty((region_trace[key].shape[0], frametimes_df.shape[0])) for key in region_trace.keys()}
-    all_fr_min = {key: np.empty((region_trace[key].shape[0], frametimes_df.shape[0])) for key in region_trace.keys()}
-    all_fr_min_mean = {key: np.empty(region_trace[key].shape[0]) for key in region_trace.keys()}
-    region_row = 0
-    for region in region_trace.keys():
-        # process data for each region
-        trace = region_trace[region].to_numpy()
-        all_peaks[region], all_fr_min[region], all_fr_min_mean[region] = firingrate(frametimes_df, min_on_s, trace, trial_s)
-        # sort neuron by max
-        sort_duration = np.argsort(all_fr_min_mean[region])
-        sort_peaks = all_peaks[region][sort_duration]
-        sort_fr_min = all_fr_min[region][sort_duration]
-        sort_fr_min_mean = all_fr_min_mean[region][sort_duration]
-        sort_fr_min_mean = np.clip(sort_fr_min_mean, 0, plotting_cutoff)
-        all_fr_min_mean[region] = np.divide(np.clip(all_fr_min_mean[region], 0, color_cutoff), color_cutoff)
-        # plot heatmap
-        region_heat_ax = ax[region_row, 1]
-        sns.heatmap(sort_fr_min, ax=region_heat_ax, cmap='rainbow', vmin=0, vmax=color_cutoff, cbar=False)
-        region_heat_ax.set_yticks([])
-        region_heat_ax.set_xticks([])
-        # plot histogram for each region
-        region_hist_ax = ax[region_row, 2]
-        peaky = sort_fr_min_mean[np.where(sort_fr_min_mean < cutoff_fr)[0]]
-        onoff = sort_fr_min_mean[np.where(sort_fr_min_mean >= cutoff_fr)[0]]
-        bins = np.linspace(0, plotting_cutoff, 11)
-        peaky = np.divide(np.histogram(peaky, bins)[0], len(sort_fr_min_mean)) * 100  # transfer to percentage
-        onoff = np.divide(np.histogram(onoff, bins)[0], len(sort_fr_min_mean)) * 100
-        bins_center = np.linspace(plotting_cutoff/20, plotting_cutoff - plotting_cutoff/20, 10)
-        region_hist_ax.bar(bins_center, peaky, color='deepskyblue', alpha=0.5, edgecolor='deepskyblue',
-                           width=plotting_cutoff/10)
-        region_hist_ax.bar(bins_center, onoff, color='coral', alpha=0.5, edgecolor='coral',
-                           width=plotting_cutoff/10)
-        region_hist_ax.set_xlim(0, plotting_cutoff)
-        region_hist_ax.set_ylim(0, 70)
-        region_hist_ax.set_yticks([0, 70])
-        region_hist_ax.axvline(cutoff_fr, linestyle=':', color='black', linewidth=1)
-        region_hist_ax.spines[['top', 'right', 'bottom']].set_visible(False)
-        # plot dot plot for each region
-        region_line_ax = ax[region_row, 0]
-        for neuron in range(0, len(sort_peaks)):
-            peaks_index = np.argwhere(sort_peaks[neuron] == 1)
-            region_line_ax.scatter(peaks_index, [neuron] * len(peaks_index),
-                                   color = cbar(np.min([color_cutoff, sort_fr_min_mean[neuron]])/color_cutoff), s = 0.05)
-        region_line_ax.set_xticks([])
-        region_line_ax.set_yticks([])
-        region_line_ax.set_ylabel(region + ' spikes')
-        region_line_ax.sharey(region_heat_ax)
-        region_line_ax.spines[['top', 'right', 'bottom', 'left']].set_visible(False)
-        #region_line_ax.spines['right'].set_visible(False)
-        if region_row == 0:
-            region_heat_ax.set_ylabel('spikes/min')
-            region_hist_ax.set_yticklabels([0, 70])
-            region_hist_ax.set_ylabel('cell%')
-        elif region_row == region_count - 1:
-            region_line_ax.set_xlabel('time (frame)')
-            region_heat_ax.set_xlabel('time (frame)')
-        ax_scatter.scatter(loc[region]['xpos'], loc[region]['ypos'], c=all_fr_min_mean[region], s=1, cmap=cbar)
-        region_row += 1
-    return color_cutoff, all_fr_min_mean
-
-def find_tail_neuron_archived(frametimes_df, stimulus_df, region_trace, tail_bout_df, stimulus_window_s,
-                     tail_window_s, atleast_bout_perc):
-    """
-    Find neurons that fires (peaks) during each bout and hopefully not responding to stimulus
-        frametimes_df:
-        region_trace:
-        tail_bout_df:
-        stimulus_window_s: the window after stimulus onset to look at in seconds
-        tail_window_s: the window in seconds to look before/after about
-        at_least_bout_perc: neurons need to respond to at least this percentage among all bouts event to be counted as a bout responding cell
-    Return:
-        neuron_response_df: a dataframe contain each neuron with their neuron index as index column, and the bouts and stimulus row they are responding to
-    """
-    hz = hzReturner(frametimes_df)
-    trace = pd.concat(region_trace.values())
-    trace = trace.loc[~trace.index.duplicated(keep='first')]
-    _, _, on_tuples_list = peak_on(frametimes_df, 0, trace)
-    neuron_response_df = pd.DataFrame(index = trace.index, columns = ['respond_bout_num', 'respond_stim_num', 'bout_responder'])
-    for n in range(trace.shape[0]):
-        on_index = [tu[0] for tu in on_tuples_list[n]]
-        n_index = trace.iloc[n].name
-        respond_bout_num = []
-        respond_bout_peakf = []
-        for bout in range(tail_bout_df.shape[0]):
-            bout_tuple = tail_bout_df.iloc[bout, :]['cont_tuples']
-            bout_window = (bout_tuple[0] + tail_window_s[0] * hz, bout_tuple[1] + tail_window_s[1] * hz)
-            bout_on_index = list(np.where((on_index >= bout_window[0]) & (on_index <=bout_window[1]))[0])
-            if len(bout_on_index) > 0:
-                respond_bout_num = respond_bout_num + [bout]
-                respond_bout_peakf = respond_bout_peakf + [np.max(trace.loc[n_index].iloc[bout_on_index])]
-        respond_stim_num = []
-        respond_stim_peakf = []
-        for stim in range(stimulus_df.shape[0]):
-            stim_window = (stimulus_df.iloc[stim, :]['frame'] - 1,
-                           stimulus_df.iloc[stim, :]['frame'] - 1 + stimulus_window_s * hz)
-            stim_on_index = list(np.where((on_index >= stim_window[0]) & (on_index <= stim_window[1]))[0])
-            if len(stim_on_index) > 0:
-                respond_stim_num = respond_stim_num + [stim]
-                respond_stim_peakf = respond_stim_peakf + [np.max(trace.loc[n_index].iloc[stim_on_index])]
-        if len(respond_bout_num) >= atleast_bout_perc * tail_bout_df.shape[0] \
-            and len(respond_bout_num)/len(tail_bout_df) > len(respond_stim_num)/len(stimulus_df):
-            #neuron are more resposnivie during bouts
-            neuron_response_df.loc[n_index, 'bout_responder'] = True
-        else:
-            neuron_response_df.loc[n_index, 'bout_responder'] = False
-        neuron_response_df.loc[n_index, 'respond_bout_num'] = respond_bout_num
-        neuron_response_df.loc[n_index, 'respond_stim_num'] = respond_stim_num
-
-    return neuron_response_df
-
-def find_tail_neuron(frametimes_df, region_trace, tail_window_s, tail_bout_df):
+def find_tail_neuron(frametimes_df, trace, tail_window_s, tail_bout_df, timescale):
     """
     Find neurons that fires (peaks) during each stimulus. Note that wheather neuron responds to a tail event is based on wheather it peaks during (tail_bout_df, duration and tail_window_s), while wheather a tail can be decoded from a neuron is determined by the wheather the tail is on at all (tail_bout_df, duration) when the neuron peaks.
         frametimes_df: the dataframe for all frames and their corresponding raw time
@@ -1826,19 +1837,38 @@ def find_tail_neuron(frametimes_df, region_trace, tail_window_s, tail_bout_df):
         tail_window_s: the window after tail offset and before tail onset to look at in seconds
         tail_bout_df: a dataframe containing each bout as a row, and all the relevant information as columns
         min_tail_firing_f: the minimal/conservative firing used to predict tail event
+        timescale: string, indicating if im finding the neuron that is associated with the start, during, or stop of the bout
     Return:
         neuron_tail_df: a dataframe contain each neuron with their neuron index as index column, and one column "total response rate", and how many percentage of those bouts this neuron firing during [PREDICT NEURON ACTIVITY FROM TAIL], and one column named "total success rate", which contains how good each neuron peak calcium events predict wheather the tail is moving or not [PREDICT TAIL FROM NEURON ACTIVITY] Also Note that because the neurons seem to be tonically firing in smaller peaks, only larger peaks (peaks > 0.2 in normalized traces) are participating in this analysis
     """
     #prepare trace for plotting
-    trace = pd.concat(region_trace.values())
-    trace = trace.loc[~trace.index.duplicated(keep='first')]
+    #trace = pd.concat(region_trace.values())
+    #trace = trace.loc[~trace.index.duplicated(keep='first')]
+
+    #normalize tail duration
+    tail_bout_df['tail_duration_norm'] = zscore(tail_bout_df['tail_duration_s'])
 
     hz = hzReturner(frametimes_df)
     _, _, on_tuples_list = peak_on(frametimes_df, 0, trace, 0.05)
     _, _, conservative_on_tuples_list = peak_on(frametimes_df, 0, trace, 0.2)
     neuron_tail_response_df = pd.DataFrame(index = trace.index,
-        columns = ['tail_total_response_rate', 'response_bout_index', 'response_bout_duration_s', 'response_bout_frequency', 'response_bout_absmax', 'response_bout_avg', 'response_boutstart_mintiming_s', 'response_boutend_mintiming_s', 'response_neuron_peaks'], dtype = object)
-    neuron_tail_predict_df = pd.DataFrame(index = trace.index, columns = ['tail_total_predict_rate', 'predict_bout_index', 'predict_bout_duration_s', 'predict_bout_frequency', 'predict_bout_absmax', 'predict_bout_avg'], dtype = object)
+        columns = ['tail_total_response_rate', 'response_bout_index',
+                   'response_bout_stim',
+                   'response_bout_omrindex', 'response_bout_omrindex_norm',
+                   'response_bout_duration_s', 'response_bout_duration_norm',
+                   'response_bout_frequency', 'response_bout_absmax',
+                   'response_bout_avg', 'response_bout_cluster',
+                   'response_boutstart_mintiming_s', 'response_boutend_mintiming_s',
+                   'response_neuron_peaks'], dtype = object)
+    neuron_tail_predict_df = pd.DataFrame(index = trace.index,
+        columns = ['tail_total_predict_rate', 'predict_bout_index',
+                   'predict_bout_stim',
+                   'predict_bout_omrindex', 'predict_bout_omrindex_norm',
+                   'predict_bout_duration_s', 'predict_bout_duration_norm',
+                    'predict_bout_frequency', 'predict_bout_absmax',
+                   'predict_bout_avg', 'predict_bout_cluster',
+                   #'predict_boutstart_mintiming_s', 'predict_boutend_mintiming_s',
+                   'predict_peakf'], dtype = object)
     tail_on_imageframe = [tu[0] for tu in tail_bout_df['cont_tuples_imageframe']]
     tail_duration_imageframe = [tu[1] - tu[0] for tu in tail_bout_df['cont_tuples_imageframe']]
     tail_off_imageframe = [tu[1] for tu in tail_bout_df['cont_tuples_imageframe']]
@@ -1850,46 +1880,222 @@ def find_tail_neuron(frametimes_df, region_trace, tail_window_s, tail_bout_df):
         n_index = trace.iloc[n].name
         #tail can reliably predict spikes
         response_bout_list = []
+        response_bout_stim_list = []
+        omr_index = 0
         response_bout_duration_s_list = []
+        response_bout_duration_norm_list = []
         response_bout_frequency_list = []
         response_bout_absmax_list = []
         response_bout_avg_list = []
+        response_bout_cluster_list = []
         response_boutstart_mintiming_s_list = []
         response_boutend_mintiming_s_list = []
         response_neuron_peaks_list = []
         for bout in range(tail_bout_df.shape[0]):
             bout_on = tail_on_imageframe[bout]
             bout_end = tail_off_imageframe[bout]
-            bout_window = (bout_on - tail_window_s * hz, bout_end + tail_window_s * hz)
-            bout_on_index = list(np.where((on_index >= bout_window[0]) & (on_index <=bout_window[1]))[0])
+            if timescale == 'during':
+                bout_window = (bout_on - tail_window_s * hz, bout_end + tail_window_s * hz)
+            elif timescale == 'stop':
+                bout_window = (bout_end - tail_window_s * hz, bout_end + tail_window_s * hz)
+            elif timescale == 'start':
+                bout_window = (bout_on - tail_window_s * hz, bout_on + tail_window_s * hz)
+            bout_on_index = list(np.where((on_index >= bout_window[0]) & (on_index <= bout_window[1]))[0])
             if len(bout_on_index) > 0:
                 response_bout_list = response_bout_list + [bout]
+                response_bout_stim_list = response_bout_stim_list + [tail_bout_df['tail_stimuli'][bout]]
                 response_boutstart_mintiming_s_list = response_boutstart_mintiming_s_list + [np.subtract(on_index, bout_on)[np.argmin(np.abs(np.subtract(on_index, bout_on)))]]
                 response_boutend_mintiming_s_list = response_boutend_mintiming_s_list + [np.subtract(on_index, bout_end)[np.argmin(np.abs(np.subtract(on_index, bout_end)))]]
                 response_neuron_peaks_list = response_neuron_peaks_list + [len(bout_on_index)]
                 response_bout_duration_s_list = response_bout_duration_s_list + [tail_bout_df['tail_duration_s'][bout]]
+                response_bout_duration_norm_list = response_bout_duration_norm_list + [tail_bout_df['tail_duration_norm'][bout]]
                 response_bout_frequency_list = response_bout_frequency_list + [tail_bout_df['tail_frequency_s'][bout]]
                 response_bout_absmax_list = response_bout_absmax_list + [tail_bout_df['tail_angle_posmax'][bout]
                                                                          -tail_bout_df['tail_angle_negmin'][bout]]
-                response_bout_avg_list =  response_bout_avg_list + [tail_bout_df['tail_angle_pos'][bout]
-                                                                        + tail_bout_df['tail_angle_neg'][bout]]
-        response_boutstart_mintiming_s_list = np.divide(response_boutstart_mintiming_s_list, hz)
-        response_boutend_mintiming_s_list = np.divide(response_boutend_mintiming_s_list, hz)
+                response_bout_avg_list =  response_bout_avg_list + [tail_bout_df['tail_angle'][bout]]
+                response_bout_cluster_list = response_bout_avg_list + [tail_bout_df['K Means Cluster'][bout]]
+        response_boutstart_mintiming_s_list = list(np.divide(response_boutstart_mintiming_s_list, hz))
+        response_boutend_mintiming_s_list = list(np.divide(response_boutend_mintiming_s_list, hz))
+        if response_bout_stim_list != []:
+            omr_index = 1 - np.divide(response_bout_stim_list.count('spontaneous'), len(response_bout_stim_list))
         neuron_tail_response_df.loc[n_index] = [np.divide(len(response_bout_list), tail_bout_df.shape[0]),
                                                 response_bout_list,
+                                                response_bout_stim_list,
+                                                omr_index, omr_index,
                                                 response_bout_duration_s_list,
+                                                response_bout_duration_norm_list,
                                                 response_bout_frequency_list,
                                                 response_bout_absmax_list,
                                                 response_bout_avg_list,
+                                                response_bout_cluster_list,
                                                 response_boutstart_mintiming_s_list,
                                                 response_boutend_mintiming_s_list,
                                                 response_neuron_peaks_list]
         #spikes can reliabily predict tail movement
         predict_bout_list = []
+        predict_bout_stim_list = []
+        omr_index = 0
         predict_bout_duration_s_list = []
+        predict_bout_duration_norm_list = []
         predict_bout_frequency_list = []
         predict_bout_absmax_list = []
         predict_bout_avg_list = []
+        predict_bout_cluster_list = []
+        predict_peaks_list = []
+        try:
+            conserv_on_index = [tu[0] for tu in conservative_on_tuples_list[n]]
+        except TypeError:
+            conserv_on_index = []
+        for on in conserv_on_index:
+            #find nearest bout
+            if timescale == 'during':
+                closest_bout_on = np.minimum(np.subtract(on, tail_on_imageframe), np.subtract(on, tail_off_imageframe))
+            elif timescale == 'stop':
+                closest_bout_on = np.subtract(on, tail_off_imageframe)
+            elif timescale == 'start':
+                closest_bout_on = np.subtract(on, tail_on_imageframe)
+            closest_bout_index = [i for i in range(len(closest_bout_on)) if closest_bout_on[i] > -tail_window_s * hz]
+            closest_bout_on = [i for i in closest_bout_on if i > -tail_window_s * hz]
+            if len(closest_bout_on) > 0:
+                closest_bout_index = closest_bout_index[np.argmin(closest_bout_on)]
+                closest_bout_on = np.min(closest_bout_on)
+                if timescale == 'during':
+                    other_criteria = tail_window_s * hz + tail_duration_imageframe[closest_bout_index]
+                elif timescale == 'stop' or timescale == 'start':
+                    other_criteria = tail_window_s * hz
+                if closest_bout_on <= other_criteria:
+                    predict_bout_list = predict_bout_list + [closest_bout_index]
+                    predict_bout_stim_list = predict_bout_stim_list + [tail_bout_df['tail_stimuli'][closest_bout_index]]
+                    predict_bout_duration_s_list = predict_bout_duration_s_list + [tail_bout_df['tail_duration_s'][closest_bout_index]]
+                    predict_bout_duration_norm_list = predict_bout_duration_norm_list + [tail_bout_df['tail_duration_norm'][closest_bout_index]]
+                    predict_bout_frequency_list = predict_bout_frequency_list + [tail_bout_df['tail_frequency_s'][closest_bout_index]]
+                    predict_bout_absmax_list = predict_bout_absmax_list +  \
+                                               [tail_bout_df['tail_angle_posmax'][closest_bout_index] -tail_bout_df['tail_angle_negmin'][closest_bout_index]]
+                    predict_bout_avg_list = predict_bout_avg_list + [tail_bout_df['tail_angle'][closest_bout_index]]
+                    predict_bout_cluster_list = predict_bout_cluster_list + [tail_bout_df['K Means Cluster'][closest_bout_index]]
+                    predict_peaks_list = predict_peaks_list + [trace.loc[n_index].iloc[on]]
+        if predict_bout_stim_list != []:
+            omr_index = 1 - np.divide(predict_bout_stim_list.count('spontaneous'), len(predict_bout_stim_list))
+        neuron_tail_predict_df.loc[n_index] = [np.divide(len(predict_bout_list), len(conserv_on_index)),
+                                                   predict_bout_list,
+                                                   predict_bout_stim_list,
+                                                   omr_index, omr_index,
+                                                   predict_bout_duration_s_list,
+                                                   predict_bout_duration_norm_list,
+                                                   predict_bout_frequency_list,
+                                                   predict_bout_absmax_list,
+                                                   predict_bout_avg_list,
+                                                   predict_bout_cluster_list,
+                                                   predict_peaks_list]
+
+    neuron_tail_response_df['response_bout_omrindex_norm'] = zscore(list(neuron_tail_response_df['response_bout_omrindex']), nan_policy='omit')
+    neuron_tail_predict_df['predict_bout_omrindex_norm'] = zscore(list(neuron_tail_predict_df['predict_bout_omrindex']), nan_policy='omit')
+
+    neuron_tail_df = pd.concat([neuron_tail_response_df, neuron_tail_predict_df], axis = 1)
+    return neuron_tail_df
+
+def find_tail_neuron_start(frametimes_df, trace, tail_window_s, tail_bout_df):
+    """
+    Find neurons that fires (peaks) during each stimulus. Note that wheather neuron responds to a tail event is based on wheather it peaks during (tail_bout_df, duration and tail_window_s), while wheather a tail can be decoded from a neuron is determined by the wheather the tail is on at all (tail_bout_df, duration) when the neuron peaks.
+        frametimes_df: the dataframe for all frames and their corresponding raw time
+        trace: dataframe containing all traces for all regions, norm f
+        tail_window_s: the window after tail offset and before tail onset to look at in seconds
+        tail_bout_df: a dataframe containing each bout as a row, and all the relevant information as columns
+        min_tail_firing_f: the minimal/conservative firing used to predict tail event
+    Return:
+        neuron_tail_df: a dataframe contain each neuron with their neuron index as index column, and one column "total response rate", and how many percentage of those bouts this neuron firing during [PREDICT NEURON ACTIVITY FROM TAIL], and one column named "total success rate", which contains how good each neuron peak calcium events predict wheather the tail is moving or not [PREDICT TAIL FROM NEURON ACTIVITY] Also Note that because the neurons seem to be tonically firing in smaller peaks, only larger peaks (peaks > 0.2 in normalized traces) are participating in this analysis
+    """
+    #prepare trace for plotting
+    #trace = pd.concat(region_trace.values())
+    #trace = trace.loc[~trace.index.duplicated(keep='first')]
+
+    # normalize tail duration
+    tail_bout_df['tail_duration_norm'] = zscore(tail_bout_df['tail_duration_s'])
+
+    hz = hzReturner(frametimes_df)
+    _, _, on_tuples_list = peak_on(frametimes_df, 0, trace, 0.05)
+    _, _, conservative_on_tuples_list = peak_on(frametimes_df, 0, trace, 0.2)
+    neuron_tail_response_df = pd.DataFrame(index = trace.index,
+        columns = ['tail_total_response_rate', 'response_bout_index',
+                   'response_bout_stim',
+                   'response_bout_omrindex', 'response_bout_omrindex_norm',
+                   'response_bout_duration_s', 'response_bout_duration_norm',
+                   'response_bout_frequency', 'response_bout_absmax',
+                   'response_bout_avg', 'response_bout_cluster', #'response_boutstart_mintiming_s', 'response_boutend_mintiming_s',
+                   'response_neuron_peaks'], dtype = object)
+    neuron_tail_predict_df = pd.DataFrame(index = trace.index,
+        columns = ['tail_total_predict_rate', 'predict_bout_index',
+                   'predict_bout_stim',
+                   'predict_bout_omrindex', 'predict_bout_omrindex_norm',
+                   'predict_bout_duration_s', 'predict_bout_duration_norm',
+                    'predict_bout_frequency', 'predict_bout_absmax',
+                   'predict_bout_avg', 'predict_bout_cluster', 'predict_peakf'], dtype = object)
+    tail_on_imageframe = [tu[0] for tu in tail_bout_df['cont_tuples_imageframe']]
+    tail_off_imageframe = [tu[1] for tu in tail_bout_df['cont_tuples_imageframe']]
+    for n in range(trace.shape[0]):
+        try:
+            on_index = [tu[0] for tu in on_tuples_list[n]]
+        except TypeError:
+            on_index = []
+        n_index = trace.iloc[n].name
+        #tail can reliably predict spikes
+        response_bout_list = []
+        response_bout_stim_list = []
+        omr_index = 0
+        response_bout_duration_s_list = []
+        response_bout_duration_norm_list = []
+        response_bout_frequency_list = []
+        response_bout_absmax_list = []
+        response_bout_avg_list = []
+        response_bout_cluster_list = []
+        # response_boutstart_mintiming_s_list = []
+        # response_boutend_mintiming_s_list = []
+        response_neuron_peaks_list = []
+        for bout in range(tail_bout_df.shape[0]):
+            bout_on = tail_on_imageframe[bout]
+            bout_end = tail_off_imageframe[bout]
+            bout_window = (bout_on - tail_window_s * hz, bout_on + tail_window_s * hz)
+            bout_on_index = list(np.where((on_index >= bout_window[0]) & (on_index <=bout_window[1]))[0])
+            if len(bout_on_index) > 0:
+                response_bout_list = response_bout_list + [bout]
+                response_bout_stim_list = response_bout_stim_list + [tail_bout_df['tail_stimuli'][bout]]
+                #response_boutstart_mintiming_s_list = response_boutstart_mintiming_s_list + [np.subtract(on_index, bout_on)[np.argmin(np.abs(np.subtract(on_index, bout_on)))]]
+                #response_boutend_mintiming_s_list = response_boutend_mintiming_s_list + [np.subtract(on_index, bout_end)[np.argmin(np.abs(np.subtract(on_index, bout_end)))]]
+                response_neuron_peaks_list = response_neuron_peaks_list + [len(bout_on_index)]
+                response_bout_duration_s_list = response_bout_duration_s_list + [tail_bout_df['tail_duration_s'][bout]]
+                response_bout_duration_norm_list = response_bout_duration_norm_list + [tail_bout_df['tail_duration_norm'][bout]]
+                response_bout_frequency_list = response_bout_frequency_list + [tail_bout_df['tail_frequency_s'][bout]]
+                response_bout_absmax_list = response_bout_absmax_list + [tail_bout_df['tail_angle_posmax'][bout]
+                                                                         -tail_bout_df['tail_angle_negmin'][bout]]
+                response_bout_avg_list = response_bout_avg_list + [tail_bout_df['tail_angle'][bout]]
+                response_bout_cluster_list = response_bout_avg_list + [tail_bout_df['K Means Cluster'][bout]]
+        #response_boutstart_mintiming_s_list = list(np.divide(response_boutstart_mintiming_s_list, hz))
+        #response_boutend_mintiming_s_list = list(np.divide(response_boutend_mintiming_s_list, hz))
+        if response_bout_stim_list != []:
+            omr_index = 1 - np.divide(response_bout_stim_list.count('spontaneous'), len(response_bout_stim_list))
+        neuron_tail_response_df.loc[n_index] = [np.divide(len(response_bout_list), tail_bout_df.shape[0]),
+                                                response_bout_list,
+                                                response_bout_stim_list,
+                                                omr_index, omr_index,
+                                                response_bout_duration_s_list,
+                                                response_bout_duration_norm_list,
+                                                response_bout_frequency_list,
+                                                response_bout_absmax_list,
+                                                response_bout_avg_list,
+                                                # response_boutstart_mintiming_s_list,
+                                                # response_boutend_mintiming_s_list,
+                                                response_bout_cluster_list,
+                                                response_neuron_peaks_list]
+        #spikes can reliabily predict tail movement
+        predict_bout_list = []
+        predict_bout_stim_list = []
+        omr_index = 0
+        predict_bout_duration_s_list = []
+        predict_bout_duration_norm_list = []
+        predict_bout_frequency_list = []
+        predict_bout_absmax_list = []
+        predict_bout_avg_list = []
+        predict_bout_cluster_list = []
         try:
             conserv_on_index = [tu[0] for tu in conservative_on_tuples_list[n]]
         except TypeError:
@@ -1902,24 +2108,174 @@ def find_tail_neuron(frametimes_df, region_trace, tail_window_s, tail_bout_df):
             if len(closest_bout_on) > 0:
                 closest_bout_index = closest_bout_index[np.argmin(closest_bout_on)]
                 closest_bout_on = np.min(closest_bout_on)
-                if closest_bout_on <= tail_window_s * hz + tail_duration_imageframe[closest_bout_index]:
+                if closest_bout_on <= tail_window_s * hz: #+ tail_duration_imageframe[closest_bout_index]:
                     predict_bout_list = predict_bout_list + [closest_bout_index]
+                    predict_bout_stim_list = predict_bout_stim_list + [tail_bout_df['tail_stimuli'][closest_bout_index]]
                     predict_bout_duration_s_list = predict_bout_duration_s_list + [tail_bout_df['tail_duration_s'][closest_bout_index]]
+                    predict_bout_duration_norm_list = predict_bout_duration_norm_list + [tail_bout_df['tail_duration_norm'][closest_bout_index]]
                     predict_bout_frequency_list = predict_bout_frequency_list + [tail_bout_df['tail_frequency_s'][closest_bout_index]]
                     predict_bout_absmax_list = predict_bout_absmax_list +  \
                                                [tail_bout_df['tail_angle_posmax'][closest_bout_index] -tail_bout_df['tail_angle_negmin'][closest_bout_index]]
-                    predict_bout_avg_list = predict_bout_avg_list + [tail_bout_df['tail_angle_pos'][closest_bout_index]
-                                                                 + tail_bout_df['tail_angle_neg'][closest_bout_index]]
-        if len(predict_bout_list) > 0:
-            neuron_tail_predict_df.loc[n_index] = [np.divide(len(predict_bout_list), len(conserv_on_index)),
-                                                   predict_bout_list,
-                                                   predict_bout_duration_s_list,
-                                                    predict_bout_frequency_list,
-                                                predict_bout_absmax_list,
-                                                predict_bout_avg_list]
-        else:
-            neuron_tail_predict_df.loc[n_index, 'tail_total_predict_rate'] = 0
+                    predict_bout_avg_list = predict_bout_avg_list + [tail_bout_df['tail_angle'][closest_bout_index]]
+                    predict_bout_cluster_list = predict_bout_avg_list + [tail_bout_df['K Means Cluster'][closest_bout_index]]
+        if predict_bout_stim_list != []:
+            omr_index = 1 - np.divide(predict_bout_stim_list.count('spontaneous'), len(predict_bout_stim_list))
+        neuron_tail_predict_df.loc[n_index] = [np.divide(len(predict_bout_list), len(conserv_on_index)),
+                                               predict_bout_list,
+                                               predict_bout_stim_list,
+                                               omr_index, omr_index,
+                                               predict_bout_duration_s_list,
+                                               predict_bout_duration_norm_list,
+                                               predict_bout_frequency_list,
+                                               predict_bout_absmax_list,
+                                               predict_bout_avg_list,
+                                               predict_bout_cluster_list]
     neuron_tail_df = pd.concat([neuron_tail_response_df, neuron_tail_predict_df], axis = 1)
+    neuron_tail_response_df['response_bout_omrindex_norm'] = zscore(list(neuron_tail_response_df['response_bout_omrindex']), nan_policy='omit')
+    neuron_tail_predict_df['predict_bout_omrindex_norm'] = zscore(list(neuron_tail_predict_df['predict_bout_omrindex']),nan_policy='omit')
+    return neuron_tail_df
+
+def find_tail_neuron_stop(frametimes_df, trace, tail_window_s, tail_bout_df):
+    """
+    Find neurons that fires (peaks) during each stimulus. Note that wheather neuron responds to a tail event is based on wheather it peaks during (tail_bout_df, duration and tail_window_s), while wheather a tail can be decoded from a neuron is determined by the wheather the tail is on at all (tail_bout_df, duration) when the neuron peaks.
+        frametimes_df: the dataframe for all frames and their corresponding raw time
+        trace: dataframe containing all traces for all regions, norm f
+        tail_window_s: the window after tail offset and before tail onset to look at in seconds
+        tail_bout_df: a dataframe containing each bout as a row, and all the relevant information as columns
+        min_tail_firing_f: the minimal/conservative firing used to predict tail event
+    Return:
+        neuron_tail_df: a dataframe contain each neuron with their neuron index as index column, and one column "total response rate", and how many percentage of those bouts this neuron firing during [PREDICT NEURON ACTIVITY FROM TAIL], and one column named "total success rate", which contains how good each neuron peak calcium events predict wheather the tail is moving or not [PREDICT TAIL FROM NEURON ACTIVITY] Also Note that because the neurons seem to be tonically firing in smaller peaks, only larger peaks (peaks > 0.2 in normalized traces) are participating in this analysis
+    """
+    #prepare trace for plotting
+    #trace = pd.concat(region_trace.values())
+    #trace = trace.loc[~trace.index.duplicated(keep='first')]
+
+    # normalize tail duration
+    tail_bout_df['tail_duration_norm'] = zscore(tail_bout_df['tail_duration_s'])
+
+    hz = hzReturner(frametimes_df)
+    _, _, on_tuples_list = peak_on(frametimes_df, 0, trace, 0.05)
+    _, _, conservative_on_tuples_list = peak_on(frametimes_df, 0, trace, 0.2)
+    neuron_tail_response_df = pd.DataFrame(index = trace.index,
+        columns = ['tail_total_response_rate', 'response_bout_index',
+                   'response_bout_stim',
+                   'response_bout_omrindex', 'response_bout_omrindex_norm',
+                   'response_bout_duration_s', 'response_bout_duration_norm',
+                   'response_bout_frequency', 'response_bout_absmax',
+                   'response_bout_avg', 'response_bout_cluster', #'response_boutstart_mintiming_s', 'response_boutend_mintiming_s',
+                   'response_neuron_peaks'], dtype = object)
+    neuron_tail_predict_df = pd.DataFrame(index = trace.index,
+        columns = ['tail_total_predict_rate', 'predict_bout_index',
+                   'predict_bout_stim',
+                   'predict_bout_omrindex', 'predict_bout_omrindex_norm',
+                   'predict_bout_duration_s', 'predict_bout_duration_norm',
+                    'predict_bout_frequency', 'predict_bout_absmax',
+                   'predict_bout_avg', 'predict_bout_cluster', 'predict_peakf'], dtype = object)
+    tail_on_imageframe = [tu[0] for tu in tail_bout_df['cont_tuples_imageframe']]
+    tail_off_imageframe = [tu[1] for tu in tail_bout_df['cont_tuples_imageframe']]
+    for n in range(trace.shape[0]):
+        try:
+            on_index = [tu[0] for tu in on_tuples_list[n]]
+        except TypeError:
+            on_index = []
+        n_index = trace.iloc[n].name
+        #tail can reliably predict spikes
+        response_bout_list = []
+        response_bout_stim_list = []
+        omr_index = 0
+        response_bout_duration_s_list = []
+        response_bout_duration_norm_list = []
+        response_bout_frequency_list = []
+        response_bout_absmax_list = []
+        response_bout_avg_list = []
+        # response_boutstart_mintiming_s_list = []
+        # response_boutend_mintiming_s_list = []
+        response_bout_cluster_list = []
+        response_neuron_peaks_list = []
+        for bout in range(tail_bout_df.shape[0]):
+            bout_on = tail_on_imageframe[bout]
+            bout_end = tail_off_imageframe[bout]
+            bout_window = (bout_end - tail_window_s * hz, bout_end + tail_window_s * hz)
+            bout_on_index = list(np.where((on_index >= bout_window[0]) & (on_index <=bout_window[1]))[0])
+            if len(bout_on_index) > 0:
+                response_bout_list = response_bout_list + [bout]
+                response_bout_stim_list = response_bout_stim_list + [tail_bout_df['tail_stimuli'][bout]]
+                #response_boutstart_mintiming_s_list = response_boutstart_mintiming_s_list + [np.subtract(on_index, bout_on)[np.argmin(np.abs(np.subtract(on_index, bout_on)))]]
+                #response_boutend_mintiming_s_list = response_boutend_mintiming_s_list + [np.subtract(on_index, bout_end)[np.argmin(np.abs(np.subtract(on_index, bout_end)))]]
+                response_neuron_peaks_list = response_neuron_peaks_list + [len(bout_on_index)]
+                response_bout_duration_s_list = response_bout_duration_s_list + [tail_bout_df['tail_duration_s'][bout]]
+                response_bout_duration_norm_list = response_bout_duration_norm_list + [tail_bout_df['tail_duration_norm'][bout]]
+                response_bout_frequency_list = response_bout_frequency_list + [tail_bout_df['tail_frequency_s'][bout]]
+                response_bout_absmax_list = response_bout_absmax_list + [tail_bout_df['tail_angle_posmax'][bout]
+                                                                         -tail_bout_df['tail_angle_negmin'][bout]]
+                response_bout_avg_list =  response_bout_avg_list + [tail_bout_df['tail_angle'][bout]]
+                response_bout_cluster_list = response_bout_avg_list + [tail_bout_df['K Means Cluster'][bout]]
+        #response_boutstart_mintiming_s_list = list(np.divide(response_boutstart_mintiming_s_list, hz))
+        #response_boutend_mintiming_s_list = list(np.divide(response_boutend_mintiming_s_list, hz))
+        if response_bout_stim_list != []:
+            omr_index = 1 - np.divide(response_bout_stim_list.count('spontaneous'), len(response_bout_stim_list))
+        neuron_tail_response_df.loc[n_index] = [np.divide(len(response_bout_list), tail_bout_df.shape[0]),
+                                                response_bout_list,
+                                                response_bout_stim_list,
+                                                omr_index, omr_index,
+                                                response_bout_duration_s_list,
+                                                response_bout_duration_norm_list,
+                                                response_bout_frequency_list,
+                                                response_bout_absmax_list,
+                                                response_bout_avg_list,
+                                                # response_boutstart_mintiming_s_list,
+                                                # response_boutend_mintiming_s_list,
+                                                response_bout_cluster_list,
+                                                response_neuron_peaks_list]
+        #spikes can reliabily predict tail movement
+        predict_bout_list = []
+        predict_bout_stim_list = []
+        omr_index = 0
+        predict_bout_duration_s_list = []
+        predict_bout_duration_norm_list = []
+        predict_bout_frequency_list = []
+        predict_bout_absmax_list = []
+        predict_bout_cluster_list = []
+        predict_bout_avg_list = []
+        try:
+            conserv_on_index = [tu[0] for tu in conservative_on_tuples_list[n]]
+        except TypeError:
+            conserv_on_index = []
+        for on in conserv_on_index:
+            #find nearest bout
+            closest_bout_on = np.subtract(on, tail_off_imageframe)
+            closest_bout_index = [i for i in range(len(closest_bout_on)) if closest_bout_on[i] > -tail_window_s * hz]
+            closest_bout_on = [i for i in closest_bout_on if i > -tail_window_s * hz]
+            if len(closest_bout_on) > 0:
+                closest_bout_index = closest_bout_index[np.argmin(closest_bout_on)]
+                closest_bout_on = np.min(closest_bout_on)
+                if closest_bout_on <= tail_window_s * hz: #+ tail_duration_imageframe[closest_bout_index]:
+                    predict_bout_list = predict_bout_list + [closest_bout_index]
+                    predict_bout_stim_list = predict_bout_stim_list + [tail_bout_df['tail_stimuli'][closest_bout_index]]
+                    predict_bout_duration_s_list = predict_bout_duration_s_list + [tail_bout_df['tail_duration_s'][closest_bout_index]]
+                    predict_bout_duration_norm_list = predict_bout_duration_norm_list + [tail_bout_df['tail_duration_norm'][closest_bout_index]]
+                    predict_bout_frequency_list = predict_bout_frequency_list + [tail_bout_df['tail_frequency_s'][closest_bout_index]]
+                    predict_bout_absmax_list = predict_bout_absmax_list +  \
+                                               [tail_bout_df['tail_angle_posmax'][closest_bout_index] -tail_bout_df['tail_angle_negmin'][closest_bout_index]]
+                    predict_bout_avg_list = predict_bout_avg_list + [tail_bout_df['tail_angle'][closest_bout_index]]
+                    predict_bout_cluster_list = predict_bout_avg_list + [tail_bout_df['K Means Cluster'][closest_bout_index]]
+        if predict_bout_stim_list != []:
+            omr_index = 1 - np.divide(predict_bout_stim_list.count('spontaneous'), len(predict_bout_stim_list))
+        neuron_tail_predict_df.loc[n_index] = [np.divide(len(predict_bout_list), len(conserv_on_index)),
+                                               predict_bout_list,
+                                               predict_bout_stim_list,
+                                               omr_index, omr_index,
+                                               predict_bout_duration_s_list,
+                                               predict_bout_duration_norm_list,
+                                               predict_bout_frequency_list,
+                                               predict_bout_absmax_list,
+                                               predict_bout_avg_list,
+                                               predict_bout_cluster_list]
+    neuron_tail_df = pd.concat([neuron_tail_response_df, neuron_tail_predict_df], axis = 1)
+    neuron_tail_response_df['response_bout_omrindex_norm'] = zscore(
+        list(neuron_tail_response_df['response_bout_omrindex']), nan_policy='omit')
+    neuron_tail_predict_df['predict_bout_omrindex_norm'] = zscore(list(neuron_tail_predict_df['predict_bout_omrindex']),
+                                                                  nan_policy='omit')
     return neuron_tail_df
 
 def plot_loc_tail_neuron(neuron_tail_df, refImg, loc, top_percentage):
@@ -1946,16 +2302,16 @@ def plot_loc_tail_neuron(neuron_tail_df, refImg, loc, top_percentage):
     ax_response = ax[0]
     ax_response.imshow(refImg, cmap = 'Greys', alpha = 0, vmax = 100)
     ax_response.scatter(loc['xpos'][neuron_tail_df.index],loc['ypos'][neuron_tail_df.index],
-                  c = [neuron_tail_df['tail_total_response_rate']], cmap = 'Blues', s = 3, vmin = 0, vmax = 1)
+                  c = [neuron_tail_df['tail_total_response_rate']], cmap = 'Reds', s = 3, vmin = 0, vmax = 1)
     ax_predict = ax[1]
     ax_predict.imshow(refImg, cmap = 'Greys', alpha = 0, vmax = 100)
     ax_predict.scatter(loc['xpos'][neuron_tail_df.index], loc['ypos'][neuron_tail_df.index],
-                  c = [neuron_tail_df['tail_total_predict_rate']], cmap = 'Reds', s = 3, vmin = 0, vmax = 1)
+                  c = [neuron_tail_df['tail_total_predict_rate']], cmap = 'Blues', s = 3, vmin = 0, vmax = 1)
     #plot the distribution of all neurons
     ax_combine_scatter = ax[2]
-    blues_cmap = plt.get_cmap('Blues')(list(neuron_tail_df['tail_total_response_rate']))
+    blues_cmap = plt.get_cmap('Reds')(list(neuron_tail_df['tail_total_response_rate']))
     blues_cmap = np.array(blues_cmap.T) * 0.5
-    ylorbr_cmap = plt.get_cmap('Reds')(list(neuron_tail_df['tail_total_predict_rate']))
+    ylorbr_cmap = plt.get_cmap('Blues')(list(neuron_tail_df['tail_total_predict_rate']))
     ylorbr_cmap =  np.array(ylorbr_cmap.T) * 0.5
     scattercolor =  np.add(blues_cmap, ylorbr_cmap)[:3, :].T
     ax_combine_scatter.scatter(neuron_tail_df['tail_total_response_rate'], neuron_tail_df['tail_total_predict_rate'], s = 1, c = scattercolor)
@@ -1965,9 +2321,9 @@ def plot_loc_tail_neuron(neuron_tail_df, refImg, loc, top_percentage):
     #isolate top percentage neurons
     top_percentage = 1- top_percentage
     top_responder_cutoff = neuron_tail_df.tail_total_response_rate.quantile(top_percentage)
-    ax_combine_scatter.axvline(top_responder_cutoff, c = 'royalblue', linestyle = ':', linewidth = 1)
+    ax_combine_scatter.axvline(top_responder_cutoff, c = 'firebrick', linestyle = ':', linewidth = 1)
     top_predictor_cutoff = neuron_tail_df.tail_total_predict_rate.quantile(top_percentage)
-    ax_combine_scatter.axhline(neuron_tail_df.tail_total_predict_rate.quantile(top_percentage), c = 'firebrick', linestyle = ':', linewidth = 1)
+    ax_combine_scatter.axhline(neuron_tail_df.tail_total_predict_rate.quantile(top_percentage), c = 'royalblue', linestyle = ':', linewidth = 1)
     top_neurons = neuron_tail_df[(neuron_tail_df['tail_total_response_rate'] >= top_responder_cutoff) & (neuron_tail_df['tail_total_predict_rate'] >= top_predictor_cutoff)]
     scattercolor_df = pd.DataFrame(index = neuron_tail_df.index, data = scattercolor)
     ax_combine_scatter.scatter(top_neurons['tail_total_response_rate'], top_neurons['tail_total_predict_rate'], s = 3, c = scattercolor_df.loc[top_neurons.index])
@@ -1983,6 +2339,91 @@ def plot_loc_tail_neuron(neuron_tail_df, refImg, loc, top_percentage):
     fix_ax(ax_response, 'neuron predicted by tail')
     fix_ax(ax_predict, 'neuron predicting tail')
     fix_ax(ax_combine, 'combine')
+
+def find_pearson_tail_neuron(trace, tail_df):
+    """
+    Find the tail neurons by pearson r correlation
+    """
+    #prepare trace for plotting
+    # trace = pd.concat(region_trace.values())
+    # trace = trace.loc[~trace.index.duplicated(keep='first')]
+
+    tail_byframe = list(tail_df.groupby('frame').tail_sum.std())
+    actual_frames = list(range(0, trace.shape[1]))
+    non_include_frame = [i for i in actual_frames if not i in tail_df.frame.unique()]
+    for i in non_include_frame:
+        tail_byframe = tail_byframe + [0]
+    tail_byframe = [i if not np.isnan(i) else 0 for i in tail_byframe]
+    # %%
+    neuron_tail_df = pd.DataFrame(index=trace.index, columns=['statistics', 'p'])
+    for n in trace.index:
+        pearson_result = pearsonr(tail_byframe, trace.loc[n])
+        neuron_tail_df.loc[n, 'statistics'] = abs(pearson_result[0])
+        neuron_tail_df.loc[n, 'p'] = pearson_result[1]
+
+    return neuron_tail_df
+
+def find_pearson_tail_neuron_stop(trace, tail_bout_df):
+    """
+    Find the tail stop neurons by pearson r correlation
+    """
+    tail_byframe = []
+    bout_endframe = [i[1] for i in tail_bout_df.cont_tuples_imageframe]
+    for frame in range(trace.shape[1]):
+        if frame in bout_endframe:
+            tail_byframe = tail_byframe + [1]
+        else:
+            tail_byframe = tail_byframe + [0]
+
+    neuron_tail_df = pd.DataFrame(index=trace.index, columns=['statistics', 'p'])
+    for n in trace.index:
+        pearson_result = pearsonr(tail_byframe, trace.loc[n])
+        neuron_tail_df.loc[n, 'statistics'] = abs(pearson_result[0])
+        neuron_tail_df.loc[n, 'p'] = pearson_result[1]
+
+    return neuron_tail_df
+
+def plot_loc_pearson_tail_neuron(neuron_tail_df, refImg, loc, top_percentage):
+    """
+    Plot the location of each neuron and how well they predict tail/predicted by tail.
+        neuron_tail_df: a dataframe contain each neuron with their neuron index as index column, and one column "total response rate", and how many percentage of those bouts this neuron firing during [PREDICT NEURON ACTIVITY FROM TAIL], and one column named "total success rate", which contains how good each neuron peak calcium events predict wheather the tail is moving or not [PREDICT TAIL FROM NEURON ACTIVITY] Also Note that because the neurons seem to be tonically firing in smaller peaks, only larger peaks (peaks > 0.2 in normalized traces) are participating in this analysis
+        refImg: the dataframe for the reference image
+        loc: the dataframe locations of all the neuron in xpos and ypos
+        top_percentage: the top% of neuron to look at
+    """
+    def fix_ax(axes, title):
+        """
+        make axis prettier
+        """
+        axes.set_xticks([])
+        axes.set_xticklabels([])
+        axes.set_yticks([])
+        axes.set_yticklabels([])
+        axes.spines[['top', 'bottom', 'left', 'right']].set_visible(False)
+        axes.set_title(title)
+
+    #plot each neuruon overall responserate/predictrate
+    fig, ax = plt.subplots(1, 2, figsize = (6, 5), dpi = 240, gridspec_kw={'width_ratios': [5, 5], 'wspace':0.5})
+    ax_t = ax[0]
+    ax_t.imshow(refImg, cmap = 'grey', alpha = 0.8, vmax = 100)
+    ax_p = ax[1]
+    ax_p.imshow(refImg,cmap = 'grey', alpha = 0.8, vmax = 100)
+
+    #isolate top percentage neurons
+    top_percentage = 1- top_percentage
+    top_t_cutoff = neuron_tail_df.statistics.quantile(top_percentage)
+    top_neurons = neuron_tail_df[(neuron_tail_df['statistics'] >= top_t_cutoff)]
+
+    ax_t.scatter(loc.loc[top_neurons.index, 'xpos'], loc.loc[top_neurons.index, 'ypos'], color = 'white', s = 5)
+    ax_t.scatter(loc['xpos'][neuron_tail_df.index], loc['ypos'][neuron_tail_df.index],
+                 c=[neuron_tail_df['statistics']], cmap='winter', s=1, vmin=0)
+    ax_p.scatter(loc.loc[top_neurons.index, 'xpos'], loc.loc[top_neurons.index, 'ypos'], color='white', s=5)
+    ax_p.scatter(loc['xpos'][neuron_tail_df.index], loc['ypos'][neuron_tail_df.index],
+                 c=[neuron_tail_df['p']], cmap='winter_r', s=1, vmin=0)
+
+    fix_ax(ax_t, 't stat')
+    fix_ax(ax_p, 'p value')
+
 
 def plot_trace_tail_neuron(tail_df, tail_bout_df, frametimes_df, neuron_tail_df, trace,top_percentage, tail_window_s):
     """
