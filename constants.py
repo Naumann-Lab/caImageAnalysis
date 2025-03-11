@@ -170,6 +170,15 @@ eva_types_all = {
     "S_R": [False, False, False, False, False, True, False, False, True, True],
 }
 
+
+# visual motion cues used for photostimulation experiments, matching colors
+photostim_motion_cues = ['medial_left', 'lateral_left', 'left', 'medial_right', 'lateral_right', 'right', 
+               'converging', 'diverging',  'forward_x',  'backward_x', 'x_forward', 'x_backward', 'forward', 'backward']
+
+photostim_motion_cues_colors = ['tab:green', 'tab:purple', 'black', 'tab:green', 'tab:purple', 'black', 'c', 'm', 'grey', 'grey',
+                      'tab:olive', 'tab:olive', 'tab:blue', 'tab:orange']
+
+
 bouting_stims = [
     "converging",
     "diverging",

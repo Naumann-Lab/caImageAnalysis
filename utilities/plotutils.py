@@ -13,7 +13,31 @@ import caiman as cm
 from PIL import Image
 from scipy.signal import find_peaks 
 
+def quick_plotting_merged(img1, img2):
+    fig, ax = plt.subplots(1, 3, figsize = (10, 10))
+    ax[0].imshow(img1,cmap = 'gray', vmax = np.percentile(img1, 99))
+    ax[0].set_title('Reference')
+    ax[1].imshow(img2, cmap = 'gray', vmax = np.percentile(img2, 99))
+    ax[1].set_title('Comparison')
 
+    merged_img = np.zeros((img1.shape[0], img1.shape[1], 3))
+    merged_img[:, :, 0] = img1 # reference is red
+    merged_img[:, :, 1] = img2 # comparison is green
+    merged_img = merged_img / np.max(merged_img)
+    merged_img = np.clip(merged_img * 3, 0, 1)
+    ax[2].imshow(merged_img, vmax = np.percentile(merged_img, 99))
+    ax[2].set_title('Merged')
+
+    return ax
+
+def quick_plotting_image_pairs(img1, img2):
+    fig, ax = plt.subplots(1, 2, figsize = (10, 10))
+    ax[0].imshow(img1,cmap = 'gray', vmax = np.percentile(img1, 99))
+    ax[0].set_title('image 1')
+    ax[1].imshow(img2, cmap = 'gray', vmax = np.percentile(img2, 99))
+    ax[1].set_title('image 2')
+
+    return ax
 
 def convert_frame_to_sec(frame_lst, framerate):
     return [x / framerate for x in frame_lst]
@@ -88,6 +112,20 @@ def add_scalebar(ax, bar_pixel_length, label, location=(0.1, 0.1), bar_thickness
     
     # Add the label
     ax.text(x_pos + bar_pixel_length / 2, y_pos, label, ha='center', va='bottom', color=color, fontsize=10)
+
+
+def make_color_list_from_cmap(num_colors, colormap = plt.cm.viridis):
+    '''
+    Create a specific list of colors from a colormap, evenly spaced across the colormap given the number of total colors
+    '''
+
+    specific_ind_per_number = np.linspace(0, 1, num_colors)
+    colors = [colormap(x) for x in specific_ind_per_number]
+
+    return colors
+
+
+# I think this function below is outdated # 
 
 def make_population_avg_evoked_trace_plots(special_cells_list, frame_window, subplot = None, title = '', ylim = [-0.03, 0.03]):
     '''

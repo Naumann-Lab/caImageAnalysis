@@ -20,73 +20,94 @@ def closest_coordinates(target_x, target_y, coordinates):
             
     return closest_coord, closest_cell_id
 
-def match_cell_ids(cell_arr1, stats_dict1, cell_arr2, stats_dict2):
-    '''
-    Match cell ids based on overlap of cells, 1-to-1. If no match, then left with a nan
+def match_cell_ids(cell_arr1, stats_dict1, cell_arr2, stats_dict2, distance_threshold_um=10, overlap_threshold=0.01, um_to_px = 0.6):
+    """
+    Match cell ids based on overlap of cells, ensuring a strict 1-to-1 match.
+    If no good match exists, the result is NaN.
     cell_arr1: list of cell ids from dataset 1, this is the array of cell ids that you want to match to
     stats_dict1: suite2p stats dictionary from dataset 1
     cell_arr2: list of cell ids from dataset 2
     stats_dict2: suite2p stats dictionary from dataset 2
+    distance_threshold_um: maximum distance in um for a match to be considered valid
+    overlap_threshold: minimum overlap ratio for a match to be considered valid
+    um_to_px: conversion factor from um to pixels for distance threshold calculation
 
-    returns an array of each cell id from cell_arr1 with the corresponding cell id from cell_arr2
-    '''
+    returns 
+    matched_cell_ids: a DICTIONARY of each cell id from cell_arr1 (key) with the corresponding cell id from cell_arr2
+    """
     from scipy.optimize import linear_sum_assignment
+    distance_threshold = distance_threshold_um / um_to_px # Convert um to pixels
 
-    # Step 1: make overlap matrix
+    # Step 1: Compute overlap matrix
     overlap_matrix = np.zeros((len(cell_arr1), len(cell_arr2)))
-    for b, c in enumerate(cell_arr1):
-        xpix_1 = stats_dict1[c]['xpix']
-        ypix_1 = stats_dict1[c]['ypix']
-        for d in cell_arr2:
-            xpix_2 = stats_dict2[d]['xpix']
-            ypix_2 = stats_dict2[d]['ypix']
-            overlap_size, overlap_ratio  = get_overlap_between_neurons(xpix_1, ypix_1, xpix_2, ypix_2, plot = False)
-            overlap_matrix[b, d] = overlap_ratio
+    center_distances = np.zeros((len(cell_arr1), len(cell_arr2)))
+    
+    centers1 = {c: (np.mean(stats_dict1[c]['xpix']), np.mean(stats_dict1[c]['ypix'])) for c in cell_arr1}
+    centers2 = {c: (np.mean(stats_dict2[c]['xpix']), np.mean(stats_dict2[c]['ypix'])) for c in cell_arr2}
+    
+    for i, c1 in enumerate(cell_arr1):
+        xpix_1, ypix_1 = stats_dict1[c1]['xpix'], stats_dict1[c1]['ypix']
+        center1 = centers1[c1]
+        
+        for j, c2 in enumerate(cell_arr2):
+            xpix_2, ypix_2 = stats_dict2[c2]['xpix'], stats_dict2[c2]['ypix']
+            center2 = centers2[c2]
+            
+            # Compute overlap
+            overlap_size, overlap_ratio = get_overlap_between_neurons(xpix_1, ypix_1, xpix_2, ypix_2)
+            overlap_matrix[i, j] = overlap_ratio if overlap_ratio >= overlap_threshold else 0
+            
+            # Compute Euclidean distance between centers
+            center_distances[i, j] = math.sqrt((center1[0] - center2[0])**2 + (center1[1] - center2[1])**2)
+    
+    # Step 2: Solve the assignment problem (maximize overlap)
+    row_ind, col_ind = linear_sum_assignment(overlap_matrix - center_distances * 0.001, maximize=True)
 
-    # Step 2: Solve the assignment problem (1-to-1 matching)
-    row_ind, col_ind = linear_sum_assignment(overlap_matrix, maximize = True)  # Hungarian Algorithm
+    # Step 3: Store matches in a dictionary
+    matched_cell_ids = {cell_id: np.nan for cell_id in cell_arr1}  # Default to NaN
 
-    # Step 3: Construct matched results, assign matches where they exist, else remains nan
-    # length of cell_arr1, fill each cell id with the corresponding cell id from dataset2
-    matched_cell_ids = np.full(shape = (len(cell_arr1)), fill_value = np.nan) 
+    used_final_cells = set()
     for i, j in zip(row_ind, col_ind):
-        dataset1_cell_id = int(i)
-        dataset2_cell_id = int(j)
-        matched_cell_ids[dataset1_cell_id] = dataset2_cell_id
+        if overlap_matrix[i, j] > 0 and center_distances[i, j] < distance_threshold:
+            dataset1_cell_id = cell_arr1[i]
+            dataset2_cell_id = cell_arr2[j]
+
+            if dataset2_cell_id not in used_final_cells:
+                matched_cell_ids[dataset1_cell_id] = dataset2_cell_id
+                used_final_cells.add(dataset2_cell_id)
+        else:  
+            # Try closest match if overlap/distance is insufficient
+            target_center = centers1[cell_arr1[i]]
+            closest_coord, closest_cell_id = closest_coordinates(target_center[0], target_center[1], list(centers2.values()))
+
+            if math.sqrt((target_center[0] - closest_coord[0])**2 + (target_center[1] - closest_coord[1])**2) <= distance_threshold:
+                dataset2_cell_id = cell_arr2[closest_cell_id] if closest_cell_id not in used_final_cells else None
+            else:
+                dataset2_cell_id = None
+
+            if dataset2_cell_id is not None:
+                matched_cell_ids[cell_arr1[i]] = dataset2_cell_id
+                used_final_cells.add(dataset2_cell_id)
     
     return matched_cell_ids
 
-def get_overlap_between_neurons(xpix1, ypix1, xpix2, ypix2, plot=False):
+def get_overlap_between_neurons(xpix1, ypix1, xpix2, ypix2):
     """
+    Compute the overlap ratio between two neurons using pixel coordinates.
     From Jacob
     using boundary of entire neuron, rather than just the center of mass
     xpix is assumed to be list of x coordinates, ypix is y coordinates
     returns a float which is the ratio of overlap between the neurons
     and an int which is the number of pixels shared by the neurons
     """
-    import matplotlib.pyplot as plt
-
-    # find the ratio/pixels of overlap, use set function to do logical &, not
-    coords1 = set(zip(xpix1, ypix1)); coords2 = set(zip(xpix2, ypix2))
-    overlap = coords1 & coords2 # logical AND of coords
+    coords1 = set(zip(xpix1, ypix1))
+    coords2 = set(zip(xpix2, ypix2))
+    overlap = coords1 & coords2
     overlap_size = len(overlap)
-    unique_pixels = len(coords1 | coords2) #in coords 1 and not in coords2
+    unique_pixels = len(coords1 | coords2)
     overlap_ratio = overlap_size / unique_pixels if unique_pixels > 0 else 0
+    return overlap_size, overlap_ratio
 
-    # if you want to plot them..
-    if(plot):
-        plt.figure(figsize=(4, 4), dpi=100)
-        plt.scatter(xpix1, ypix1, c='blue', marker='o', label='Neuron 1', alpha=0.5)
-        plt.scatter(xpix2, ypix2, c='red', marker='o', label='Neuron 2', alpha=0.5)
-        plt.xlabel(r'$x$')
-        plt.ylabel(r'$y$')
-        plt.gca().invert_yaxis()
-        plt.legend()
-        plt.grid(True)
-        plt.title(overlap_ratio)
-        plt.show()
-
-    return overlap_size, overlap_ratio   
 
 
 def rotate_transform_coors(coordinates, angle_degrees, translation=(0, 0)):

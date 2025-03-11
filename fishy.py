@@ -355,6 +355,16 @@ class BaseFish:
         except:
             pass
 
+    def return_x_midline(self):
+        self.load_saved_rois()
+        if 'midline' not in self.roi_dict.keys():
+            self.draw_roi(title="midline")
+            self.load_saved_rois()
+        x_midline_points = np.load(self.roi_dict["midline"])
+        x_midline = int(np.nanmean([x for x, y in x_midline_points]))
+
+        return x_midline
+
     def load_image(self):
         if "move_corrected_image" in self.data_paths.keys():
             image = imread(self.data_paths["move_corrected_image"])
@@ -758,7 +768,7 @@ class PhotostimFish(TailTrackedFish):
                 self.load_caiman()
                 # self.is_cell()
         self.normcells = arrutils.norm_fdff(self.f_cells)
-        self.zdiffcells = [arrutils.zdiffcell(z) for z in self.f_cells]
+        self.zdiff_cells = [arrutils.zdiffcell(z) for z in self.f_cells]
 
         # 1 - find bad frames and baseline frames, make sure this exists first #
         try:
@@ -768,6 +778,8 @@ class PhotostimFish(TailTrackedFish):
             photostimulation.save_badframes_arr(self)
 
         if 'ps_xml' in self.data_paths.keys():
+            photostimulation.find_no_baseline_frames(self)
+        elif 'ps_log' in self.data_paths.keys():
             photostimulation.find_no_baseline_frames(self)
         else: # protecting the automated gui experiments to keep running with photostim fish
             self.baseline_frames = 0
@@ -780,6 +792,7 @@ class PhotostimFish(TailTrackedFish):
             except:
                 self.ps_event_start = self.badframes_arr
             self.stim_sites_df = photostimulation.identify_stim_sites(self, rotate, stimulation_type = stim_type_keyword)
+
         elif ('stim_sites' in self.data_paths.keys()) & (stimmed_plane == True): # need to upload current stim sites df (works with new automated output, normal outputs)
             self.stim_sites_df = pd.read_hdf(self.data_paths['stim_sites'])
             if 'stim_duration_ms' in self.stim_sites_df.columns: # if special output type
@@ -794,6 +807,7 @@ class PhotostimFish(TailTrackedFish):
                 except:
                     self.ps_event_start = self.badframes_arr
                 self.stim_sites_df = photostimulation.identify_stim_sites(self, rotate, stimulation_type = stim_type_keyword)
+
         else: # if there is not a stimulation happening on this plane at all
             pass
 
@@ -809,7 +823,7 @@ class PhotostimFish(TailTrackedFish):
             self.raw_traces, self.points = photostimulation.collect_raw_traces(self)
 
             # 4 - id the stimulated cells based on distance #
-            self.stimmed_cell_coords, self.stimmed_cell_id_array = self.identify_stim_cells(overlap = False)
+            self.stimmed_cell_coords, self.stimmed_cell_id_array, self.stimmed_cells_matched_stim_ids_dict = self.identify_stim_cells(overlap = False)
 
             # 5 - build the photostim correlation dataframe #
             # self.build_ps_corrdf(frames_pre_post = photostim_window)
@@ -827,7 +841,13 @@ class PhotostimFish(TailTrackedFish):
             # matching cells based on center
             points_stim = [[int(self.stim_sites_df.x_stim.iloc[i]), int(self.stim_sites_df.y_stim.iloc[i])] 
                        for i in range(len(self.stim_sites_df))] # stimulated points
-        
+
+            # put in a dictionary here too
+            if 'cell_ids' in self.stim_sites_df.columns:
+                closest_cell_id_dict = {i:[] for i in self.stim_sites_df.cell_ids.values}
+            else:
+                closest_cell_id_dict = {i:[] for i in range(len(self.stim_sites_df))}   
+
             closest_coord_list = []
             closest_cell_id_array = np.zeros(shape = (len(points_stim)))
             all_points = self.return_cell_rois(range(len(self.f_cells)))
@@ -835,6 +855,10 @@ class PhotostimFish(TailTrackedFish):
                 closest_coord, closest_cell_id = coordutils.closest_coordinates(p[0], p[1], all_points)
                 closest_coord_list.append(closest_coord)
                 closest_cell_id_array[q] = closest_cell_id
+                if 'cell_ids' in self.stim_sites_df.columns:
+                    closest_cell_id_dict[self.stim_sites_df.cell_ids.iloc[q]].append(closest_cell_id)
+                else:
+                    closest_cell_id_dict[q].append(closest_cell_id)
 
         elif overlap == True:
             # first collect the xpix and ypix of the stimulation site based on the spiral size
@@ -851,14 +875,18 @@ class PhotostimFish(TailTrackedFish):
                 stim_sites_stat_dict[stim_cell_id] = {'xpix': x_pix, 'ypix': y_pix}
             
             # matching cell ids based on spiral size overlap and doing 1 to 1 matching
-            closest_cell_id_array = coordutils.match_cell_ids(cell_arr1 = np.unique(self.stim_sites_df.cell_ids.values),
-                            stats_dict1 = stim_sites_stat_dict,
-                            cell_arr2 = np.arange(len(self.f_cells)), 
-                            stats_dict2 = self.stats)
-            # identifying what those coordinates are
+            closest_cell_id_dict = coordutils.match_cell_ids(cell_arr1 = np.unique(self.stim_sites_df.cell_ids.values),
+                                                                stats_dict1 = stim_sites_stat_dict,
+                                                                cell_arr2 = np.arange(len(self.f_cells)), 
+                                                                stats_dict2 = self.stats,
+                                                                um_to_px = um_to_px)
+            # identifying what those coordinates are, removing nan's and converting all to integers
+            closest_cell_id_array = np.array([v for k, v in closest_cell_id_dict.items()])
+            closest_cell_id_array = closest_cell_id_array[~np.isnan(closest_cell_id_array)]
+            closest_cell_id_array = np.array([int(i) for i in closest_cell_id_array])
             closest_coord_list = [self.return_singlecell_rois(m) for m in closest_cell_id_array]
 
-        return closest_coord_list, closest_cell_id_array
+        return closest_coord_list, closest_cell_id_array, closest_cell_id_dict
 
     def build_ps_corrdf(self, photostimulated_cell_arr = None, len_decay_frames = 10, ps_offset = 0, select_cells = None, frames_pre_post = [-3, 8], 
                         trace_type = 'raw', evoked_response_type = 'mean'):
@@ -1123,9 +1151,14 @@ class PhotostimFish(TailTrackedFish):
         return self.activity_dist_df
 
 class WorkingFish(VizStimFish):
-    def __init__(self, corr_threshold=0.65, bool_data_type = 'normf', stim_order = None, seconds_motion_is_on = 5, ref_image=None, *args, **kwargs):
+    def __init__(self, corr_threshold=0.65, 
+                 bool_data_type = 'normf', 
+                 stim_order = None, 
+                 seconds_motion_is_on = 5, 
+                 ref_image=None, *args, **kwargs):
         super().__init__(*args, **kwargs)
-
+        
+        self.seconds_motion_is_on = seconds_motion_is_on
         if "move_corrected_image" not in self.data_paths:
             print('no movement corrected image')
         self.corr_threshold = corr_threshold
@@ -1146,7 +1179,7 @@ class WorkingFish(VizStimFish):
         self.stim_order = stim_order # order to stimuli for average trace plots
         if self.stim_order is None:
             self.stim_order = self.stimulus_df.stim_name.unique()
-        # self.neuron_each_stim_rep_arrays(stim_order)
+        self.neuron_each_stim_rep_arrays(stim_order)
         self.stim_start_frames = stimuli.stimulus_start_frames_for_plots(frames_motion_on = int(self.img_hz*seconds_motion_is_on), # 5 sec motion is on 
                                                                          length_of_total_frame_arr = np.diff(self.offsets)[0], 
                                                                          number_of_stims_in_set = len(self.stim_order))
@@ -1233,7 +1266,7 @@ class WorkingFish(VizStimFish):
                 try:
                     resp_arr = nrn[_all_arrs]
                 except IndexError:
-                    print(IndexError)
+                    pass
 
                 self.neur_resps_each_stim_rep[n][r] = resp_arr
         

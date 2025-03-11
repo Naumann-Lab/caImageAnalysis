@@ -345,3 +345,71 @@ def make_coordinates_into_dict(array_of_coors):
             new_coordinates.append({'xpix': np.nan, 'ypix': np.nan})
         
     return new_coordinates
+
+def threshold_otsu_255_bins(image):
+    """
+    Compute Otsu's threshold using 255 bins (without clipping).
+
+    Parameters
+    ----------
+    image : cupy.ndarray
+        Grayscale input image as a CuPy array. Can be any dtype or range.
+        The histogram is computed with 255 bins over the min->max of 'image'.
+
+    Returns
+    -------
+    threshold : float
+        Otsu threshold in the same scale as the input image data.
+    """
+
+    # 1. Quick check if the image is constant:
+    first_val = image.ravel()[0]
+    if np.all(image == first_val):
+        return float(first_val.get())
+
+    # 2. Compute histogram with exactly 255 bins over the entire data range.
+    counts, bin_edges = np.histogram(image, bins=255)
+
+    # 3. Compute bin centers (shape: (255,))
+    bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+
+    # 4. Cumulative sums ("weights")
+    weight1 = np.cumsum(counts)  # up to bin i
+    weight2 = np.cumsum(counts[::-1])[::-1]  # from bin i to the end
+
+    # 5. Compute means for each side of the threshold
+    cumsum_val = np.cumsum(counts * bin_centers)
+    mean1 = cumsum_val / weight1
+    cumsum_val_rev = np.cumsum((counts * bin_centers)[::-1])
+    mean2 = (cumsum_val_rev / weight2[::-1])[::-1]
+
+    # 6. Inter-class variance
+    #    We skip the last bin in weight1[:-1] and the first bin in weight2[1:]
+    #    Otsu's formula: sigma_B^2 = w1*w2*(mean1-mean2)^2
+    variance12 = weight1[:-1] * weight2[1:] * (mean1[:-1] - mean2[1:]) ** 2
+
+    # 7. Argmax for the best threshold
+    idx = np.argmax(variance12)
+    threshold = bin_centers[idx]
+
+    # Return as Python float
+    return float(threshold)
+
+def normalizeBinarize(image, method = 'otsu', threshold_factor=0.9):
+    if method == 'otsu':
+        threshold = threshold_otsu_255_bins(image) * threshold_factor
+    if method == 'huang':
+        threshold = threshold_huang(image) * threshold_factor
+    if method == 'mean':
+        threshold = np.mean(image) * threshold_factor
+
+    thresholded = (image >= threshold)
+    
+    return (thresholded)
+
+def threshold_huang(image):
+    """Apply Huang-like thresholding (using skimage's threshold_minimum)."""
+    from skimage.filters import threshold_minimum
+
+    threshold = threshold_minimum(image)  # Alternative for Huang's method
+    return threshold

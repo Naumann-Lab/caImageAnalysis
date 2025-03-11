@@ -1,9 +1,9 @@
 import cv2
 import os
-
 import numpy as np
 
 from pathlib import Path
+
 
 def create_circular_mask(img_shape, x, y, radius):
     '''
@@ -17,6 +17,37 @@ def create_circular_mask(img_shape, x, y, radius):
     mask = dist_from_center <= radius
     return mask
 
+def create_polygon_mask(image_shape, polygon_coords):
+    """
+    Creates a binary mask for a given polygon.
+
+    Parameters:
+    - image_shape: Tuple (height, width) of the image.
+    - polygon_coords: List of (x, y) tuples defining the polygon.
+
+    Returns:
+    - mask: 2D NumPy array (same size as image), where 1=inside, 0=outside.
+    """
+
+    import matplotlib.path as mpath
+
+    # Create grid of coordinates
+    h, w = image_shape
+    y, x = np.meshgrid(np.arange(h), np.arange(w), indexing='ij')
+
+    # Flatten the grid
+    points = np.vstack((x.ravel(), y.ravel())).T  # Shape (num_pixels, 2)
+
+    # Create a path object
+    poly_path = mpath.Path(polygon_coords)
+
+    # Check which points are inside the polygon
+    mask_flat = poly_path.contains_points(points)
+
+    # Reshape mask back to image dimensions
+    mask = mask_flat.reshape(h, w)
+
+    return mask.astype(np.uint8)
 
 def points_within_circle(x_center, y_center, radius):
     '''
