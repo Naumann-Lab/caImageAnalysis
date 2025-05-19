@@ -49,6 +49,8 @@ def create_polygon_mask(image_shape, polygon_coords):
 
     return mask.astype(np.uint8)
 
+# these two next functions are essentially the same
+
 def points_within_circle(x_center, y_center, radius):
     '''
     Finds all points within a certain radius of a center point
@@ -75,6 +77,27 @@ def points_within_circle(x_center, y_center, radius):
     y_points_int = np.unique([int(y) for y in y_points])
                 
     return x_points_int, y_points_int
+
+
+def compute_coverage(circle_pixels, polygon_pixels):
+    '''
+    compute the percentage of overlap between a circle on top of a polygon
+    circle_pixels: list of (x, y) tuples for the circle
+    polygon_pixels: list of (x, y) tuples for the polygon
+    '''
+    # Convert to sets of (x, y) tuples
+    circle_set = set(circle_pixels)
+    polygon_set = set(polygon_pixels)
+
+    # Intersection gives pixels shared by both shapes
+    overlap = circle_set & polygon_set
+
+    # Compute percentage
+    polygon_covered_by_circle = len(overlap) / len(polygon_set) * 100
+    circle_covered_by_polygon = len(overlap) / len(circle_set) * 100
+
+    return polygon_covered_by_circle, circle_covered_by_polygon
+
 
 # Functions for drawing and saving ROIs outside of the Fish class structure
 

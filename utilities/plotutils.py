@@ -13,7 +13,7 @@ import caiman as cm
 from PIL import Image
 from scipy.signal import find_peaks 
 
-def quick_plotting_merged(img1, img2):
+def quick_plotting_merged(img1, img2, brightness_factor = 10):
     fig, ax = plt.subplots(1, 3, figsize = (10, 10))
     ax[0].imshow(img1,cmap = 'gray', vmax = np.percentile(img1, 99))
     ax[0].set_title('Reference')
@@ -23,8 +23,8 @@ def quick_plotting_merged(img1, img2):
     merged_img = np.zeros((img1.shape[0], img1.shape[1], 3))
     merged_img[:, :, 0] = img1 # reference is red
     merged_img[:, :, 1] = img2 # comparison is green
-    merged_img = merged_img / np.max(merged_img)
-    merged_img = np.clip(merged_img * 3, 0, 1)
+    # merged_img = merged_img / np.max(merged_img)
+    merged_img = np.clip(merged_img + brightness_factor, 0, 255).astype(np.uint8)
     ax[2].imshow(merged_img, vmax = np.percentile(merged_img, 99))
     ax[2].set_title('Merged')
 
@@ -124,49 +124,23 @@ def make_color_list_from_cmap(num_colors, colormap = plt.cm.viridis):
 
     return colors
 
-
-# I think this function below is outdated # 
-
-def make_population_avg_evoked_trace_plots(special_cells_list, frame_window, subplot = None, title = '', ylim = [-0.03, 0.03]):
-    '''
-    Population average response plot for photostim responses
-
-    special_cells_array = list of array n cells x n traces x n frames for the frame window around each photostim event
-    frame_window = list of frames that are around the photostim events to average over
-    subplot = axis to plot on
-    title = title of the plot
-    ylim = y axis limits
-    show_error = boolean to show error
-
-    '''
+def interpolate_colors(start_hex, end_hex, n):
+    # Convert hex to RGB
+    def hex_to_rgb(hex_color):
+        hex_color = hex_color.lstrip('#')
+        return tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
     
-    if subplot is not None:
-        ax_n = subplot
-        ax_n.set_title(title)
-        ax_n.set_ylim(ylim[0], ylim[1])
-    else:
-        ax_n = plt
-        plt.figure(figsize = (8, 8))
-        plt.title(title)
-        plt.ylim(ylim[0], ylim[1])
+    def rgb_to_hex(rgb):
+        return '#%02x%02x%02x' % rgb
     
-    # change the list of cell arrays into a mean array for each cell
-    special_cells_array = np.zeros(shape = (len(special_cells_list), np.diff(frame_window)[0]))
-    error_array = np.zeros(shape = (len(special_cells_list), np.diff(frame_window)[0])) # this was make a non-normalized error calculation...
-    for m, l in enumerate(special_cells_list):
-        special_cells_array[m] = np.nanmean(l, axis = 0)
-        error_array[m] = np.std(l, axis = 0) / np.sqrt(l.shape[0])
+    start_rgb = np.array(hex_to_rgb(start_hex))
+    end_rgb = np.array(hex_to_rgb(end_hex))
+    
+    colors = [
+        rgb_to_hex(tuple((start_rgb + (end_rgb - start_rgb) * i / (n - 1)).astype(int)))
+        for i in range(n)
+    ]
+    
+    return colors
 
-    data_mean = np.nanmean(special_cells_array, axis = 0)
-    data_base = np.nanmean(special_cells_array[:, :-frame_window[0]], axis = 1)
-    plot_data = data_mean - np.nanmean(data_base)
-
-    # figure out how to calculate error...
-
-    ax_n.plot(plot_data, color = 'k')
-    ax_n.axhline(0, color = 'black', alpha = 0.2, linestyle = '--')
-    ax_n.axvline(x = -frame_window[0],  color = 'red', alpha = 0.4)
-    ax_n.text(0.95, 0.95, f'n = {len(special_cells_array)}', transform=ax_n.transAxes, fontsize=18,
-                            verticalalignment='top', horizontalalignment='right',
-                            bbox=dict(boxstyle='round,pad=0.5', edgecolor='black', facecolor='white'))
 

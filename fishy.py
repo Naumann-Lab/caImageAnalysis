@@ -523,7 +523,7 @@ class TailTrackedFish(BaseFish):
         self.motor_pearson_corrs = [scipy.stats.pearsonr(trace[:len(tail_trace)], tail_trace)[0] for trace in cell_arr]
         self.motor_pearson_pvals = [scipy.stats.pearsonr(trace[:len(tail_trace)], tail_trace)[1] for trace in cell_arr]
 
-class VizStimFish(TailTrackedFish):
+class VizStimFish(BaseFish):
     def __init__(
         self,
         stim_key="stims",
@@ -743,7 +743,7 @@ class VizStimFish(TailTrackedFish):
 
         return final_image * brightnessFactor
 
-class PhotostimFish(TailTrackedFish):
+class PhotostimFish(BaseFish):
     def __init__(
         self,
         photostim_window = [-3, 8],
@@ -1514,13 +1514,13 @@ class WorkingFish(VizStimFish):
         colors = []
         neurons = []
 
-        for neuron in self.analysis_stim_dict.keys():
+        for neuron in self.analysis_neuron_dict.keys():
             if booltrim:
                 if not hasattr(self, "booldf"):
                     self.corrdf, self.booldf = self.build_booldf_corr()
                 if neuron not in self.booldf.index:
                     continue
-            myneuron = self.analysis_stim_dict[neuron]
+            myneuron = self.analysis_neuron_dict[neuron]
             clr_longform = [
                 stimval * np.clip(i, a_min=0, a_max=99)
                 for stimname, stimval in zip(myneuron.keys(), myneuron.values())

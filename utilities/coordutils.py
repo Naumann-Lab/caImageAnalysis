@@ -106,8 +106,23 @@ def get_overlap_between_neurons(xpix1, ypix1, xpix2, ypix2):
     overlap_size = len(overlap)
     unique_pixels = len(coords1 | coords2)
     overlap_ratio = overlap_size / unique_pixels if unique_pixels > 0 else 0
+    
     return overlap_size, overlap_ratio
 
+def find_distance_between_coordinates(coord1, coord2):
+    """
+    Find the distance between two coordinates.
+
+    Parameters:
+    - coord1: Tuple (x1, y1).
+    - coord2: Tuple (x2, y2).
+
+    Returns:
+    - Distance between the two coordinates.
+    """
+    x1, y1 = coord1
+    x2, y2 = coord2
+    return math.sqrt((x1 - x2)**2 + (y1 - y2)**2)
 
 
 def rotate_transform_coors(coordinates, angle_degrees, translation=(0, 0)):

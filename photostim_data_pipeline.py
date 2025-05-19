@@ -20,7 +20,7 @@ from utilities.roiutils import create_circular_mask, draw_roi, create_polygon_ma
 from fishy import PhotostimFish
 import constants
 
-# make functions that would help with pulling photostim and omr data together into a master functional types dataframe #
+# putting photostim and omr data together into a master functional types dataframe #
      
 def build_functional_types_df(omr_fishvolume, stim_fishvolume, omr_fishvolume_barcoding_df, regions = ['Pt', 'Hb', 'nMLF'], 
                                   motor_correlation = False, plot_stim_sites = True):
@@ -208,21 +208,23 @@ def gather_visual_motion_responses_for_df(vizstimfishy, cell_id_array = None, mo
     return motion_resp_dict_lst
 
 def gather_photostimulation_responses_for_df(responder_f_traces, stimulated_f_traces, stimulated_frames_array, 
-                                             photostim_response_frame_windows = [-4, 7]):
+                                             photostim_response_frame_windows = [-4, 7], type = 'df_f'):
     '''
-    Gather the responses of the responding cells to each photostimulated cell
+    Gather the df/f responses of the responding cells to each photostimulated cell
     responder_f_traces = list, the traces of the responding cells (n responder cells x len of imaging), make sure not to include the stimulated cells
     stimulated_f_traces = list, the traces of the stimulated cells (n photostimulated cells x len of imaging)
     stimulated_frames_array = list, the frames of which each photostimulated cell was stimulated (n photostimulated cells x m trials of photostimulation)
+    photostim_response_frame_windows = list, the window of frames around the photostimulation event to consider, default is [-4, 7]
+    type = str, the type of responses, default is 'df_f' - note 'local' (can also be 'raw' aka no changes to the traces), this needs to match the traces that come in
     '''
     
     photostimulation_responses_lst = []
-    avg_evoked_df_f_master_lst = []
+    avg_evoked_activity_master_lst = []
 
     # for each responding cell, get the responses of that cell to each stimulation event
     for resp_cell_id, responding_trace in enumerate(responder_f_traces):
         resp_to_each_stimulation_dict = BCDict()
-        avg_evoked_df_f_lst = []
+        avg_evoked_activity_lst = []
         for stim_cell_ind, stimulated_trace in enumerate(stimulated_f_traces):
             s_cell_id = f'stim_{stim_cell_ind}'
             if s_cell_id not in resp_to_each_stimulation_dict.keys():
@@ -238,24 +240,41 @@ def gather_photostimulation_responses_for_df(responder_f_traces, stimulated_f_tr
 
             resp_raw_trial = np.array([responding_trace[g] for g in frame_subset if len(responding_trace[g] ) > 0])
             resp_df_f_trial = np.zeros(shape = (len(resp_raw_trial), len(resp_raw_trial[0])))
+            resp_raw_trial2 = np.zeros(shape = (len(resp_raw_trial), len(resp_raw_trial[0])))
+
             stim_evoked_df_f_trial = np.zeros(shape = (len(resp_raw_trial), 1))
+            stim_evoked_raw_trial = np.zeros(shape = (len(resp_raw_trial), 1))
+
             for d, f in enumerate(resp_raw_trial):
                 base_e = f[:-photostim_response_frame_windows[0]] # i.e. frames 0:4
                 plot_e = (f - np.nanmean(base_e)) / np.nanmean(base_e)
                 evoked_e = np.nanmedian(plot_e[-photostim_response_frame_windows[0]:]) # evoked df f for each trial, i.e. frames 4:end
                 stim_evoked_df_f_trial[d] = evoked_e
                 resp_df_f_trial[d] = plot_e # full trace for each trial
-            
-            resp_to_each_stimulation_dict[s_cell_id] = [resp_df_f_trial]
-            avg_evoked_df_f_lst.append(np.nanmean(stim_evoked_df_f_trial))
+
+                # calculate raw traces of your input array
+                evoked_raw = np.nanmedian(f[-photostim_response_frame_windows[0]:]) # evoked raw trace for each trial, i.e. frames 4:end
+                stim_evoked_raw_trial[d] = evoked_raw
+                resp_raw_trial2[d] = f # full trace for each trial
+
+            if type == 'df_f':
+                resp_to_each_stimulation_dict[s_cell_id] = [resp_df_f_trial]
+                avg_evoked_activity_lst.append(np.nanmean(stim_evoked_df_f_trial))
+            elif type == 'zscore': # only want raw traces
+                resp_to_each_stimulation_dict[s_cell_id] = [resp_raw_trial2]
+                avg_evoked_activity_lst.append(np.nanmean(stim_evoked_raw_trial))
+            elif type == 'global_df_f': # only want raw traces
+                resp_to_each_stimulation_dict[s_cell_id] = [resp_raw_trial2]
+                avg_evoked_activity_lst.append(np.nanmean(stim_evoked_raw_trial))
 
         # put all of this information into lists to add to the final dataframe
         photostimulation_responses_lst.append(resp_to_each_stimulation_dict)
-        avg_evoked_df_f_master_lst.append(avg_evoked_df_f_lst)
+        avg_evoked_activity_master_lst.append(avg_evoked_activity_lst)
     
-    return photostimulation_responses_lst, avg_evoked_df_f_master_lst
+    return photostimulation_responses_lst, avg_evoked_activity_master_lst
 
-def add_photostimulation_responses_to_functional_df(functional_info_df, stim_fishvolume, response_window = [-4, 7], stimulated_functional_types_df = None):
+def add_photostimulation_responses_to_functional_df(functional_info_df, stim_fishvolume, response_window = [-4, 7], 
+                                                    stimulated_functional_types_df = None, type = 'df_f'):
 
     # default is to have the entired photostim == True dataset for the 'stimulated info'
     # keeping this flexible in case I need to change what I want to use as my 'stimulated cells' (i.e. changing trials or actual cells)
@@ -263,16 +282,74 @@ def add_photostimulation_responses_to_functional_df(functional_info_df, stim_fis
         stimulated_functional_types_df = functional_info_df[functional_info_df.photostim == True]
     
     # gathering responses from the photostimulation dataset
-    resp_f_trace_array, _, _ = prepare_data_for_plotting(functional_info_df, stim_fishvolume)
-    stim_f_trace_array, _, _ = prepare_data_for_plotting(stimulated_functional_types_df, stim_fishvolume)
+    resp_f_trace_array, _, resp_zscore_trace_array = prepare_data_for_plotting(functional_info_df, stim_fishvolume)
+    stim_f_trace_array, _, stim_zscore_trace_array = prepare_data_for_plotting(stimulated_functional_types_df, stim_fishvolume)
 
-    photostimulation_responses_lst, avg_evoked_df_f_lst = gather_photostimulation_responses_for_df(resp_f_trace_array, stim_f_trace_array, 
+    if type == 'df_f':
+        photostimulation_responses_lst, avg_evoked_df_f_lst = gather_photostimulation_responses_for_df(resp_f_trace_array, stim_f_trace_array, 
                                                                                                    stimulated_functional_types_df.stim_frames.values,
                                                                                                    photostim_response_frame_windows = response_window)
-    functional_info_df['stim_responses'] = photostimulation_responses_lst
-    functional_info_df['avg_evoked_df_f'] = avg_evoked_df_f_lst
+        functional_info_df['stim_responses'] = photostimulation_responses_lst
+        functional_info_df['avg_evoked_df_f'] = avg_evoked_df_f_lst
+
+    elif type == 'zscore':
+        photostimulation_responses_lst_zscore, avg_evoked_zscore_lst = gather_photostimulation_responses_for_df(resp_zscore_trace_array, stim_zscore_trace_array, 
+                                                                                                   stimulated_functional_types_df.stim_frames.values,
+                                                                                                   photostim_response_frame_windows = response_window,
+                                                                                                   type = 'zscore')
+
+        functional_info_df['stim_responses_zscore'] = photostimulation_responses_lst_zscore
+        functional_info_df['avg_evoked_zscore'] = avg_evoked_zscore_lst
+    
+    elif (type == 'global_df_f') & ('baseline_f' in functional_info_df.columns):
+        global_df_f_traces = np.zeros(shape = resp_f_trace_array.shape)
+        for n, raw_trace in enumerate(resp_f_trace_array):
+            baseline_f = functional_info_df['baseline_f'].iloc[n]['mean']
+            global_df_f_trace = (raw_trace - baseline_f) / baseline_f
+            global_df_f_traces[n] = global_df_f_trace
+
+        photostimulation_responses_lst_global_df_f, avg_evoked_global_df_f_lst = gather_photostimulation_responses_for_df(global_df_f_traces, stim_f_trace_array, 
+                                                                                                   stimulated_functional_types_df.stim_frames.values,
+                                                                                                   photostim_response_frame_windows = response_window,
+                                                                                                   type = 'global_df_f')
+        functional_info_df['stim_responses_global_df_f'] = photostimulation_responses_lst_global_df_f
+        functional_info_df['avg_evoked_global_df_f'] = avg_evoked_global_df_f_lst
 
     return functional_info_df
+
+def find_baseline_values(functional_df, stim_fishvolume, number_of_baseline_frames = 30, buffer = 5):
+    '''
+    Find the baseline values for each neuron trace in the functional dataframe
+    functional_df = dataframe, the functional dataframe with the id's and planes of the neurons
+    stim_fishvolume = VolumeFish object, the photostimulation dataset (one fish, one plane)
+    number_of_baseline_frames = int, the number of frames to use for the baseline, default is 30
+    buffer = int, the number of frames to use as a buffer for the baseline, default is 5
+    '''
+    f_arr, _, zscore_arr = prepare_data_for_plotting(functional_df, stim_fishvolume)
+
+    baseline_zscore = []
+    baseline_f = []
+    baseline_global_df_f = []
+    for b in range(len(f_arr)):
+        # get zscore baseline
+        mean_z_b = np.nanmean(zscore_arr[b][buffer+2:number_of_baseline_frames-buffer], axis = 0)
+        std_z_b = np.nanstd(zscore_arr[b][buffer+2:number_of_baseline_frames-buffer], axis = 0)
+        baseline_zscore.append({'mean': mean_z_b, 'std': std_z_b})
+
+        # gather raw f baseline
+        mean_f_b = np.nanmean(f_arr[b][buffer+2:number_of_baseline_frames-buffer], axis = 0)
+        std_f_b = np.nanstd(f_arr[b][buffer+2:number_of_baseline_frames-buffer], axis = 0)
+        baseline_f.append({'mean': mean_f_b, 'std': std_f_b})
+
+        # find the global df/f baseline
+        global_df_f = (f_arr[b] - mean_f_b) / mean_f_b
+        mean_b = np.nanmean(global_df_f[buffer+2:number_of_baseline_frames-buffer], axis = 0)
+        std_b = np.nanstd(global_df_f[buffer+2:number_of_baseline_frames-buffer], axis = 0)
+        baseline_global_df_f.append({'mean': mean_b, 'std': std_b})
+    
+    return baseline_f, baseline_zscore, baseline_global_df_f
+
+
 
 # exclusion and analysis functions for the photostimulation data #
 
@@ -404,50 +481,147 @@ def add_significant_trials_to_df(functional_info_df, significant_trials_dict):
 
     return functional_info_df
         
-def gather_evoked_activity_for_select_trials(photostim_responses_per_trial, good_trial_numbers, photostim_response_window = [-4, 7]):
+def gather_evoked_activity_for_select_trials(photostim_responses_per_trial, good_trial_numbers = None, 
+                                              immediate_response_window = 4, photostim_response_window = [-4, 7]):
+    if good_trial_numbers == None:
+        good_trial_numbers = list(range(len(photostim_responses_per_trial)))
+        # print('using all trials')
     avg_evoked_activity_lst = []
     for trial_num, ps_resp in enumerate(photostim_responses_per_trial):
         if trial_num in good_trial_numbers:
-            evoked_activity = ps_resp[-photostim_response_window[0]:]
+            evoked_activity = ps_resp[-photostim_response_window[0]:-photostim_response_window[0] + immediate_response_window]
             avg_evoked_activity_lst.append(np.nanmean(evoked_activity))
         else:
             avg_evoked_activity_lst.append(np.nan)
     return avg_evoked_activity_lst
 
-def filter_photostim_responses_for_good_trials(responses_data, index_dict):
+def plotting_location_of_stim_site_per_trial(stimulated_cell_df, full_volume_stim_sites_df, photostim_fish_volume, save_path = None):
     '''
-    Filter the photostim response dictionary for only good trials 
-    responses_data = dictionary, the photostimulation responses for each cell
-    index_dict = dictionary, the indices of the good trials for each cell
+    Plot the location of the stimulation site (from Bruker) and the closest ROI to the stimulation site for each trial
+    stimulated_cell_df = dataframe, the dataframe of the stimulated cells
+    full_volume_stim_sites_df = dataframe, the full dataframe of the photostimulation stim sites (aka master stim sites df)
+    photostim_fish_volume =  the photostimulation data in fish volume format
+    save_path = str, the path to save the images to, default is None
 
-    returns a dictionary of the filtered responses
     '''
-    filtered_responses = {}
 
-    for key, indices in index_dict.items():
-        value = responses_data.get(key)  # Retrieve value safely
-        
-        # Ensure indices is a valid iterable and filter out NaNs
-        if isinstance(indices, (list, np.ndarray)):
-            indices = [i for i in indices if isinstance(i, int) and not np.isnan(i)]
-        else:
-            continue  # Skip this key if indices are invalid
+    legend_elements = [matplotlib.lines.Line2D([0], [0], color='red', linewidth=2, label='stimulation point'),  # Red line, stimulation site from bruker
+                    matplotlib.patches.Patch(facecolor='green', edgecolor='black', label='targeted cell')]  # Green box, closest ROI to the stimulation site
 
-        # Ensure value is iterable (list, np.ndarray) and not just a single float
-        if isinstance(value, (list, np.ndarray)) and not isinstance(value, (float, int)):
+    for stim_cell_num in range(len(stimulated_cell_df)):
+        try:
+            one_stim_row = stimulated_cell_df.iloc[stim_cell_num]
+            specific_plane_fish = photostim_fish_volume[int(one_stim_row['plane'].split('_')[1])]
+            um_per_pxs = get_micronstopixels_scale(specific_plane_fish.data_paths['info_xml'])
+            sp_size_pxs = np.nanmean(specific_plane_fish.stim_sites_df.sp_size.values) / um_per_pxs # average pixels diameter
+            stim_events_frames = one_stim_row.stim_frames
 
-            filtered_values = []
-            for i in indices:
-                try:
-                    filtered_values.append(value[i])
-                except:
-                    pass
+            # what was programmed into the Bruker (red cross)
+            _stim_cell_id =  [k for k, v in specific_plane_fish.stimmed_cells_matched_stim_ids_dict.items() if v == one_stim_row.stim_neur_id][0]
+            # need to index into the correct row
+            full_volume_stim_sites_df_specific_stim_site = full_volume_stim_sites_df[full_volume_stim_sites_df.cell_ids == _stim_cell_id]
+            original_stim_roi = [full_volume_stim_sites_df_specific_stim_site.x_stim.values[0], full_volume_stim_sites_df_specific_stim_site.y_stim.values[0]]
 
-            # Only store non-empty lists in the final result
-            filtered_responses[key] = filtered_values
+            # closest ROI to the programmed stim site (green circle, full ROI is filled in)
+            stim_full_roi = specific_plane_fish.stats[int(one_stim_row.stim_neur_id)]
 
-    return filtered_responses
+            # collect the full image over the course of the experiment
+            full_img = specific_plane_fish.load_image()
+            baseline_img = np.nanmean(full_img[:20, :, :], axis = 0) # baseline image (collecting the first 20 frames now, hard coded)
 
+            fig, ax = plt.subplots(1, len(stim_events_frames) + 1, figsize = (20, 5))
+            fig.suptitle(one_stim_row.resp_cell_id, y = 0.8)
+            ax[0].imshow(baseline_img, cmap = 'gray', vmax = np.percentile(baseline_img, 99)) 
+            ax[0].scatter(stim_full_roi['xpix'], stim_full_roi['ypix'], color = 'limegreen', linewidth=1, s = 1)
+            ax[0].set_title(f'baseline')
+
+            for n, p in enumerate(stim_events_frames):
+                stim_img = full_img[p:p+10, :,:]
+                stim_img_avg = np.nanmean(stim_img, axis = 0)
+                ax[n+1].imshow(stim_img_avg, cmap = 'gray', vmax = np.percentile(stim_img_avg, 95), vmin = np.percentile(stim_img_avg, 10))
+                ax[n+1].scatter(stim_full_roi['xpix'], stim_full_roi['ypix'], color = 'limegreen', linewidth=1, s = 1)
+                ax[n+1].set_title(f'trial {n}')
+
+            # Create a white cross of the stimulation site from the og coordinates on all plots (from the Bruker, what i programmed in to stimulate)
+            cross_x = original_stim_roi[0]
+            cross_y = original_stim_roi[1]
+            cross_size = int(sp_size_pxs)/2 
+            for a in ax.flatten():
+                a.plot([cross_x - cross_size, cross_x + cross_size], [cross_y, cross_y], 'r', linewidth=2)  # Horizontal
+                a.plot([cross_x, cross_x], [cross_y - cross_size, cross_y + cross_size], 'r', linewidth=2)  # Vertical
+                a.set_xlim(int(original_stim_roi[0] - 30), int(original_stim_roi[0] + 30))
+                a.set_ylim(int(original_stim_roi[1] + 30), int(original_stim_roi[1] - 30))
+            
+            ax[0].legend(handles=legend_elements, loc='upper left', bbox_to_anchor=(0, -0.05))
+            plt.tight_layout()
+            if save_path is not None:
+                plt.savefig(Path(save_path).joinpath(f'{one_stim_row.resp_cell_id}_locations_per_trial.png'), dpi = 300)   
+            plt.show()         
+        except:
+            print(f'could not plot {one_stim_row.resp_cell_id}') # sometimes have a 'nan' matching cell id
+
+    return None        
+
+def compute_overlap_metrics(photostim_info_df, master_stim_sites_df, stim_fish_volume, stim_cell_id = 'stim_0'):
+    '''
+    FOR ONE STIM SITE
+    Computing the overlap metrics between the cell source and the stimulation site. 
+    The function computes the overlap ratio, coverage of the cell source, and coverage of the stimulation site, with ordered list of the stim cells
+    :param photostim_info_df: DataFrame containing the information of the photostimulated cells, the functional data df of only photostimulated cells
+    :param master_stim_sites_df: DataFrame containing the information of the stimulation sites, find in the data folder
+    :param stim_fish_volume: VolumeFish object containing the fish volume data
+    :param stim_cell_id: str, the id of the stimulated cell in the functional data df, default is 'stim_0'
+
+    :return: overlap_ratios, coverage_of_cell_lst, coverage_of_stim_site_lst, stim_cell_source_id_lst
+    '''
+
+    um_to_px = get_micronstopixels_scale(stim_fish_volume[0].data_paths['info_xml'])
+
+    cell_course_info = photostim_info_df[photostim_info_df.resp_cell_id == stim_cell_id]
+    cell_source_plane = cell_course_info.plane
+    cell_source_stim_neur_id = int(cell_course_info.stim_neur_id)
+    cell_source_stim_events = cell_course_info.stim_events
+
+    # grab the matching row/stimmed cell in the master stim sites df based on a different column
+    for i in range(len(master_stim_sites_df)): 
+        if cell_source_stim_events[0] == master_stim_sites_df.iloc[i].stim_events[0]:
+            matching_ind = i
+
+    # get the x & y pixels of the stimulation site
+    bruker_stimulation_coord_x = master_stim_sites_df.iloc[matching_ind].x_stim
+    bruker_stimulation_coord_y = master_stim_sites_df.iloc[matching_ind].y_stim
+    spiral_diameter_um = master_stim_sites_df.iloc[matching_ind].sp_size
+    spiral_diameter_px = spiral_diameter_um / um_to_px
+    spiral_diameter_px = int(spiral_diameter_px) # convert spiral size to pixels
+    bruker_stimulation_site_xpix, bruker_stimulation_site_ypix = roiutils.points_within_circle(bruker_stimulation_coord_x, 
+                                                                                    bruker_stimulation_coord_y,
+                                                                                    radius = spiral_diameter_px/2)
+    bruker_circle = [(i, bruker_stimulation_site_ypix[n]) for n, i in enumerate(bruker_stimulation_site_xpix)] # convert into coordinates
+
+    # identify the pixels in the cell source polygon
+    plane_fish = stim_fish_volume.volumes[cell_source_plane]
+    cell_source_xpix = plane_fish.stats[cell_source_stim_neur_id]['xpix']
+    cell_source_ypix = plane_fish.stats[cell_source_stim_neur_id]['ypix']
+    cell_source_polygon = [(i, cell_source_ypix[n]) for n, i in enumerate(cell_source_xpix)] 
+
+    # find the overlap ratio between the two polygons, based on pixels
+    overlap_size, overlap_ratio = coordutils.get_overlap_between_neurons(cell_source_xpix, cell_source_ypix, 
+                                                                        bruker_stimulation_site_xpix, bruker_stimulation_site_ypix)
+
+    # compute the coverage of the cell source and the stimulation site
+    percent_of_cell, percent_of_stim_site = roiutils.compute_coverage(bruker_circle, cell_source_polygon)
+
+    return overlap_ratio, percent_of_cell, percent_of_stim_site
+
+# def compute_off_target_activation_in_xy()
+# FOR ONLY ONE STIM SITE
+
+# def compute_off_target_activation_in_z()
+
+# def process_self_success_info()
+# make the plots for all the information in the self success info
+# save a dataframe with the info as well
+# make a folder for the stimulated cell in a specific location that contains all these plots and dataframe?
 
 
 # plotting functions for visualizing the photostimulation data (developed Winter 2025) #
@@ -473,7 +647,7 @@ def prepare_data_for_plotting(data_df, fishvolume, dataset_type = 'stim'):
     return f_trace_array, normf_trace_array, zscored_trace_array
 
 def plotting_pairs_heatmap_and_traces(stimulated_traces, responder_traces, window_frames, img_hz, 
-                                      optional_figsuptitle = None, vmin = -3, vmax = 3, 
+                                      optional_figsuptitle = None, ylims = None, vmin = -3, vmax = 3, 
                                       savepath = None, sorted_trials = True):
     '''
     Plotting the trace and heatmap of every trial for pairs of stimulated and responder cells
@@ -499,8 +673,12 @@ def plotting_pairs_heatmap_and_traces(stimulated_traces, responder_traces, windo
         ylabel = 'sorted stimulation trials'
     else:
         ylabel = 'stimulation trials'
-    ymax = np.nanmax([np.nanmax(stimulated_traces), np.nanmax(responder_traces)])
-    ymin = np.nanmin([np.nanmin(stimulated_traces), np.nanmin(responder_traces)])
+    if ylims is None:
+        ymax = np.nanmax([np.nanmax(stimulated_traces), np.nanmax(responder_traces)])
+        ymin = np.nanmin([np.nanmin(stimulated_traces), np.nanmin(responder_traces)])
+    else:
+        ymax = ylims[1]
+        ymin = ylims[0]
 
     for n, df_f_traces in enumerate([stimulated_traces, responder_traces]):
         if n == 0:
@@ -508,7 +686,7 @@ def plotting_pairs_heatmap_and_traces(stimulated_traces, responder_traces, windo
         else:
             name = 'responder'
         [ax[0,n].plot(np.arange(len(m)), arrutils.pretty(m), color = 'grey', alpha = 0.3) for m in df_f_traces]
-        ax[0,n].plot(np.arange(len(df_f_traces[0])), arrutils.pretty(np.nanmedian(df_f_traces, axis = 0)), color = 'k')
+        ax[0,n].plot(np.arange(len(df_f_traces[0])), arrutils.pretty(np.nanmean(df_f_traces, axis = 0)), color = 'k')
         ci_lower, ci_upper = statutils.calculate_ci(df_f_traces)
         ax[0,n].fill_between(np.arange(len(df_f_traces[0])), ci_lower, ci_upper, color='skyblue', alpha=0.4, label='95% CI') 
         ax[0,n].set_ylabel('df/f')
@@ -516,6 +694,8 @@ def plotting_pairs_heatmap_and_traces(stimulated_traces, responder_traces, windo
         ax[0,n].axhline(0, color = 'grey', linestyle = '--')
         ax[0,n].set_title(name)
         ax[0,n].set_ylim(ymin, ymax)
+        ax[0,n].spines['top'].set_visible(False)
+        ax[0,n].spines['right'].set_visible(False)
 
         sns.heatmap(df_f_traces, ax = ax[1,n], yticklabels=sorted_trial_numbers, cmap = 'coolwarm', cbar_kws={'label': 'df/f'}, vmin=vmin, vmax=vmax)
         ax[1,n].axvline(x = window_frames[0], color = 'black')
@@ -619,8 +799,10 @@ def plotting_time_series_of_responders(raw_fluor_responding_traces, array_stimul
 
     return ax    
 
-def plotting_vizmotion_and_photostimulation_responses(vizmotion_photostim_info_df, lst_motion_cues = None, lst_motion_cues_colors = None, img_hz = 1,
-                                                      vizmotion_stim_offset = 9, photostim_window_frames = [-4, 7], photostim_ylim = [-0.5, 1.2], photostim_stim_offset = 0, 
+def plotting_vizmotion_and_photostimulation_responses(vizmotion_photostim_info_df, lst_motion_cues = None, lst_motion_cues_colors = None,
+                                                      type = None, img_hz = 1,
+                                                      vizmotion_stim_offset = 9, photostim_window_frames = [-4, 7], number_stim_response_panels = None,
+                                                      photostim_ylim = [-0.5, 1.2], photostim_stim_offset = 0, 
                                                       filtered_stim_trials = None, save = False, save_location = None):
     '''
     Plot responses to all the visual motion cues and photostimulated neurons for neurons in the dataframe
@@ -654,10 +836,17 @@ def plotting_vizmotion_and_photostimulation_responses(vizmotion_photostim_info_d
                        'teal', 'tab:orange']
 
     frames_motion_on = 10 * img_hz
+    if number_stim_response_panels is None:
+        panel_num = 6 + len(vizmotion_photostim_info_df.avg_evoked_df_f.values[0])
+    else:
+        panel_num = 6 + number_stim_response_panels
 
     for i in range(len(vizmotion_photostim_info_df)):
         vizmotion_responses = vizmotion_photostim_info_df.motion_responses.iloc[i]
-        photostim_responses = vizmotion_photostim_info_df.stim_responses.iloc[i]
+        if type is None:
+            photostim_responses = vizmotion_photostim_info_df.stim_responses.iloc[i]
+        elif type == 'global_df_f':
+            photostim_responses = vizmotion_photostim_info_df.stim_responses_global_df_f.iloc[i]
         omr_cell_id = vizmotion_photostim_info_df.omr_neur_id.iloc[i]
         plane_id = vizmotion_photostim_info_df.plane.iloc[i]
         viz_barcode = vizmotion_photostim_info_df.visual_barcode.iloc[i]
@@ -669,9 +858,8 @@ def plotting_vizmotion_and_photostimulation_responses(vizmotion_photostim_info_d
         else:
             val = resp_cell_id_name.split('_')[1]
             title = 'Stimulated #' + val
-
-        panels = 6 + len(vizmotion_photostim_info_df.avg_evoked_df_f.values[0])
-        fig, ax = plt.subplots(1, panels, figsize = (20, 1))
+        
+        fig, ax = plt.subplots(1, panel_num, figsize = (20, 1))
 
         [a.axvspan(vizmotion_stim_offset, frames_motion_on + vizmotion_stim_offset, color = 'grey', alpha = 0.05) for a in ax[:6].flatten()]
 
@@ -706,24 +894,23 @@ def plotting_vizmotion_and_photostimulation_responses(vizmotion_photostim_info_d
             vizstim_y_max.append(np.nanmax(vizmotion_responses['mean'][vizstim_cue]))
             vizstim_y_min.append(np.nanmin(vizmotion_responses['mean'][vizstim_cue]))
 
+        plot_ind = 6
         for stim_cell_id, response_to_stim in photostim_responses.items():
             if isinstance(response_to_stim, (list, np.ndarray)) and not isinstance(response_to_stim[0], (float, int)):
-                
                 # some random filtering for best use due to data types and shapes 
                 if np.array(response_to_stim).shape[1] == np.diff(photostim_window_frames)[0]:
                     response_to_stim = response_to_stim
                 else:      
                     response_to_stim = response_to_stim[0]
-                try:
-                    plot_ind = int(stim_cell_id.split('m')[1]) + 6
-                except:
-                    plot_ind = int(stim_cell_id.split('_')[1]) + 6
 
                 if filtered_stim_trials is not None: # filter the tirals for more accurate response profiles
-                    good_trial_for_stim_cell = filtered_stim_trials[stim_cell_id]
-                    if not isinstance(good_trial_for_stim_cell, (float, int)):
-                        response_to_stim = [m for n, m in enumerate(response_to_stim) if n in good_trial_for_stim_cell]
-                    else:
+                    try:
+                        good_trial_for_stim_cell = filtered_stim_trials[stim_cell_id]
+                        if not isinstance(good_trial_for_stim_cell, (float, int)):
+                            response_to_stim = [m for n, m in enumerate(response_to_stim) if n in good_trial_for_stim_cell]
+                        else:
+                            response_to_stim = np.nan
+                    except:
                         response_to_stim = np.nan
 
                 if not isinstance(response_to_stim, (float, int)): # make sure that this is not nan's
@@ -736,6 +923,7 @@ def plotting_vizmotion_and_photostimulation_responses(vizmotion_photostim_info_d
                     ax[plot_ind].set_title(stim_cell_id, rotation = 30, fontsize = 10)
                     ax[plot_ind].set_ylim(photostim_ylim[0], photostim_ylim[1])
                     ax[plot_ind].set_xlim(0, len(response_to_stim[0])-1)
+                    plot_ind += 1
 
         ax[0].set_ylabel('dF/F')
         [a.set_xlabel('time (s)') for a in ax.flatten()]
@@ -765,13 +953,15 @@ def plotting_vizmotion_and_photostimulation_responses(vizmotion_photostim_info_d
         if save:
             save_name = resp_cell_id_name +'_vizmotion_photostim_responses.png'
             plt.savefig(save_location.joinpath(save_name), dpi = 300, bbox_inches = 'tight')
+            save_name = resp_cell_id_name +'_vizmotion_photostim_responses.svg'
+            plt.savefig(save_location.joinpath(save_name), dpi = 300, bbox_inches = 'tight')
         
         plt.show()
     
     return print('done')
 
 def plotting_correlation_maps_avg_photostim_evoked_resp(vizmotion_photostim_info_df, omr_fish_volume, color_map = None, limits = [-0.3, 0.3], 
-                                                        stimulation_cell_color = 'limegreen', save = False, save_location = None):
+                                                        stimulation_cell_color = 'limegreen', title = None, save = False, save_location = None):
     '''
     Plotting the average evoked activity to all photostimulated cells in the volume
     vizmotion_photostim_info_df - the dataframe with the photostimulation responses (average evoked activity), responder/stimulated cell ids, neuron coordinates
@@ -786,10 +976,11 @@ def plotting_correlation_maps_avg_photostim_evoked_resp(vizmotion_photostim_info
     if color_map is None:
         color_map = plotutils.build_cmap_blue_to_red()
 
-    fig, ax = plt.subplots(1, 6, figsize = (20, 20))
+    fig, ax = plt.subplots(1, len(omr_fish_volume.volumes.keys()), figsize = (20, 20))
     fig2, ax2 = plt.subplots(1, figsize = (12, 12))
     for p, plane in enumerate(omr_fish_volume.volumes.keys()):
-        one_plane_responder_df = vizmotion_photostim_info_df[(vizmotion_photostim_info_df.plane == plane) & (vizmotion_photostim_info_df.resp_cell_id.str.contains('resp'))]
+        one_plane_responder_df = vizmotion_photostim_info_df[(vizmotion_photostim_info_df.plane == plane) & 
+                                                             (vizmotion_photostim_info_df.resp_cell_id.str.contains('resp'))]
         one_plane_responder_df = one_plane_responder_df.iloc[one_plane_responder_df['avg_evoked_df_f'].apply(lambda x: abs(np.nanmean(x))).argsort()]
         one_plane_stimulated_df = vizmotion_photostim_info_df[(vizmotion_photostim_info_df.plane == plane) & (vizmotion_photostim_info_df.resp_cell_id.str.contains('stim'))]
         one_fish = omr_fish_volume[p]
@@ -802,11 +993,11 @@ def plotting_correlation_maps_avg_photostim_evoked_resp(vizmotion_photostim_info
         resp_colors = plotutils.clip_and_map_colors(resp_vals, vmin= limits[0], vmax= limits[1], cmap_name=color_map)
         for k in range(len(one_plane_responder_df)):
             ax[p].scatter(one_plane_responder_df.neur_coords.values[k][0], one_plane_responder_df.neur_coords.values[k][1], s = 10, 
-                        facecolors = resp_colors[k], edgecolors = 'white', linewidth = 0.4, zorder=2)
+                        color = resp_colors[k], zorder=2)
         if len(one_plane_stimulated_df) > 0:
             for l in range(len(one_plane_stimulated_df)):
                 ax[p].scatter(one_plane_stimulated_df.neur_coords.values[l][0], one_plane_stimulated_df.neur_coords.values[l][1], s = 10, 
-                            facecolors = stimulation_cell_color, edgecolors = 'white', linewidth = 0.4, zorder=3)
+                            color = stimulation_cell_color, zorder=3)
         ax[p].set_title(f'{plane}')
 
     volume_responder_df = vizmotion_photostim_info_df[(vizmotion_photostim_info_df.resp_cell_id.str.contains('resp'))]
@@ -814,15 +1005,19 @@ def plotting_correlation_maps_avg_photostim_evoked_resp(vizmotion_photostim_info
     volume_resp_vals = [np.nanmean(v) for v in volume_responder_df.avg_evoked_df_f.values]
     volume_resp_colors = plotutils.clip_and_map_colors(volume_resp_vals, vmin=limits[0], vmax=limits[1], cmap_name=color_map)
     for c, coord in enumerate(volume_responder_df.neur_coords.values):
-        ax2.scatter(coord[0], coord[1], s = 90, facecolors = volume_resp_colors[c], edgecolors = 'gray', linewidth = 0.4, zorder=2)
+        ax2.scatter(coord[0], coord[1], s = 90, color = volume_resp_colors[c], zorder=2)
             
     volume_stimulated_df = vizmotion_photostim_info_df[(vizmotion_photostim_info_df.resp_cell_id.str.contains('stim'))]
     for coord in volume_stimulated_df.neur_coords.values:
-        ax2.scatter(coord[0], coord[1], s = 90, facecolors = stimulation_cell_color, edgecolors = 'black', linewidth = 0.4, zorder=3)
+        ax2.scatter(coord[0], coord[1], s = 90, color = stimulation_cell_color, zorder=3)
         
     [a.axis('off') for a in ax.flatten()]
     ax2.axis('off')
-    ax2.set_title('volume')
+    if title is None:
+        title = 'volume'
+    else:
+        title = title
+    ax2.set_title(title)
     
     if save:
         fig.savefig(save_location.joinpath('correlation_maps_avg_photostim_evoked_resp_individual_planes.png'), dpi = 300, bbox_inches = 'tight')
@@ -832,73 +1027,6 @@ def plotting_correlation_maps_avg_photostim_evoked_resp(vizmotion_photostim_info
     fig2.show()
 
     return print('done')
-
-def plotting_location_of_stim_site_per_trial(stimulated_cell_df, full_volume_stim_sites_df, photostim_fish_volume, save_path = None):
-    '''
-    Plot the location of the stimulation site (from Bruker) and the closest ROI to the stimulation site for each trial
-    stimulated_cell_df = dataframe, the dataframe of the stimulated cells
-    full_volume_stim_sites_df = dataframe, the full dataframe of the photostimulation stim sites (aka master stim sites df)
-    photostim_fish_volume =  the photostimulation data in fish volume format
-    save_path = str, the path to save the images to, default is None
-
-    '''
-
-    legend_elements = [matplotlib.lines.Line2D([0], [0], color='red', linewidth=2, label='stimulation point'),  # Red line, stimulation site from bruker
-                    matplotlib.patches.Patch(facecolor='green', edgecolor='black', label='targeted cell')]  # Green box, closest ROI to the stimulation site
-
-    for stim_cell_num in range(len(stimulated_cell_df)):
-        try:
-            one_stim_row = stimulated_cell_df.iloc[stim_cell_num]
-            specific_plane_fish = photostim_fish_volume[int(one_stim_row['plane'].split('_')[1])]
-            um_per_pxs = get_micronstopixels_scale(specific_plane_fish.data_paths['info_xml'])
-            sp_size_pxs = np.nanmean(specific_plane_fish.stim_sites_df.sp_size.values) / um_per_pxs # average pixels diameter
-            stim_events_frames = one_stim_row.stim_frames
-
-            # what was programmed into the Bruker (red cross)
-            _stim_cell_id =  [k for k, v in specific_plane_fish.stimmed_cells_matched_stim_ids_dict.items() if v == one_stim_row.stim_neur_id][0]
-            # need to index into the correct row
-            full_volume_stim_sites_df_specific_stim_site = full_volume_stim_sites_df[full_volume_stim_sites_df.cell_ids == _stim_cell_id]
-            original_stim_roi = [full_volume_stim_sites_df_specific_stim_site.x_stim.values[0], full_volume_stim_sites_df_specific_stim_site.y_stim.values[0]]
-
-            # closest ROI to the programmed stim site (green circle, full ROI is filled in)
-            stim_full_roi = specific_plane_fish.stats[int(one_stim_row.stim_neur_id)]
-
-            # collect the full image over the course of the experiment
-            full_img = specific_plane_fish.load_image()
-            baseline_img = np.nanmean(full_img[:20, :, :], axis = 0) # baseline image (collecting the first 20 frames now, hard coded)
-
-            fig, ax = plt.subplots(1, len(stim_events_frames) + 1, figsize = (20, 5))
-            fig.suptitle(one_stim_row.resp_cell_id, y = 0.8)
-            ax[0].imshow(baseline_img, cmap = 'gray', vmax = np.percentile(baseline_img, 99)) 
-            ax[0].scatter(stim_full_roi['xpix'], stim_full_roi['ypix'], color = 'limegreen', linewidth=1, s = 1)
-            ax[0].set_title(f'baseline')
-
-            for n, p in enumerate(stim_events_frames):
-                stim_img = full_img[p:p+10, :,:]
-                stim_img_avg = np.nanmean(stim_img, axis = 0)
-                ax[n+1].imshow(stim_img_avg, cmap = 'gray', vmax = np.percentile(stim_img_avg, 95), vmin = np.percentile(stim_img_avg, 10))
-                ax[n+1].scatter(stim_full_roi['xpix'], stim_full_roi['ypix'], color = 'limegreen', linewidth=1, s = 1)
-                ax[n+1].set_title(f'trial {n}')
-
-            # Create a white cross of the stimulation site from the og coordinates on all plots (from the Bruker, what i programmed in to stimulate)
-            cross_x = original_stim_roi[0]
-            cross_y = original_stim_roi[1]
-            cross_size = int(sp_size_pxs)/2 
-            for a in ax.flatten():
-                a.plot([cross_x - cross_size, cross_x + cross_size], [cross_y, cross_y], 'r--', linewidth=2)  # Horizontal
-                a.plot([cross_x, cross_x], [cross_y - cross_size, cross_y + cross_size], 'r--', linewidth=2)  # Vertical
-                a.set_xlim(int(original_stim_roi[0] - 30), int(original_stim_roi[0] + 30))
-                a.set_ylim(int(original_stim_roi[1] + 30), int(original_stim_roi[1] - 30))
-            
-            ax[0].legend(handles=legend_elements, loc='upper left', bbox_to_anchor=(0, -0.05))
-            plt.tight_layout()
-            if save_path is not None:
-                plt.savefig(Path(save_path).joinpath(f'{one_stim_row.resp_cell_id}_locations_per_trial.png'), dpi = 300)   
-            plt.show()         
-        except:
-            print(f'could not plot {one_stim_row.resp_cell_id}') # sometimes have a 'nan' matching cell id
-
-    return None        
 
 
 
