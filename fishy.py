@@ -122,11 +122,15 @@ class BaseFish:
                 elif 'stim_sites' in entry.name:
                     self.data_paths["stim_sites"] = Path(entry.path)
 
+        # moving over the original image to a separate folder
         if "image" in self.data_paths and "move_corrected_image" in self.data_paths:
-            if (
-                self.data_paths["image"].parents[0]
-                == self.data_paths["move_corrected_image"].parents[0]
-            ):
+            if (self.data_paths["image"].parents[0] == self.data_paths["move_corrected_image"].parents[0]):
+                try:
+                    pathutils.move_og_image(self.data_paths["image"])
+                except:
+                    print("failed to move original image out of folder")
+        elif "image" in self.data_paths and "rotated_image" in self.data_paths:
+            if (self.data_paths["image"].parents[0] == self.data_paths["rotated_image"].parents[0]):
                 try:
                     pathutils.move_og_image(self.data_paths["image"])
                 except:
@@ -164,7 +168,8 @@ class BaseFish:
 
     def load_caiman(self, caiman_type):
         # make a ops['refImg'] to be used later, like with suite2p data
-        mean_img = np.nanmean(self.load_image(), axis = 0)
+        img = self.load_image()[:500]
+        mean_img = np.nanmean(img, axis = 0)
         self.ops = {'refImg': mean_img}
 
         self.iscell = np.load(
@@ -185,6 +190,7 @@ class BaseFish:
 
     def is_cell(self):
         """
+        This is from the DC OMR paper
         1 - Clean up the self.f_cells and self.df_f_cells according to self.iscell 
         2 - clean up cells that didn't change fluorscence throughout the trial at all
         3 - remove cells with any nan location values
@@ -194,8 +200,9 @@ class BaseFish:
         iscell_index = np.where(self.iscell) 
 
         # 2 - cell is changing
-        ischanging_index = np.where(np.amax(self.f_cells, 1) != np.amin(self.f_cells, 1)) 
-        iscell_index = np.intersect1d(iscell_index, ischanging_index)
+        # ischanging_index = np.where(np.amax(self.f_cells, 1) != np.amin(self.f_cells, 1))
+        # iscell_index = np.intersect1d(iscell_index, ischanging_index)
+        iscell_index = iscell_index[0]
 
         # 3 - remove cells with a nan location
         notcell_index = []
@@ -207,13 +214,14 @@ class BaseFish:
 
         self.f_cells = self.f_cells[iscell_index]
         self.stats = self.stats[iscell_index]
-        self.df_f_cells = self.df_f_cells[iscell_index]
+        if hasattr(self, 'df_f_cells'):
+            self.df_f_cells = self.df_f_cells[iscell_index]
 
         if 'caiman' in self.data_paths.keys():
             # 4 - with caiman data, make sure that these cells are within the brain region
             try:
                 iscell_inbrain_index = np.array(self.return_cells_by_saved_roi('brain')) # if there is a good brain ROI
-            except ValueError:
+            except KeyError:
                 self.draw_roi('brain', overwrite=True) # in case you need to get the brain ROI again
                 iscell_inbrain_index = np.array(self.return_cells_by_saved_roi('brain'))
             iscell_index_2 = np.intersect1d(np.array(iscell_index), iscell_inbrain_index)
@@ -230,8 +238,8 @@ class BaseFish:
         for cell in cells:
             ypix = self.stats[cell]["ypix"]
             xpix = self.stats[cell]["xpix"]
-            mean_y = int(np.mean(ypix))
-            mean_x = int(np.mean(xpix))
+            mean_y = int(np.nanmean(ypix))
+            mean_x = int(np.nanmean(xpix))
             rois.append([mean_x, mean_y])
         return rois
     
@@ -239,8 +247,8 @@ class BaseFish:
         single_cell = int(single_cell)
         ypix = self.stats[single_cell]["ypix"]
         xpix = self.stats[single_cell]["xpix"]
-        mean_y = int(np.mean(ypix))
-        mean_x = int(np.mean(xpix))
+        mean_y = int(np.nanmean(ypix))
+        mean_x = int(np.nanmean(xpix))
         roi = ([mean_x, mean_y])
         
         return roi
@@ -366,6 +374,7 @@ class BaseFish:
         return x_midline
 
     def load_image(self):
+        print('loading image')
         if "move_corrected_image" in self.data_paths.keys():
             image = imread(self.data_paths["move_corrected_image"])
         elif "rotated_image" in self.data_paths.keys():
@@ -746,7 +755,6 @@ class VizStimFish(BaseFish):
 class PhotostimFish(BaseFish):
     def __init__(
         self,
-        photostim_window = [-3, 8],
         rotate = True, 
         stim_type_keyword = 'single_cell',
         stimmed_plane = True,
@@ -759,14 +767,9 @@ class PhotostimFish(BaseFish):
         :param stimmed_plane: is this plane stimulated (true or false), helpful when running through multiple planes in a volume
         '''
         super().__init__(*args, **kwargs)
+        self.add_parameter_df() # adding the stim parameters df if it exists
 
         # 0 - prep the cell traces
-        if not hasattr(self, "f_cells"):
-            if 'suite_2p' in self.data_paths.keys():
-                self.load_suite2p()
-            if 'caiman' in self.data_paths.keys():
-                self.load_caiman()
-                # self.is_cell()
         self.normcells = arrutils.norm_fdff(self.f_cells)
         self.zdiff_cells = [arrutils.zdiffcell(z) for z in self.f_cells]
 
@@ -787,39 +790,30 @@ class PhotostimFish(BaseFish):
         # 2 - gather and make the stim sites dataframe for different outputs #
         if ('stim_sites' not in self.data_paths.keys()) & (stimmed_plane == True): # need to create a stim sites df from scratch (works with MP files, voltage recording)
             self.ps_event_duration, _ = photostimulation.collect_stimulation_times(self)
-            try:
-                self.ps_event_start = arrutils.filter_list(lst = np.unique(self.badframes_arr), interval = self.ps_event_duration_frames)
-            except:
-                self.ps_event_start = self.badframes_arr
+            self.ps_event_duration_frames = int(np.ceil(self.ps_event_duration/1000 * self.img_hz))
+            self.ps_event_start = arrutils.filter_list(lst = np.unique(self.badframes_arr), interval = self.ps_event_duration_frames)
             self.stim_sites_df = photostimulation.identify_stim_sites(self, rotate, stimulation_type = stim_type_keyword)
-
-        elif ('stim_sites' in self.data_paths.keys()) & (stimmed_plane == True): # need to upload current stim sites df (works with new automated output, normal outputs)
+        if ('stim_sites' in self.data_paths.keys()) & (stimmed_plane == True): # need to upload current stim sites df (works with new automated output, normal outputs)
             self.stim_sites_df = pd.read_hdf(self.data_paths['stim_sites'])
             if 'stim_duration_ms' in self.stim_sites_df.columns: # if special output type
                 self.ps_event_duration = self.stim_sites_df.stim_duration_ms.iloc[0] # assuming all the same
                 self.ps_event_start = self.stim_sites_df.stim_frames.values # already put these into the dataframe
                 if 'x_stim' not in self.stim_sites_df.columns:
                     self.stim_sites_df = self.stim_sites_df.rename(columns={'x': 'x_stim', 'y': 'y_stim'})
-            else: 
-                self.ps_event_duration, _ = photostimulation.collect_stimulation_times(self)
-                try:
-                    self.ps_event_start = arrutils.filter_list(lst = np.unique(self.badframes_arr), interval = self.ps_event_duration_frames)
-                except:
-                    self.ps_event_start = self.badframes_arr
-                self.stim_sites_df = photostimulation.identify_stim_sites(self, rotate, stimulation_type = stim_type_keyword)
+        # can be done for all planes
+        self.ps_event_duration, _ = photostimulation.collect_stimulation_times(self)
+        self.ps_event_duration_frames = int(np.ceil(self.ps_event_duration/1000 * self.img_hz))
+        self.ps_event_start = arrutils.filter_list(lst = np.unique(self.badframes_arr), interval = self.ps_event_duration_frames)
 
-        else: # if there is not a stimulation happening on this plane at all
-            pass
-
-        if 'caiman' in self.data_paths.keys(): # not working for the automated gui yet
-            photostimulation.create_new_ps_events_array(self) # making a new ps_events start array since trimmed frames from caiman processing
-            self.ps_event_start = np.load(Path(self.folder_path).joinpath('ps_frames.npy'))
-            self.ps_event_duration = 100 # arbitrary setting duration to 100 ms
-            self.ps_event_duration_frames = 1 # thus frames is 1
+        # if 'caiman' in self.data_paths.keys(): # not working for the automated gui yet
+        #     photostimulation.create_new_ps_events_array(self) # making a new ps_events start array since trimmed frames from caiman processing
+        #     self.ps_event_start = np.load(Path(self.folder_path).joinpath('ps_frames.npy'))
+        #     self.ps_event_duration = 100 # arbitrary setting duration to 100 ms
+        #     self.ps_event_duration_frames = 1 # thus frames is 1
         
         if stimmed_plane:
             # 3 - id the stim sites and save the raw traces #
-            self.ps_event_duration_frames = round(self.ps_event_duration/1000 * self.img_hz)
+            self.ps_event_duration_frames = int(np.ceil(self.ps_event_duration/1000 * self.img_hz))
             self.raw_traces, self.points = photostimulation.collect_raw_traces(self)
 
             # 4 - id the stimulated cells based on distance #
@@ -827,6 +821,13 @@ class PhotostimFish(BaseFish):
 
             # 5 - build the photostim correlation dataframe #
             # self.build_ps_corrdf(frames_pre_post = photostim_window)
+
+    def add_parameter_df(self):
+        stim_parameters_csv_path = self.folder_path.parents[1].joinpath('stim_parameters.csv')
+        if stim_parameters_csv_path.exists():
+            self.stim_params_df = pd.read_csv(stim_parameters_csv_path)
+        else:
+            pass
 
     def identify_stim_cells(self, overlap = False):
         '''
@@ -1179,7 +1180,7 @@ class WorkingFish(VizStimFish):
         self.stim_order = stim_order # order to stimuli for average trace plots
         if self.stim_order is None:
             self.stim_order = self.stimulus_df.stim_name.unique()
-        self.neuron_each_stim_rep_arrays(stim_order)
+        # self.neuron_each_stim_rep_arrays(stim_order)
         self.stim_start_frames = stimuli.stimulus_start_frames_for_plots(frames_motion_on = int(self.img_hz*seconds_motion_is_on), # 5 sec motion is on 
                                                                          length_of_total_frame_arr = np.diff(self.offsets)[0], 
                                                                          number_of_stims_in_set = len(self.stim_order))
@@ -1861,7 +1862,8 @@ class WorkingFish(VizStimFish):
         
         return self.corrdf, self.booldf, self.motion_responsive_neurons
 
-    def run_barcoding(self, stim_order, choice_barcode_dict, n_reps = 4, sec_motion_on = 8, response_threshold = 1.8, response_type = 'median'):
+    def run_barcoding(self, stim_order, choice_barcode_dict, n_reps = 4, sec_motion_on = 8, response_threshold = 1.8,
+                      baseline_frames = 4, response_type = 'median', trace_type = 'norm'):
         '''
         Running barcoding functions on this same VizStimFish object, so not needed to run in notebook separately
         '''
@@ -1878,7 +1880,9 @@ class WorkingFish(VizStimFish):
                                                                                             stim_order = stim_order,
                                                                                             length_of_total_frame_arr = np.diff(self.offsets)[0],
                                                                                             std_thresh = response_threshold,
-                                                                                            response_type = response_type)
+                                                                                            baseline_len = baseline_frames,
+                                                                                            response_type = response_type,
+                                                                                            trace_type = trace_type)
         
         forward_resp_cell_lst, backward_resp_cell_lst = barcoding.find_forward_responders(self, frames_motion_on = int(self.img_hz*sec_motion_on), 
                                                                                       std_thresh = response_threshold, n_reps = n_reps, evoked_resp_type = response_type)

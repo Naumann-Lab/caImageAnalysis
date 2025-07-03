@@ -1,5 +1,5 @@
 import os
-
+import shutil
 import numpy as np
 
 
@@ -187,7 +187,7 @@ def run_suite2p_normal(imagepath, imageHz, input_tau=1.5, custom_parameter_dict=
 
     output_ops = run_s2p(ops=ops, db=db)
 
-def run_caiman_cnmf(base_fish, custom_parameter_dict = None, match_suite2p = True, keep_mmaps = False):
+def run_caiman_cnmf(base_fish, custom_parameter_dict = None, match_suite2p = True, keep_mmaps = False, force = True):
     '''
     base_fish: some BaseFish class that needs to be processed
     custom_parameter_dict: dictionary with custom parameters for caiman source extraction 
@@ -196,16 +196,22 @@ def run_caiman_cnmf(base_fish, custom_parameter_dict = None, match_suite2p = Tru
     '''
     from pathlib import Path
     import caiman as cm
+    import math
     from caiman.source_extraction.cnmf import cnmf, params
     from caiman.utils.visualization import get_contours
-    
-    if Path(base_fish.folder_path).joinpath("caiman/cnmf_results.hdf5").exists():
-        print('cnmf processed')
-    
+
+    caiman_folder = Path(base_fish.folder_path).joinpath("caiman")
+    if force and caiman_folder.exists():
+        print('deleting old caiman output')
+        shutil.rmtree(caiman_folder)
+
     if 'move_corrected_image' not in base_fish.data_paths.keys():
-        movie_path = base_fish.data_paths['image']
-    else:
+        movie_path = base_fish.data_paths['rotated_image']
+    elif 'move_corrected_image' in base_fish.data_paths.keys():
         movie_path = base_fish.data_paths['move_corrected_image']
+    else:
+        movie_path = base_fish.data_paths['image']
+        
     movie_orig = cm.load(movie_path)
     framerate = base_fish.hzReturner(base_fish.frametimes_df)
 
@@ -279,17 +285,26 @@ def run_caiman_cnmf(base_fish, custom_parameter_dict = None, match_suite2p = Tru
     print('saved cnmf results')
 
     # saving calcium traces
-    np.save( Path(moveto_folder).joinpath('raw.npy'), cnmf_refit.estimates.C + cnmf_refit.estimates.YrA) # raw traces
-    np.save( Path(moveto_folder).joinpath('C.npy'), cnmf_refit.estimates.C) # denoised calcium 
-    np.save( Path(moveto_folder).joinpath('F_dff.npy'),cnmf_refit.estimates.F_dff) # df/f traces
-    np.save( Path(moveto_folder).joinpath('baseline.npy'),cnmf_refit.estimates.bl) # baseline
+    np.save(Path(moveto_folder).joinpath('raw.npy'), cnmf_refit.estimates.C + cnmf_refit.estimates.YrA) # raw traces
+    np.save(Path(moveto_folder).joinpath('C.npy'), cnmf_refit.estimates.C) # denoised calcium
+    np.save(Path(moveto_folder).joinpath('F_dff.npy'),cnmf_refit.estimates.F_dff) # df/f traces
+    np.save(Path(moveto_folder).joinpath('baseline.npy'),cnmf_refit.estimates.bl) # baseline
     
     # grabbing coordinates and centers
     centers = cm.base.rois.com(cnmf_refit.estimates.A, *cnmf_refit.estimates.Cn.shape)
     correct_centers = centers[:, ::-1] #need to invert x and y positions in the CoM array
     coors = get_contours(cnmf_refit.estimates.A, correlation_image_orig.shape)
-    coordinates_arr = np.array([coors[i]['coordinates'] for i in range(len(coors))])
-    
+    og_coordinates_arr = np.array([coors[i]['coordinates'] for i in range(len(coors))])
+    # remove any nan's in the coordinate list
+    filtered_coordinates = []
+    for coord_lst in og_coordinates_arr:
+        new_coord_lst = []
+        for coord in coord_lst:
+            if not (math.isnan(coord[0]) or math.isnan(coord[1])):
+                new_coord_lst.append([coord[0], coord[1]])
+        filtered_coordinates.append(np.array(new_coord_lst))
+    coordinates_arr = np.array(filtered_coordinates)
+
     #saving accepted cells
     accepted_cells_arr = np.zeros(shape = len(coordinates_arr))
     for i in cnmf_refit.estimates.idx_components:

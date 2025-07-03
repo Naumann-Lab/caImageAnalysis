@@ -28,7 +28,8 @@ def get_stim_on_frames(somefishy, stim_set = barcoding_8stim_order, motion_on_fr
     return stim_frame_dict
 
 def barcode_with_ideal_trace(vizstimfish, barcode_dict = constants.eva_typesL, n_reps = 3, stim_order = barcoding_8stim_order, 
-                             frames_motion_on = 7, length_of_total_frame_arr = None, std_thresh = 1.8, response_type = 'median'):
+                             frames_motion_on = 7, baseline_len = 8, length_of_total_frame_arr = None, std_thresh = 1.8,
+                             response_type = 'median',trace_type = 'norm'):
     '''
     Identifying barcoded neurons with correlations to the 'ideal' trace
     vizstimfish -- a VizStimFish class object
@@ -70,10 +71,18 @@ def barcode_with_ideal_trace(vizstimfish, barcode_dict = constants.eva_typesL, n
             binary_codes_dict[n] = {}
 
         # determining the binary code for this neuron
-        # neuron_binary_code = barcode_binary_score(vizstimfish, neuron_arr, base_length = 4, frames_motion_on = frames_motion_on, 
-        #                             std_thresh = std_thresh, num_responding_trials = int(n_reps*0.8), evoked_resp = response_type)
-        neuron_binary_code = barcode_binary_score_df_f(vizstimfish, neuron_arr, frames_motion_on = frames_motion_on, 
-                                    std_thresh = std_thresh, num_responding_trials = int(n_reps*0.8), evoked_resp = 'mean')
+        # using just normalized values (not df/f)
+        if trace_type == 'norm':
+            neuron_binary_code = barcode_binary_score(vizstimfish, neuron_arr, base_length = baseline_len, frames_motion_on = frames_motion_on,
+                                    std_thresh = std_thresh, num_responding_trials = int(n_reps*0.8), evoked_resp = response_type)
+        elif trace_type == 'df/f':
+            neuron_binary_code = barcode_binary_score_df_f(vizstimfish, neuron_arr, frames_motion_on = frames_motion_on,
+                                        std_thresh = std_thresh, num_responding_trials = int(n_reps*0.8), evoked_resp = response_type)
+        else: # default is norm
+            neuron_binary_code = barcode_binary_score(vizstimfish, neuron_arr, base_length=baseline_len,
+                                                      frames_motion_on=frames_motion_on,
+                                                      std_thresh=std_thresh, num_responding_trials=int(n_reps * 0.8),
+                                                      evoked_resp=response_type)
         binary_codes_dict[n] = neuron_binary_code
         for typ, l in barcode_dict.items():
             bool_val = True
@@ -217,12 +226,12 @@ def check_iMm_location(cell_roi, x_midline, iMm_type):
     Check if the iMm neuron is on the predicted side of the brain based on the cell's location
     '''
     if cell_roi[0] < x_midline: # cell on left hemisphere
-        if iMm_type == 'iMm_L':
+        if 'iMm_L' in iMm_type:
             return True
         else:
             return False
     elif cell_roi[0] > x_midline: # cell on right hemisphere
-        if iMm_type == 'iMm_R':
+        if 'iMm_R' in iMm_type:
             return True
         else:
             return False

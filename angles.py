@@ -54,6 +54,44 @@ def weighted_mean_angle(degs, weights):
     return degrees(phase(sum(_sums) / np.sum(weights)))
 
 
+def is_within_short_arc(angle, start, end):
+    '''
+    Check if an angle is within a short arc defined by start and end angles.
+    '''
+
+    def normalize(deg):
+        return deg % 360
+
+    a = normalize(angle)
+    s = normalize(start)
+    e = normalize(end)
+
+    diff = (e - s) % 360
+
+    if diff == 0:
+        return a == s  # exact point
+    elif diff <= 180:
+        # Clockwise arc from start to end
+        return (a - s) % 360 <= diff
+    else:
+        # Counter-clockwise arc (shorter)
+        return (s - a) % 360 <= (360 - diff)
+
+
+def angle_to_rgba(angle, saturation, alpha):
+    import colorsys
+    #@ChatGPt
+    # Normalize angle to be between 0 and 360 degrees
+    angle =  360 - angle % 360 +90
+    # Convert to HSL
+    h = angle / 360  # Normalize angle to [0, 1] range for colorsys
+    s = saturation # [0, 1]
+    l = 0.5  # Mid lightness
+    # Convert HSL to RGB
+    rgb = colorsys.hls_to_rgb(h, l, s)
+    rgba = (rgb[0], rgb[1], rgb[2], alpha)
+    return rgba
+
 def color_returner(val, theta, threshold=0.5):
 
     if theta < 0:

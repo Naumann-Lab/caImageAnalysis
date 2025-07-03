@@ -177,9 +177,11 @@ def bruker_img_organization(folder_path, testkey = 'Cycle', safe=False, single_p
     moveto_folder = Path(folder_path).joinpath("bruker_images")
     if not os.path.exists(moveto_folder):
         os.mkdir(moveto_folder)
-    
-    move_xml_files(folder_path) # moving xml and env files into output plane folders
 
+    # moving xml and env files into output plane folders
+    move_xml_files(folder_path) 
+
+    # removing all the tif files that were made
     with os.scandir(folder_path) as entries:
         for entry in entries:
             if testkey in entry.name and 'tif' in entry.name:
@@ -190,6 +192,7 @@ def bruker_img_organization(folder_path, testkey = 'Cycle', safe=False, single_p
                     else:
                         os.remove(new_location)
                 shutil.move(entry, new_location)
+                
     return print('done')
 
 def addSecs(tm, secs):
@@ -336,6 +339,7 @@ def get_zstep_vals(info_xml_file, etl = True):
 
     if etl:
         zstep_vals = np.unique(all_etl_steps)
+        zstep_vals = arrutils.filter_list(zstep_vals, 2)
 
     return zstep_vals
 

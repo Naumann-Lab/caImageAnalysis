@@ -6,16 +6,16 @@ from pathlib import Path
 
 
 def create_circular_mask(img_shape, x, y, radius):
-    '''
-    Creating a circular mask given a x, y coordinate point and radius of the spot over a raw pixel image
-    '''
-    h,w = img_shape
+    """
+    img_shape: (height, width)
+    x, y: coordinates in (x, y) format — i.e., (col, row)
+    """
+    h, w = img_shape
     Y, X = np.ogrid[:h, :w]
+    dist_from_center = np.sqrt((X - x) ** 2 + (Y - y) ** 2)
     
-    dist_from_center = np.sqrt((X - x)**2 + (Y-y)**2)
+    return dist_from_center <= radius
 
-    mask = dist_from_center <= radius
-    return mask
 
 def create_polygon_mask(image_shape, polygon_coords):
     """
@@ -97,6 +97,7 @@ def compute_coverage(circle_pixels, polygon_pixels):
     circle_covered_by_polygon = len(overlap) / len(circle_set) * 100
 
     return polygon_covered_by_circle, circle_covered_by_polygon
+
 
 
 # Functions for drawing and saving ROIs outside of the Fish class structure

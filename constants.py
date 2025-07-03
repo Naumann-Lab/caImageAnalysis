@@ -173,11 +173,14 @@ eva_types_all = {
 
 # visual motion cues used for photostimulation experiments, matching colors
 photostim_motion_cues = ['medial_left', 'lateral_left', 'left', 'medial_right', 'lateral_right', 'right', 
-               'converging', 'diverging',  'forward_x',  'backward_x', 'x_forward', 'x_backward', 'forward', 'backward']
+               'converging', 'diverging',  'backward_forward', 'x_forward', 'x_backward', 
+               'forward_backward', 'forward_x', 'backward_x','forward', 'backward']
 
-photostim_motion_cues_colors = ['tab:green', 'tab:purple', 'black', 'tab:green', 'tab:purple', 'black', 'c', 'm', 'grey', 'grey',
-                      'tab:olive', 'tab:olive', 'tab:blue', 'tab:orange']
+photostim_motion_cues_colors = ['tab:green', 'tab:purple', 'black', 'tab:green', 'tab:purple', 'black', 'c', 'm', 
+                                'black', 'teal', 'tab:orange', 'black', 'teal', 'tab:orange', 'tab:blue', 'tab:orange']
 
+shearing_stimuli = ['backward_forward', 'x_forward', 'x_backward', 
+               'forward_backward', 'forward_x', 'backward_x','forward', 'backward']
 
 bouting_stims = [
     "converging",

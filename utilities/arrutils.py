@@ -119,3 +119,28 @@ def filter_list(lst, interval):
         if abs(lst[i-1]-lst[i]) > interval:
             filtered_list.append(lst[i])
     return filtered_list
+
+def sort_array_by_max(arr):
+    """
+    Sorts a raster array based on the maximum value of each element,
+    while maintaining the original indices.
+
+    Args:
+      arr: A NumPy array (raster).
+
+    Returns:
+      A tuple containing:
+        - The sorted array.
+        - The indices that would sort the array.
+    """
+    
+    # Calculate the maximum value for each element, handling NaNs
+    max_values = np.nanmax(arr, axis=tuple(range(1, len(arr.shape))))
+
+    # Get the indices that would sort the maximum values in descending order
+    sorted_indices = np.argsort(max_values)[::-1]
+
+    # Sort the array based on the sorted indices
+    sorted_arr = arr[sorted_indices]
+    
+    return sorted_arr, sorted_indices

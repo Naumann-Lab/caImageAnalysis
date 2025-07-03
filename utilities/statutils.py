@@ -47,3 +47,36 @@ def calculate_HWHM(mean_intensities, radii_microns):
     hwhm = abs(half_max_radius_right - peak_radius)
 
     return hwhm
+
+def weighted_avg_and_ci(data, weights=None, ci=0.95):
+    """
+    Calculate weighted mean and confidence interval (or std) across trials (axis=0).
+    data shape: (n_trials, n_timepoints)
+    weights shape: (n_trials,)
+    """
+    from scipy.stats import t
+    
+    data = np.array(data)
+    if weights is None:
+        weights = np.ones(data.shape[0])
+    
+    weights = np.array(weights)
+    weights = weights / np.sum(weights)  # normalize
+
+    # Weighted mean across trials
+    mean = np.average(data, axis=0, weights=weights)
+
+    # Effective sample size
+    n_eff = (np.sum(weights))**2 / np.sum(weights**2)
+
+    # Weighted sample variance across trials
+    variance = np.average((data - mean)**2, axis=0, weights=weights)
+    std = np.sqrt(variance)
+
+    # Use either CI or std
+    t_score = t.ppf(1 - (1 - ci) / 2, df=n_eff - 1)
+    se = std / np.sqrt(n_eff)
+    lower = mean - t_score * se
+    upper = mean + t_score * se
+
+    return mean, lower, upper

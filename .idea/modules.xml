@@ -2,6 +2,7 @@
 <project version="4">
   <component name="ProjectModuleManager">
     <modules>
+      <module fileurl="file://$USER_HOME$/Analysis/.idea/Analysis.iml" filepath="$USER_HOME$/Analysis/.idea/Analysis.iml" />
       <module fileurl="file://$PROJECT_DIR$/.idea/caImageAnalysis.iml" filepath="$PROJECT_DIR$/.idea/caImageAnalysis.iml" />
     </modules>
   </component>

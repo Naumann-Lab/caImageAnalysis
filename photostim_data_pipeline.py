@@ -9,6 +9,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib
+import matplotlib.path as mpltPath
 from matplotlib.patches import Circle, Patch
 import seaborn as sns
 from bcdict import BCDict
@@ -18,7 +19,7 @@ from utilities import arrutils, plotutils, statutils, coordutils, roiutils
 from bruker_images import get_micronstopixels_scale
 from utilities.roiutils import create_circular_mask, draw_roi, create_polygon_mask
 from fishy import PhotostimFish
-import constants
+import constants, stimuli
 
 # putting photostim and omr data together into a master functional types dataframe #
      
@@ -59,7 +60,8 @@ def build_functional_types_df(omr_fishvolume, stim_fishvolume, omr_fishvolume_ba
 
         sub_functional_types_df['omr_neur_id'] = range(len(omr_tailFish.f_cells))
         print('loading omr data')
-        all_motion_responses_lst = gather_visual_motion_responses_for_df(omr_tailFish, cell_id_array = None, motion_cues = constants.photostim_motion_cues)
+        all_motion_responses_lst = gather_visual_motion_responses_for_df(omr_tailFish, cell_id_array = None, 
+                                                                         motion_cues = constants.photostim_motion_cues)
         sub_functional_types_df['motion_responses'] = all_motion_responses_lst
         sub_functional_types_df['neur_coords'] = omr_data_rois
         sub_functional_types_df['plane'] = [plane] * len(sub_functional_types_df)
@@ -207,8 +209,7 @@ def gather_visual_motion_responses_for_df(vizstimfishy, cell_id_array = None, mo
 
     return motion_resp_dict_lst
 
-def gather_photostimulation_responses_for_df(responder_f_traces, stimulated_f_traces, stimulated_frames_array, 
-                                             photostim_response_frame_windows = [-4, 7], type = 'df_f'):
+def gather_photostimulation_responses_for_df(responder_f_traces, stimulated_f_traces, stimulated_frames_array, photostim_response_frame_windows = [-15, 30], type = 'df_f'):
     '''
     Gather the df/f responses of the responding cells to each photostimulated cell
     responder_f_traces = list, the traces of the responding cells (n responder cells x len of imaging), make sure not to include the stimulated cells
@@ -273,8 +274,7 @@ def gather_photostimulation_responses_for_df(responder_f_traces, stimulated_f_tr
     
     return photostimulation_responses_lst, avg_evoked_activity_master_lst
 
-def add_photostimulation_responses_to_functional_df(functional_info_df, stim_fishvolume, response_window = [-4, 7], 
-                                                    stimulated_functional_types_df = None, type = 'df_f'):
+def add_photostimulation_responses_to_functional_df(functional_info_df, stim_fishvolume, response_window = [-15, 30], stimulated_functional_types_df = None, type = 'df_f'):
 
     # default is to have the entired photostim == True dataset for the 'stimulated info'
     # keeping this flexible in case I need to change what I want to use as my 'stimulated cells' (i.e. changing trials or actual cells)
@@ -317,6 +317,34 @@ def add_photostimulation_responses_to_functional_df(functional_info_df, stim_fis
 
     return functional_info_df
 
+def add_regions_to_functional_df(functional_info_df, omr_fish_volume):
+
+    '''
+    Add the regions to the functional dataframe in case this needs to be edited outside of the master processing function above
+    functional_info_df = dataframe, the functional dataframe with the id's and planes of the neurons
+    omr_fish_volume = VolumeFish object, the OMR dataset (one fish, one plane)
+
+    returns the functional dataframe with the regions added/updated
+    '''
+
+    region_lst_per_cell = []
+    for r in range(len(functional_info_df)):
+        xy_coord = functional_info_df.iloc[r].neur_coords
+        plane = functional_info_df.iloc[r].plane
+        fishy = omr_fish_volume.volumes[plane]
+        fishy.load_saved_rois()
+        region = np.nan # default will be nan's
+        for roi_name, roi_path in fishy.roi_dict.items():
+            if roi_name != 'midline': # don't want to include the midline
+                mplt_path = mpltPath.Path(np.load(Path(roi_path)))
+                if mplt_path.contains_points([(xy_coord[0], xy_coord[1])]):
+                    region = roi_name
+        region_lst_per_cell.append(region)
+    
+    functional_info_df['region'] = region_lst_per_cell
+
+    return functional_info_df
+
 def find_baseline_values(functional_df, stim_fishvolume, number_of_baseline_frames = 30, buffer = 5):
     '''
     Find the baseline values for each neuron trace in the functional dataframe
@@ -349,48 +377,13 @@ def find_baseline_values(functional_df, stim_fishvolume, number_of_baseline_fram
     
     return baseline_f, baseline_zscore, baseline_global_df_f
 
+# gathering activity metrics and determining significant trials
 
-
-# exclusion and analysis functions for the photostimulation data #
-
-def check_rsChrmine_expression(red_channel_img, select_rois, save_path, offset = 1.0):
+def gather_significant_photostim_trials(only_stimulated_cells_df, std_threshold = 1.2, immediate_resp_window = 5, 
+                                        photostim_window = [-15, 30], save_plots_path = None, plotting = True, saving_dict = None):
     '''
-    Identify if the cell has enough rsChrmine expression to be a true choice for photostimulation
-    Use the red channel stacks (reference) stacks
+    using df/f, threshold is baseline + std dev above baseline
 
-    returns
-    rsChrmine_dict -- a dictionary with the roi number as the key and a boolean as the value: True if has rsChrmine expression, False if not
-    '''
-    # gather baseline section
-    if not os.path.exists(Path(save_path).joinpath('rois/baseline_red_channel.npy')):
-        draw_roi(red_channel_img, save_path, 'baseline_red_channel')
-    baseline_points = np.load(Path(save_path).joinpath('rois/baseline_red_channel.npy'))
-    baseline_mask = create_polygon_mask(red_channel_img.shape, baseline_points)
-    baseline_roi = red_channel_img[baseline_mask]
-
-    baseline = np.mean(baseline_roi)  # Mean brightness of the full image
-    std_dev = np.std(baseline_roi)    # Standard deviation of brightness
-    threshold = baseline + (offset * std_dev) # Compute dynamic threshold
-
-    rsChrmine_dict = {}
-    for n, each_roi in enumerate(select_rois):
-        if n not in rsChrmine_dict.keys():
-            rsChrmine_dict[n] = {}
-
-        mask = create_circular_mask(red_channel_img.shape, each_roi[0], each_roi[1], int(0.52 * 3))
-        red_roi = red_channel_img[mask]
-        mean_brightness = np.nanmean(red_roi)
-
-        if mean_brightness > threshold:
-            rsChrmine_dict[n] = True
-        else:
-            rsChrmine_dict[n] = False
-    
-    return rsChrmine_dict
-
-def gather_significant_photostim_trials(only_stimulated_cells_df, std_threshold = 1.2, immediate_resp_window = 4, 
-                                        photostim_window = [-4, 7], save_plots_path = None, plotting = True, saving_dict = None):
-    '''
     Gather the significantly photostimulated trials for each photostimulated cell (can save plots and dictionary)
 
     only_stimulated_cells_df = dataframe, the functional data dataframe of only the photostimulated cells (needs to at least have columns resp_cell_id and stim_responses)
@@ -465,6 +458,82 @@ def gather_significant_photostim_trials(only_stimulated_cells_df, std_threshold 
     
     return significant_trials_dict
 
+def determine_self_success_trials_zscore(only_stimulated_cells_df, response_window = [-15, 30], 
+                               evoked_response_window = 5, baseline_response_window = 10, saving_dict_path = None):
+    """
+    Function to find the self-success trials for each neuron based on the zscore of the responses.
+    Peak evoked z score activity > than 0.25 + mean baseline is threshold for self-success
+    Args:
+        only_stimulated_cells_df (pd.DataFrame): DataFrame containing all the stimulated cells and their responses.
+        response_window (list): The window of frames before and after the photostimulation event.
+        evoked_response_window (int): The number of frames immediately after the photostim event to use 
+                                    (as these are the neurons that should be stimulated, look within a narrow window).
+        baseline_response_window (int): The number of frames to consider for the baseline response. 
+                                        (the longer the window the better to account for noise)
+        saving_dict_path (str): Path to save the significant trials dictionary.
+    Returns:
+        significant_trials_dict (dict): Dictionary containing the significant trials for each neuron.
+    """
+
+    significant_trials_dict = {}
+    for s in range(len(only_stimulated_cells_df)):
+        stim_cell_id = only_stimulated_cells_df.iloc[s].resp_cell_id
+        zscore_responses = only_stimulated_cells_df.iloc[s].stim_responses_zscore
+        self_zscore_responses = zscore_responses[stim_cell_id][0]
+        
+        sig_trials = []
+        for n, trial_responses in enumerate(self_zscore_responses):
+            baseline_zscore = np.nanmean(trial_responses[-response_window[0] - baseline_response_window:-response_window[0]])
+            peak_evoked_zscore = np.nanmax(trial_responses[-response_window[0]:-response_window[0]+ evoked_response_window])
+            if peak_evoked_zscore > 0.25 + baseline_zscore:
+                sig_trials.append(n)
+        significant_trials_dict[stim_cell_id] = sig_trials
+    
+    if saving_dict_path is not None:
+        saving_path = Path(saving_dict_path).joinpath('significant_trials.npy')
+        np.save(saving_path, significant_trials_dict)
+    
+    return significant_trials_dict
+
+def determine_trial_weights_zscore(stimmed_func_df, photostim_response_window = [-15, 30], 
+                                   evoked_response_window = 5, baseline_frames = 10, saving_dict_path = None):
+    '''
+    Determine the trial weights for each self-success trial of each photostimulated cell
+    weight = peak evoked activity - baseline activity
+    stimmed_func_df = dataframe, the dataframe with the functional types of the neurons, only the photostimulated cells
+    photostim_response_window = list, the window of frames around the photostimulation event to use, default is [-15, 30]
+    evoked_response_window = int, the number of frames after the photostimulation event to consider as the evoked time window, default is 5
+    baseline_frames = int, the number of frames before the photostimulation event to consider as the baseline time window, default is 10
+    saving_dict_path = str, the path to save the dictionary, default is None (not saved)
+    
+    returns
+    weighted_vals_dict = dict, the dictionary with the weighted values for each self-success trial of each photostimulated cell
+    '''
+    weighted_vals_dict = {}
+    for i, one_stim_cell in enumerate(stimmed_func_df.resp_cell_id.unique()):
+        all_zscore_responses = stimmed_func_df.stim_responses_zscore.iloc[i]
+        self_success_trials = stimmed_func_df.significant_trials.iloc[i]
+        select_zscore_responses = all_zscore_responses[one_stim_cell][0][self_success_trials]
+        # using the function to get the mean baseline activity 
+        baseline_activity_per_trial, _ = gather_evoked_activity_for_select_trials(select_zscore_responses, 
+                                                                                            photostim_response_window = [-photostim_response_window[0]+baseline_frames, 
+                                                                                                                         np.diff(photostim_response_window)[0]],
+                                                                                            immediate_response_window = baseline_frames,
+                                                                                            r_type = 'mean')
+        # using the function to get the peak evoked activity
+        peak_evoked_activity_per_trial, _ = gather_evoked_activity_for_select_trials(select_zscore_responses, 
+                                                                                                            photostim_response_window= photostim_response_window,
+                                                                                                            immediate_response_window = evoked_response_window,
+                                                                                                            r_type = 'peak')
+        weighted_values = [peak_evoked_activity_per_trial[b] - baseline_activity_per_trial[b] for b in range(len(self_success_trials))]
+        norm_weighted_values = list(arrutils.norm_0to1(np.array(weighted_values)))
+        weighted_vals_dict[one_stim_cell] = norm_weighted_values
+
+    if saving_dict_path != None:
+        np.save(saving_dict_path.joinpath('trial_weights.npy'), weighted_vals_dict)
+
+    return weighted_vals_dict
+
 def add_significant_trials_to_df(functional_info_df, significant_trials_dict):
     '''
     Add significant trials to the dataframe, else nan
@@ -472,28 +541,152 @@ def add_significant_trials_to_df(functional_info_df, significant_trials_dict):
     functional_info_df['significant_trials'] = [np.nan] * len(functional_info_df)
     for d in significant_trials_dict.keys():
         significant_trials_list = []
-        for k, v in significant_trials_dict[d].items():
-            if v is not np.nan:
-                significant_trials_list.append(k)
+        try: # if this is a dictionary in each value
+            for k, v in significant_trials_dict[d].items():
+                if v is not np.nan:
+                    significant_trials_list.append(k)
+        except: # or if its just a list, not a dictionary
+            significant_trials_list = significant_trials_dict[d]
         if len(significant_trials_list) > 0:
             index = functional_info_df[functional_info_df['resp_cell_id'] == d].index.tolist()
             functional_info_df.loc[index, 'significant_trials'] = pd.Series([significant_trials_list], index = index)
 
     return functional_info_df
-        
-def gather_evoked_activity_for_select_trials(photostim_responses_per_trial, good_trial_numbers = None, 
-                                              immediate_response_window = 4, photostim_response_window = [-4, 7]):
+
+def add_trial_weights_to_df(functional_info_df, weighted_vals_dict):
+    '''
+    Add weights for each trial to the dataframe, else nan
+    '''
+    functional_info_df['trial_weights'] = [np.nan] * len(functional_info_df)
+    for d in weighted_vals_dict.keys():
+        weighted_vals_list = []
+        try: # if this is a dictionary in each value
+            for k, v in weighted_vals_dict[d].items():
+                if v is not np.nan:
+                    weighted_vals_list.append(k)
+        except: # or if its just a list, not a dictionary
+            weighted_vals_list = weighted_vals_dict[d]
+        if len(weighted_vals_list) > 0:
+            index = functional_info_df[functional_info_df['resp_cell_id'] == d].index.tolist()
+            functional_info_df.loc[index, 'trial_weights'] = pd.Series([weighted_vals_list], index = index)
+
+    return functional_info_df
+
+def gather_evoked_activity_for_select_trials(photostim_responses_per_trial, good_trial_numbers = None, weights = None,
+                                              immediate_response_window = 5, photostim_response_window = [-15, 30],
+                                              r_type = 'peak'):
+    '''
+    Get the evoked activity for each trial, using the photostimulation responses, just for one cell
+
+    photostim_responses_per_trial = list, the photostimulation responses for each trial (n trials x len of imaging)
+    good_trial_numbers = list, the trial numbers to consider, default is None (all trials)
+    immediate_response_window = int, the number of frames after the photostimulation event to consider as the immediate response, default is 5
+    photostim_response_window = list, the window of frames around the photostimulation event to consider, default is [-15, 30]
+    r_type = str, the type of response to consider, default is 'peak' (can also be 'mean' or 'min')
+
+    returns
+    avg_evoked_activity_per_trial = list, the evoked activity for each trial
+    avg_evoked_activity = float, the average evoked activity for all trials
+    '''
     if good_trial_numbers == None:
         good_trial_numbers = list(range(len(photostim_responses_per_trial)))
-        # print('using all trials')
-    avg_evoked_activity_lst = []
+    
+    avg_evoked_activity_per_trial = []
     for trial_num, ps_resp in enumerate(photostim_responses_per_trial):
         if trial_num in good_trial_numbers:
-            evoked_activity = ps_resp[-photostim_response_window[0]:-photostim_response_window[0] + immediate_response_window]
-            avg_evoked_activity_lst.append(np.nanmean(evoked_activity))
+            evoked_activity_window = ps_resp[-photostim_response_window[0]:-photostim_response_window[0] + immediate_response_window]
+            if r_type == 'peak':
+                evoked_activity = np.nanmax(evoked_activity_window)
+            elif r_type == 'mean':
+                evoked_activity = np.nanmean(evoked_activity_window)
+            elif r_type == 'min':
+                evoked_activity = np.nanmin(evoked_activity_window)
+            else:
+                evoked_activity = np.nanmean(evoked_activity_window)
+            avg_evoked_activity_per_trial.append(evoked_activity)
+    
+    if weights is None:
+        avg_evoked_activity = np.nanmean(avg_evoked_activity_per_trial)
+    else:
+        avg_evoked_activity = np.average(avg_evoked_activity_per_trial, weights = weights)
+    
+    return avg_evoked_activity_per_trial, avg_evoked_activity
+
+def gather_averaged_latency_to_peak(photostim_responses_per_trial, good_trial_numbers = None, weights = None,
+                                              immediate_response_window = 5, photostim_response_window = [-15, 30],
+                                              img_hz = 1):
+    '''
+    Get the average latency to peak for the zscored activity of the photostim responses.
+    
+    photostim_responses_per_trial = list, the photostimulation responses for each trial (n trials x len of imaging)
+    good_trial_numbers = list, the trial numbers to consider, default is None (all trials)
+    weights = list, the weights for each trial, default is None (no weights)
+    immediate_response_window = int, the number of frames after the photostimulation event to consider as the evoked time window, default is 5
+    photostim_response_window = list, important to know baseline, the window of frames around the photostimulation event to consider, default is [-15, 30]
+    img_hz = int, the imaging speed for gather time, default is 1
+
+    returns
+    latency_to_peak_frame = int, the frame number of the peak response (post the photostim event, not including baseline frames)
+    latency_to_peak_time = float, the time of the peak response in seconds
+    peak_value = float, the value of the peak response
+    
+    '''
+    if good_trial_numbers == None:
+        good_trial_numbers = list(range(len(photostim_responses_per_trial)))
+    
+    all_select_traces = photostim_responses_per_trial[good_trial_numbers]
+    
+    if weights is not None: # grab the weighted average of the trials before calculating the latency
+        avg_trace = np.average(all_select_traces, axis=0, weights=weights)
+    else:
+        avg_trace = np.nanmean(all_select_traces, axis = 0)
+
+    # only look at the evoked activity window
+    avg_evoked_trace = avg_trace[-photostim_response_window[0]:-photostim_response_window[0] + immediate_response_window]
+    smoothed_avg_evoked_trace = arrutils.pretty(avg_evoked_trace, 3)
+    peak_value = np.nanmax(smoothed_avg_evoked_trace)
+    latency_to_peak_frame = np.nanargmax(smoothed_avg_evoked_trace)
+    latency_to_peak_time = latency_to_peak_frame / img_hz
+
+    return latency_to_peak_frame, latency_to_peak_time, peak_value
+
+# expression/spatial exclusion analysis 
+def check_rsChrmine_expression(red_channel_img, select_rois, save_path, offset = 1.0):
+    '''
+    - Work in progress -
+
+    Identify if the cell has enough rsChrmine expression to be a true choice for photostimulation
+    Use the red channel stacks (reference) stacks
+
+    returns
+    rsChrmine_dict -- a dictionary with the roi number as the key and a boolean as the value: True if has rsChrmine expression, False if not
+    '''
+    # gather baseline section
+    if not os.path.exists(Path(save_path).joinpath('rois/baseline_red_channel.npy')):
+        draw_roi(red_channel_img, save_path, 'baseline_red_channel')
+    baseline_points = np.load(Path(save_path).joinpath('rois/baseline_red_channel.npy'))
+    baseline_mask = create_polygon_mask(red_channel_img.shape, baseline_points)
+    baseline_roi = red_channel_img[baseline_mask]
+
+    baseline = np.mean(baseline_roi)  # Mean brightness of the full image
+    std_dev = np.std(baseline_roi)    # Standard deviation of brightness
+    threshold = baseline + (offset * std_dev) # Compute dynamic threshold
+
+    rsChrmine_dict = {}
+    for n, each_roi in enumerate(select_rois):
+        if n not in rsChrmine_dict.keys():
+            rsChrmine_dict[n] = {}
+
+        mask = create_circular_mask(red_channel_img.shape, each_roi[0], each_roi[1], int(0.52 * 3))
+        red_roi = red_channel_img[mask]
+        mean_brightness = np.nanmean(red_roi)
+
+        if mean_brightness > threshold:
+            rsChrmine_dict[n] = True
         else:
-            avg_evoked_activity_lst.append(np.nan)
-    return avg_evoked_activity_lst
+            rsChrmine_dict[n] = False
+    
+    return rsChrmine_dict
 
 def plotting_location_of_stim_site_per_trial(stimulated_cell_df, full_volume_stim_sites_df, photostim_fish_volume, save_path = None):
     '''
@@ -509,56 +702,57 @@ def plotting_location_of_stim_site_per_trial(stimulated_cell_df, full_volume_sti
                     matplotlib.patches.Patch(facecolor='green', edgecolor='black', label='targeted cell')]  # Green box, closest ROI to the stimulation site
 
     for stim_cell_num in range(len(stimulated_cell_df)):
-        try:
-            one_stim_row = stimulated_cell_df.iloc[stim_cell_num]
-            specific_plane_fish = photostim_fish_volume[int(one_stim_row['plane'].split('_')[1])]
-            um_per_pxs = get_micronstopixels_scale(specific_plane_fish.data_paths['info_xml'])
-            sp_size_pxs = np.nanmean(specific_plane_fish.stim_sites_df.sp_size.values) / um_per_pxs # average pixels diameter
-            stim_events_frames = one_stim_row.stim_frames
+        # try:
+        one_stim_row = stimulated_cell_df.iloc[stim_cell_num]
+        specific_plane_fish = photostim_fish_volume[int(one_stim_row['plane'].split('_')[1])]
+        _, __, specific_plane_fish.stimmed_cells_matched_stim_ids_dict = PhotostimFish.identify_stim_cells(specific_plane_fish, overlap = True)
+        um_per_pxs = get_micronstopixels_scale(specific_plane_fish.data_paths['info_xml'])
+        sp_size_pxs = np.nanmean(specific_plane_fish.stim_sites_df.sp_size.values) / um_per_pxs # average pixels diameter
+        stim_events_frames = one_stim_row.stim_frames
 
-            # what was programmed into the Bruker (red cross)
-            _stim_cell_id =  [k for k, v in specific_plane_fish.stimmed_cells_matched_stim_ids_dict.items() if v == one_stim_row.stim_neur_id][0]
-            # need to index into the correct row
-            full_volume_stim_sites_df_specific_stim_site = full_volume_stim_sites_df[full_volume_stim_sites_df.cell_ids == _stim_cell_id]
-            original_stim_roi = [full_volume_stim_sites_df_specific_stim_site.x_stim.values[0], full_volume_stim_sites_df_specific_stim_site.y_stim.values[0]]
+        # what was programmed into the Bruker (red cross)
+        _stim_cell_id =  [k for k, v in specific_plane_fish.stimmed_cells_matched_stim_ids_dict.items() if v == one_stim_row.stim_neur_id][0]
+        # need to index into the correct row
+        full_volume_stim_sites_df_specific_stim_site = full_volume_stim_sites_df[full_volume_stim_sites_df.cell_ids == _stim_cell_id]
+        original_stim_roi = [full_volume_stim_sites_df_specific_stim_site.x_stim.values[0], full_volume_stim_sites_df_specific_stim_site.y_stim.values[0]]
 
-            # closest ROI to the programmed stim site (green circle, full ROI is filled in)
-            stim_full_roi = specific_plane_fish.stats[int(one_stim_row.stim_neur_id)]
+        # closest ROI to the programmed stim site (green circle, full ROI is filled in)
+        stim_full_roi = specific_plane_fish.stats[int(one_stim_row.stim_neur_id)]
 
-            # collect the full image over the course of the experiment
-            full_img = specific_plane_fish.load_image()
-            baseline_img = np.nanmean(full_img[:20, :, :], axis = 0) # baseline image (collecting the first 20 frames now, hard coded)
+        # collect the full image over the course of the experiment
+        full_img = specific_plane_fish.load_image()
+        baseline_img = np.nanmean(full_img[:20, :, :], axis = 0) # baseline image (collecting the first 20 frames now, hard coded)
 
-            fig, ax = plt.subplots(1, len(stim_events_frames) + 1, figsize = (20, 5))
-            fig.suptitle(one_stim_row.resp_cell_id, y = 0.8)
-            ax[0].imshow(baseline_img, cmap = 'gray', vmax = np.percentile(baseline_img, 99)) 
-            ax[0].scatter(stim_full_roi['xpix'], stim_full_roi['ypix'], color = 'limegreen', linewidth=1, s = 1)
-            ax[0].set_title(f'baseline')
+        fig, ax = plt.subplots(1, len(stim_events_frames) + 1, figsize = (20, 5))
+        fig.suptitle(one_stim_row.resp_cell_id, y = 0.8)
+        ax[0].imshow(baseline_img, cmap = 'gray', vmax = np.percentile(baseline_img, 99)) 
+        ax[0].scatter(stim_full_roi['xpix'], stim_full_roi['ypix'], color = 'limegreen', linewidth=1, s = 1)
+        ax[0].set_title(f'baseline')
 
-            for n, p in enumerate(stim_events_frames):
-                stim_img = full_img[p:p+10, :,:]
-                stim_img_avg = np.nanmean(stim_img, axis = 0)
-                ax[n+1].imshow(stim_img_avg, cmap = 'gray', vmax = np.percentile(stim_img_avg, 95), vmin = np.percentile(stim_img_avg, 10))
-                ax[n+1].scatter(stim_full_roi['xpix'], stim_full_roi['ypix'], color = 'limegreen', linewidth=1, s = 1)
-                ax[n+1].set_title(f'trial {n}')
+        for n, p in enumerate(stim_events_frames):
+            stim_img = full_img[p:p+10, :,:]
+            stim_img_avg = np.nanmean(stim_img, axis = 0)
+            ax[n+1].imshow(stim_img_avg, cmap = 'gray', vmax = np.percentile(stim_img_avg, 95), vmin = np.percentile(stim_img_avg, 10))
+            ax[n+1].scatter(stim_full_roi['xpix'], stim_full_roi['ypix'], color = 'limegreen', linewidth=1, s = 1)
+            ax[n+1].set_title(f'trial {n}')
 
-            # Create a white cross of the stimulation site from the og coordinates on all plots (from the Bruker, what i programmed in to stimulate)
-            cross_x = original_stim_roi[0]
-            cross_y = original_stim_roi[1]
-            cross_size = int(sp_size_pxs)/2 
-            for a in ax.flatten():
-                a.plot([cross_x - cross_size, cross_x + cross_size], [cross_y, cross_y], 'r', linewidth=2)  # Horizontal
-                a.plot([cross_x, cross_x], [cross_y - cross_size, cross_y + cross_size], 'r', linewidth=2)  # Vertical
-                a.set_xlim(int(original_stim_roi[0] - 30), int(original_stim_roi[0] + 30))
-                a.set_ylim(int(original_stim_roi[1] + 30), int(original_stim_roi[1] - 30))
-            
-            ax[0].legend(handles=legend_elements, loc='upper left', bbox_to_anchor=(0, -0.05))
-            plt.tight_layout()
-            if save_path is not None:
-                plt.savefig(Path(save_path).joinpath(f'{one_stim_row.resp_cell_id}_locations_per_trial.png'), dpi = 300)   
-            plt.show()         
-        except:
-            print(f'could not plot {one_stim_row.resp_cell_id}') # sometimes have a 'nan' matching cell id
+        # Create a white cross of the stimulation site from the og coordinates on all plots (from the Bruker, what i programmed in to stimulate)
+        cross_x = original_stim_roi[0]
+        cross_y = original_stim_roi[1]
+        cross_size = int(sp_size_pxs)/2 
+        for a in ax.flatten():
+            a.plot([cross_x - cross_size, cross_x + cross_size], [cross_y, cross_y], 'r', linewidth=2)  # Horizontal
+            a.plot([cross_x, cross_x], [cross_y - cross_size, cross_y + cross_size], 'r', linewidth=2)  # Vertical
+            a.set_xlim(int(original_stim_roi[0] - 30), int(original_stim_roi[0] + 30))
+            a.set_ylim(int(original_stim_roi[1] + 30), int(original_stim_roi[1] - 30))
+        
+        ax[0].legend(handles=legend_elements, loc='upper left', bbox_to_anchor=(0, -0.05))
+        plt.tight_layout()
+        if save_path is not None:
+            plt.savefig(Path(save_path).joinpath(f'{one_stim_row.resp_cell_id}_locations_per_trial.png'), dpi = 300)   
+        plt.show()         
+        # except:
+        #     print(f'could not plot {one_stim_row.resp_cell_id}') # sometimes have a 'nan' matching cell id
 
     return None        
 
@@ -613,18 +807,49 @@ def compute_overlap_metrics(photostim_info_df, master_stim_sites_df, stim_fish_v
 
     return overlap_ratio, percent_of_cell, percent_of_stim_site
 
-# def compute_off_target_activation_in_xy()
-# FOR ONLY ONE STIM SITE
 
-# def compute_off_target_activation_in_z()
+# identifying groups of responding cells based on the photostimulation data
 
-# def process_self_success_info()
-# make the plots for all the information in the self success info
-# save a dataframe with the info as well
-# make a folder for the stimulated cell in a specific location that contains all these plots and dataframe?
+def get_most_and_least_activated_neurons(subset_functional_types_df, stim_cell_id = 'stim_0', num_of_neurons = 25, 
+                                         response_window = [-15, 30], evoked_response_window = 5, weights = None):
+    """
+    Function to find the most activated neurons based on the zscore of the responses.
+    Note - these will always be unique neurons from each other in the two output lists
+    Args:
+        subset_functional_types_df (pd.DataFrame): DataFrame containing all the stimulated cells and their responses.
+        stim_cell_id (str): The id of the stimulated cell to get responders from.
+        num_of_neurons (int): The number of neurons to get.
+        response_window (list): The window of frames before and after the photostimulation event.
+        evoked_response_window (int): The number of frames immediately after the photostim event to use 
+                                    (as these are the neurons that should be stimulated, look within a narrow window).
+    
+    Returns:
+        top_activated_neurons (list): List of the most activated neurons. (resp cell ids)
+        least_activated_neurons (list): List of the least activated neurons.(resp cell ids)
+    
+    """
+    select_trials = subset_functional_types_df[subset_functional_types_df.resp_cell_id == stim_cell_id].significant_trials.values[0]
+    peak_evoked_response_dict = {}
+    for cell_num in range(len(subset_functional_types_df)):
+        cell_id = subset_functional_types_df.iloc[cell_num].resp_cell_id
+        responses_to_all_stim_cells = subset_functional_types_df.iloc[cell_num].stim_responses_zscore
+        response_to_stim_cell = responses_to_all_stim_cells[stim_cell_id][0]
+        responses_to_self_success_trials = response_to_stim_cell[select_trials]
+        evoked_responses = responses_to_self_success_trials[:, -response_window[0]:-response_window[0] + evoked_response_window]
+        peak_evoked_responses = np.nanmax(evoked_responses, axis = 1) # max evoked response for each trial
+        if weights is None:
+            peak_evoked_response_dict[cell_id] = np.nanmean(peak_evoked_responses) # avg peak evoked response across all trials
+        else:
+            peak_evoked_response_dict[cell_id] = np.average(peak_evoked_responses, weights = weights)
 
+    # sort the peak evoked response dictionary (average peak) to find top responders
+    sorted_peak_evoked_response_dict = dict(sorted(peak_evoked_response_dict.items(), key=lambda item: item[1], reverse=True))
+    top_activated_neurons = list(sorted_peak_evoked_response_dict.keys())[:num_of_neurons]
+    least_activated_neurons = list(sorted_peak_evoked_response_dict.keys())[-num_of_neurons:]
 
-# plotting functions for visualizing the photostimulation data (developed Winter 2025) #
+    return top_activated_neurons, least_activated_neurons
+
+# plotting functions for visualizing the photostimulation data #
 
 def prepare_data_for_plotting(data_df, fishvolume, dataset_type = 'stim'):
     '''
@@ -800,8 +1025,9 @@ def plotting_time_series_of_responders(raw_fluor_responding_traces, array_stimul
     return ax    
 
 def plotting_vizmotion_and_photostimulation_responses(vizmotion_photostim_info_df, lst_motion_cues = None, lst_motion_cues_colors = None,
-                                                      type = None, img_hz = 1,
-                                                      vizmotion_stim_offset = 9, photostim_window_frames = [-4, 7], number_stim_response_panels = None,
+                                                      type = None, img_hz = 1, weights = None,
+                                                      vizmotion_stim_offset = 9, photostim_window_frames = [-15, 30], 
+                                                      number_stim_response_panels = None,
                                                       photostim_ylim = [-0.5, 1.2], photostim_stim_offset = 0, 
                                                       filtered_stim_trials = None, save = False, save_location = None):
     '''
@@ -847,6 +1073,8 @@ def plotting_vizmotion_and_photostimulation_responses(vizmotion_photostim_info_d
             photostim_responses = vizmotion_photostim_info_df.stim_responses.iloc[i]
         elif type == 'global_df_f':
             photostim_responses = vizmotion_photostim_info_df.stim_responses_global_df_f.iloc[i]
+        elif type == 'zscore':
+            photostim_responses = vizmotion_photostim_info_df.stim_responses_zscore.iloc[i]
         omr_cell_id = vizmotion_photostim_info_df.omr_neur_id.iloc[i]
         plane_id = vizmotion_photostim_info_df.plane.iloc[i]
         viz_barcode = vizmotion_photostim_info_df.visual_barcode.iloc[i]
@@ -895,7 +1123,8 @@ def plotting_vizmotion_and_photostimulation_responses(vizmotion_photostim_info_d
             vizstim_y_min.append(np.nanmin(vizmotion_responses['mean'][vizstim_cue]))
 
         plot_ind = 6
-        for stim_cell_id, response_to_stim in photostim_responses.items():
+        for s, stim_cell_id in enumerate(photostim_responses.keys()):
+            response_to_stim = photostim_responses[stim_cell_id]
             if isinstance(response_to_stim, (list, np.ndarray)) and not isinstance(response_to_stim[0], (float, int)):
                 # some random filtering for best use due to data types and shapes 
                 if np.array(response_to_stim).shape[1] == np.diff(photostim_window_frames)[0]:
@@ -912,11 +1141,15 @@ def plotting_vizmotion_and_photostimulation_responses(vizmotion_photostim_info_d
                             response_to_stim = np.nan
                     except:
                         response_to_stim = np.nan
+                if weights is not None:
+                    avg_response, ci_lower, ci_upper = statutils.weighted_avg_and_ci(response_to_stim, weights = weights[stim_cell_id])
+                else:
+                    avg_response = np.nanmean(response_to_stim, axis = 0)
+                    ci_lower, ci_upper = statutils.calculate_ci(np.array(response_to_stim))
 
                 if not isinstance(response_to_stim, (float, int)): # make sure that this is not nan's
                     [ax[plot_ind].plot(np.arange(len(m)), arrutils.pretty(m), color = 'grey', alpha = 0.3) for m in response_to_stim]
-                    ax[plot_ind].plot(np.arange(len(response_to_stim[0])), arrutils.pretty(np.nanmedian(response_to_stim, axis = 0)), color = 'k')
-                    ci_lower, ci_upper = statutils.calculate_ci(np.array(response_to_stim))
+                    ax[plot_ind].plot(np.arange(len(response_to_stim[0])), arrutils.pretty(avg_response), color = 'k')
                     ax[plot_ind].fill_between(np.arange(len(response_to_stim[0])), ci_lower, ci_upper, color='skyblue', alpha=0.4, label='95% CI') 
                     ax[plot_ind].axvline(x = -photostim_window_frames[0] + photostim_stim_offset, color = 'red')
                     ax[plot_ind].axhline(0, color = 'grey', linestyle = '--')
@@ -926,6 +1159,10 @@ def plotting_vizmotion_and_photostimulation_responses(vizmotion_photostim_info_d
                     plot_ind += 1
 
         ax[0].set_ylabel('dF/F')
+        if type is None:
+            ax[6].set_ylabel('dF/F')
+        elif type == 'zscore':
+            ax[6].set_ylabel('zscore')
         [a.set_xlabel('time (s)') for a in ax.flatten()]
         [a.set_xticks(ticks = [int(i) for i in np.linspace(0, len(vizmotion_responses['mean'][vizstim_cue])-1, 2)], 
                         labels = [int(i) for i in np.linspace(0, len(vizmotion_responses['mean'][vizstim_cue])-1, 2) * img_hz]) for a in ax[:6].flatten()]
@@ -964,6 +1201,8 @@ def plotting_correlation_maps_avg_photostim_evoked_resp(vizmotion_photostim_info
                                                         stimulation_cell_color = 'limegreen', title = None, save = False, save_location = None):
     '''
     Plotting the average evoked activity to all photostimulated cells in the volume
+    Hard coded right not to plot the average evoked activity that is in the dataframe, probably not useful and need to change for future renditions
+
     vizmotion_photostim_info_df - the dataframe with the photostimulation responses (average evoked activity), responder/stimulated cell ids, neuron coordinates
     omr_fish_volume - VolumeFish object, the OMR dataset (all the planes together)
     color_map - the colormap to use for the correlation maps (default is the custom color map from red to blue)
@@ -982,7 +1221,8 @@ def plotting_correlation_maps_avg_photostim_evoked_resp(vizmotion_photostim_info
         one_plane_responder_df = vizmotion_photostim_info_df[(vizmotion_photostim_info_df.plane == plane) & 
                                                              (vizmotion_photostim_info_df.resp_cell_id.str.contains('resp'))]
         one_plane_responder_df = one_plane_responder_df.iloc[one_plane_responder_df['avg_evoked_df_f'].apply(lambda x: abs(np.nanmean(x))).argsort()]
-        one_plane_stimulated_df = vizmotion_photostim_info_df[(vizmotion_photostim_info_df.plane == plane) & (vizmotion_photostim_info_df.resp_cell_id.str.contains('stim'))]
+        one_plane_stimulated_df = vizmotion_photostim_info_df[(vizmotion_photostim_info_df.plane == plane) 
+                                                              & (vizmotion_photostim_info_df.resp_cell_id.str.contains('stim'))]
         one_fish = omr_fish_volume[p]
         ax[p].imshow(one_fish.rescaled_ref, cmap = 'gray', vmax = np.percentile(one_fish.rescaled_ref, 99))
 
@@ -1028,243 +1268,103 @@ def plotting_correlation_maps_avg_photostim_evoked_resp(vizmotion_photostim_info
 
     return print('done')
 
+# plot the new raster plots/locations for groups of neurons
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# older functions, keeping here in case I need it later #
-
-# def build_functional_types_df(omr_fishvolume, stim_fishvolume, omr_fishvolume_barcoding_df):
-#     '''
-#     Build the master dataframe that would contain all the functional types of neurons in the OMR stack and compared to all the stim datasets
-#     omr_fishvolume = VolumeFish object, OMR dataset, needs to have tail data too
-#     stim_fishvolume = VolumeFish object, concatenated photostimulation dataset (one big dataset)
-#     volume_barcoding_df = dataframe, barcoding data for each neuron in the OMR stack
-
-#     will plot the plane and location of photostimulated cells
-
-#     returns a dataframe with the following columns:
-#     plane - int, plane number
-#     omr_neur_id - int, neuron id in the OMR stack
-#     neur_coords - list, coordinates of the OMR cell
-#     visual_barcode - str, visual motion barcoding of the neuron
-#     region - str, brain region of the neuron in the OMR stack (Pt, Hb, nMLF or nan if not in these)
-#     motor_corr - float, motor correlation of the neuron in the OMR stack
-#     photostim - bool, if the neuron was photostimulated
-#     if photostim...
-#         stim_events - list, the event order (number) of when that neuron was photostimulated
-#         stim_frames - list, frames in the stim dataset of when that neuron was photostimulated
-#     stim_neur_id - int, neuron id photostimulation dataset
-#     '''
-
-#     # process the functional information for all neurons into a giant dataframe, now just working with the OMR fish volume and the stim fish volume
-
-#     df_lst = [] 
-#     for plane in np.unique(omr_fishvolume_barcoding_df.plane.values):
-#         sub_functional_types_df = pd.DataFrame(columns = ['plane', 'omr_neur_id', 'neur_coords', 'visual_barcode', 'region', 'motor_corr', 'photostim'])
-#         omr_plane_barcoding_df = omr_fishvolume_barcoding_df[omr_fishvolume_barcoding_df.plane == plane]
-#         omr_tailFish = omr_fishvolume.volumes[plane]
-#         omr_data_rois = omr_tailFish.return_cell_rois(range(len(omr_tailFish.f_cells)))
-
-#         sub_functional_types_df['omr_neur_id'] = range(len(omr_tailFish.f_cells))
-#         sub_functional_types_df['neur_coords'] = omr_data_rois
-#         sub_functional_types_df['plane'] = [plane] * len(sub_functional_types_df)
-#         sub_functional_types_df['motor_corr'] = omr_tailFish.motor_pearson_corrs
-
-#         # default is none/false for these functional identities
-#         sub_functional_types_df['region'] = [np.nan] * len(sub_functional_types_df)
-#         sub_functional_types_df['visual_barcode'] = ['None'] * len(sub_functional_types_df)
-#         sub_functional_types_df['photostim'] = [False] * len(sub_functional_types_df)
-#         sub_functional_types_df['stim_frames'] = [None] * len(sub_functional_types_df)
-#         sub_functional_types_df['stim_events'] = [None] * len(sub_functional_types_df)
+def plotting_group_location_vizmotion_photostim_responses(functional_types_df, photostim_cell_id, cell_ids_of_group, fish_brain_image, group_name, 
+                                                          evoked_response_window = 5, r_type = 'peak', photostim_start_frame = 15, 
+                                                          colors_range = [-1, 2], vizmotion_limits = [0,7], weights = None, save_path = None):
+    """
+    Function to plot the location of the neurons and their responses to photostimulation and visual motion.
+    Args:
+        functional_types_df (pd.DataFrame): DataFrame containing all the stimulated cells and their responses.
+        photostim_cell_id (str): The id of the stimulated cell to get responders from.
+        cell_ids_of_group (list): List of the cell ids of the group to plot.
+        fish_brain_image (ndarray): The image of the fish to plot on.
+        group_name (str): The name of the group to plot.
+        r_type (str): The type of response to plot ('peak' or 'mean') for the colors of the neurons.
+        colors_range (str): The range of zscore limits for the color map on the heatmap and colors for the location of the neurons
+        evoked_response_window (int): The time window to look at for the evoked response.
+        photostim_start_frame (int): The frame at which the photostimulation event occurs. (determined from how the functional types df was made)
+        weights (list): The weights to use for the peak evoked response calculation. (specific to the photostimmed cell)
+        save_path (str): Path to save the figure.
+    """
         
-#         for l in sub_functional_types_df.omr_neur_id.values:
-#             if l in omr_plane_barcoding_df.neur_ids.values:
-#                 sub_functional_types_df['visual_barcode'].iloc[l] = omr_plane_barcoding_df[omr_plane_barcoding_df.neur_ids == l].barcoding.values[0]
-#             if l in omr_tailFish.return_cells_by_saved_roi('Hb'):
-#                 sub_functional_types_df['region'].iloc[l] = 'Hb'
-#             if l in omr_tailFish.return_cells_by_saved_roi('Pt'):
-#                 sub_functional_types_df['region'].iloc[l] = 'Pt'
-#             if 'nMLF' in omr_tailFish.roi_dict.keys():  # sometimes there is not a nMLF region with cells, so would run an error
-#                 if l in omr_tailFish.return_cells_by_saved_roi('nMLF'):
-#                     sub_functional_types_df['region'].iloc[l] = 'nMLF'
-
-#         stim_photostimFish = stim_fishvolume.volumes[plane]
-#         matched_cell_ids = coordutils.match_cell_ids(sub_functional_types_df.omr_neur_id.values, omr_tailFish.stats,
-#                                                         range(len(stim_photostimFish.f_cells)), stim_photostimFish.stats)
-#         sub_functional_types_df['stim_neur_id'] = matched_cell_ids
-            
-#         # need to identify which neurons were photostimulated by matching spatially, add in the stim events and frames for each cell
-#         plt.figure(figsize = (6, 6))
-#         plt.imshow(stim_photostimFish.rescaled_ref, cmap = 'gray', vmax = np.percentile(stim_photostimFish.rescaled_ref, 99))
-#         plt.title(f'{plane}')
-#         if 'stim_sites' in stim_photostimFish.data_paths.keys():
-#             # better to use closest center coordinates to match ROIs, rather than overlap
-#             stim_photostimFish.stimmed_cell_coords, stim_photostimFish.stimmed_cell_id_array = PhotostimFish.identify_stim_cells(stim_photostimFish, overlap = False)
-#             omr_photostim_cell_id_lst = [np.where(matched_cell_ids == int(s))[0][0] for s in stim_photostimFish.stimmed_cell_id_array]
-#             stim_frames = stim_photostimFish.stim_sites_df.stim_frames.values
-#             stim_events = stim_photostimFish.stim_sites_df.stim_events.values
-#             for n in range(len(stim_photostimFish.stimmed_cell_id_array)):
-#                 sub_functional_types_df.loc[[omr_photostim_cell_id_lst[n]], 'photostim'] = True
-#                 sub_functional_types_df.loc[[omr_photostim_cell_id_lst[n]], 'stim_frames'] = pd.Series([stim_frames[n]], index = sub_functional_types_df.index[[omr_photostim_cell_id_lst[n]]])
-#                 sub_functional_types_df.loc[[omr_photostim_cell_id_lst[n]], 'stim_events'] = pd.Series([stim_events[n]], index = sub_functional_types_df.index[[omr_photostim_cell_id_lst[n]]])
-                
-#                 # red is OMR-id'ed cell, white is photostim cell
-#                 plt.scatter(sub_functional_types_df.neur_coords.loc[omr_photostim_cell_id_lst[n]][0], 
-#                             sub_functional_types_df.neur_coords.loc[omr_photostim_cell_id_lst[n]][1], color = 'red', s = 10)
-#                 plt.annotate(omr_photostim_cell_id_lst[n], (sub_functional_types_df.neur_coords.loc[omr_photostim_cell_id_lst[n]][0], 
-#                                 sub_functional_types_df.neur_coords.loc[omr_photostim_cell_id_lst[n]][1]), color = 'red')
-#                 plt.scatter(stim_photostimFish.stimmed_cell_coords[n][0], stim_photostimFish.stimmed_cell_coords[n][1], color = 'white', s = 10)
-#                 plt.annotate(stim_photostimFish.stimmed_cell_id_array[n], (stim_photostimFish.stimmed_cell_coords[n][0], 
-#                                                                             stim_photostimFish.stimmed_cell_coords[n][1]), color = 'white') 
-#             plt.show() 
-#         else:
-#             pass  
-
-#         df_lst.append(sub_functional_types_df)   
-
-#     functional_types_df = pd.concat(df_lst).reset_index(drop = True)
+    plotting_specific_cells_df = functional_types_df[functional_types_df.resp_cell_id.isin([photostim_cell_id] + cell_ids_of_group)]
+    stimmed_cell_vis_barcode = functional_types_df[functional_types_df.resp_cell_id == photostim_cell_id].visual_barcode.values[0]
+    self_success_trials = functional_types_df[functional_types_df.resp_cell_id == photostim_cell_id].significant_trials.values[0]
+    raster_array = np.zeros((len(plotting_specific_cells_df)-1, len(plotting_specific_cells_df.iloc[0].stim_responses_zscore[photostim_cell_id][0][0])))
+    stim_array = np.zeros((1, len(plotting_specific_cells_df.iloc[0].stim_responses_zscore[photostim_cell_id][0][0])))
+    responder_values_for_plotting = []
+    # gather and organize traces from photostimulation events
+    for i in range(len(plotting_specific_cells_df)):
+        cell_id = plotting_specific_cells_df.iloc[i].resp_cell_id
+        responses_to_all_stim_cells = plotting_specific_cells_df.iloc[i].stim_responses_zscore
+        response_to_stim_cell = responses_to_all_stim_cells[photostim_cell_id][0]
+        responses_to_self_success_trials = response_to_stim_cell[self_success_trials]
+        _, avg_evoked_activity = gather_evoked_activity_for_select_trials(responses_to_self_success_trials, r_type = r_type, weights = weights, 
+                                                                          immediate_response_window= evoked_response_window) # over a certain time window
+        responder_values_for_plotting.append(avg_evoked_activity)
+        if 'stim' not in cell_id:
+            raster_array[i] = arrutils.pretty(np.nanmean(responses_to_self_success_trials, axis = 0))
+        else:
+            stim_array[0] = arrutils.pretty(np.nanmean(responses_to_self_success_trials, axis = 0))
+    sorted_raster_array, sorted_raster_array_inds = arrutils.sort_array_by_max(raster_array) # sort the responses by their max response post ps event
+    sorted_raster_array = np.concatenate([sorted_raster_array, stim_array], axis = 0)
+    sorted_inds_with_stim = np.concatenate([sorted_raster_array_inds, [len(plotting_specific_cells_df)-1]], axis = 0)
     
-#     return functional_types_df    
+    fig, ax = plt.subplots(1, 3, figsize = (15, 5)) # make figure
 
-# def build_vizmotion_photostim_info_df(responder_functional_types_df, stimulated_functional_types_df, motion_cues, 
-#                                       omr_fish_volume, stim_fish_volume, save = False, save_location = None):
-#     '''
-#     Build a dataframe that contains all of the motion responses and photostimulation responses together
-#     This uses the 'build_functional_types_df' function to get the starting df of the responders and the stimulated cells
-#     responder_functional_types_df - dataframe, the functional types df of the responding cells
-#     stimulated_functional_types_df - dataframe, the functional types df of the stimulated cells
-#     motion_cues - list, the motion cues to get responses from
-#     omr_fish_volume - VolumeFish object, the OMR dataset (all the planes together)
-#     stim_fish_volume - VolumeFish object, the photostimulation dataset (all the planes together)
-#     save - bool, if you want to save the dataframe
-#     save_location - Path, where to save the dataframe
+    # location of the neurons
+    ax[0].imshow(fish_brain_image, cmap = 'gray', vmax = np.percentile(fish_brain_image, 99))
+    coords = plotting_specific_cells_df.neur_coords.values[sorted_inds_with_stim]
+    color_map = plotutils.build_cmap_blue_to_red()
+    responder_colors_for_plotting = plotutils.clip_and_map_colors(responder_values_for_plotting, vmin=colors_range[0], vmax=colors_range[1], cmap_name=color_map)
+    responder_colors_for_plotting_sorted = [responder_colors_for_plotting[i] for i in sorted_inds_with_stim]
+    for n, c in enumerate(coords):
+        marker = 'o'
+        faceclr = responder_colors_for_plotting_sorted[n]
+        if plotting_specific_cells_df.iloc[n].resp_cell_id == photostim_cell_id: # if the stimmed cell, then mark with a red x
+            marker = 'x'
+            faceclr = 'red'
+        edgeclr = None
+        ax[0].scatter(c[0], c[1], facecolor = faceclr, edgecolor = edgeclr, marker = marker, s = 30)
+        ax[0].annotate(str(n), xy = (c[0], c[1]),xytext=(c[0], c[1]), color = 'white', fontsize = 8)
+    ax[0].axis('off')
+    ax[0].set_title(f'{group_name} responders to {photostim_cell_id} ({stimmed_cell_vis_barcode})')
 
-#     returns a dataframe with the following columns:
-#     resp_cell_id - str, the id of the responding cell
-#     omr_neur_id - int, the neuron id in the OMR stack
-#     stim_neur_id - int, the neuron id in the photostimulation dataset
-#     neur_coords - list, the coordinates of the neuron
-#     plane - int, the plane number
-#     visual_barcode - str, the visual motion barcoding of the neuron (from before, may not be accurate)
-#     photostim - bool, if the neuron was photostimulated
-#     motion_responses - dict, the motion responses of the neuron to the motion cues
-#     stim_responses - dict, the responses of the neuron to each photostimulated neuron
-#     avg_evoked_df_f - list, the average evoked df f for each photostimulated neuron in the same order
+    # raster plot of all the photostimulation trials, last one is the stimmed cell
+    sns.heatmap(sorted_raster_array, cmap = 'bwr', cbar = True, center=0, vmin = colors_range[0], vmax = colors_range[1], ax = ax[1])
+    ax[1].axvline(photostim_start_frame, color = 'black')
+    ax[1].set_title(f'averaged photostim responses (zscore)')
+    ax[1].set_xlabel('frames')
+    ax[1].set_ylabel('neurons')
 
+    # motion responses of all the neurons, last one is the stimmed cell
+    len_one_motion_response_array = len(plotting_specific_cells_df.iloc[0].motion_responses['mean'][constants.photostim_motion_cues[0]])
+    all_motion_responses_array = np.zeros((len(plotting_specific_cells_df), len(constants.photostim_motion_cues)*len_one_motion_response_array))
+    for i in sorted_inds_with_stim:
+        array_lst = []
+        for m in constants.photostim_motion_cues:
+            array = plotting_specific_cells_df.iloc[i].motion_responses['mean'][m]
+            array_lst.append(array)
+        concat_array = np.concatenate(array_lst, axis = 0)
+        all_motion_responses_array[i] = concat_array
+    start_motion_frames = stimuli.stimulus_start_frames_for_plots(frames_motion_on= 7,  # used offsets in the photostim fishy
+                                    length_of_total_frame_arr = len_one_motion_response_array,
+                                    number_of_stims_in_set = len(constants.photostim_motion_cues))
+    sns.heatmap(all_motion_responses_array, cmap = 'gray_r', cbar = True, vmin = vizmotion_limits[0], vmax = vizmotion_limits[1], ax = ax[2])
+    stimuli.flexible_stim_shader(start_motion_frames, constants.photostim_motion_cues, 7, subplot = ax[2], ylim = 0.9)
+    ax[2].set_title(f'averaged visual motion responses (df/f)')
+    ax[2].xaxis.set_major_locator(plt.NullLocator())
+    ax[2].set_xticks([])
+    plt.tight_layout()
+    if save_path is not None:
+        plt.savefig(save_path.joinpath(f'{photostim_cell_id}_{group_name}.png'), dpi = 300)
+    else:
+        plt.show()
+    plt.show()
 
-#     '''
-
-#     all_neurons_df = pd.concat([responder_functional_types_df, stimulated_functional_types_df]).reset_index(drop = True)
-
-#     resp_f_trace_array, _, _ = prepare_data_for_plotting(all_neurons_df, stim_fish_volume)
-#     stim_f_trace_array, _, _ = prepare_data_for_plotting(stimulated_functional_types_df, stim_fish_volume)
-
-#     # photostimulation time window
-#     window = [-4, 7]
-
-#     # creating a new dataframe to store all of the information
-#     new_info_df = pd.DataFrame(columns = ['resp_cell_id', 'omr_neur_id', 'stim_neur_id', 'neur_coords', 'plane', 'region', 'visual_barcode', 'photostim',
-#                                         'motion_responses', 'stim_responses', 'avg_evoked_df_f'])
-#     new_info_df['resp_cell_id'] = [f'resp_{i}' for i in range(len(responder_functional_types_df))] + [f'stim_{i}' for i in range(len(stimulated_functional_types_df))]
-#     new_info_df['omr_neur_id'] = all_neurons_df.omr_neur_id
-#     new_info_df['stim_neur_id'] = all_neurons_df.stim_neur_id
-#     new_info_df['neur_coords'] = all_neurons_df.neur_coords
-#     new_info_df['plane'] = all_neurons_df.plane
-#     new_info_df['visual_barcode'] = all_neurons_df.visual_barcode
-#     new_info_df['photostim'] = all_neurons_df.photostim
-#     new_info_df['region'] = all_neurons_df.region
-
-#     lst_motion_responses = []
-#     lst_stim_responses = []
-#     lst_avg_evoked = []
-
-#     # for each responding neuron in the whole volume:
-#     for i in range(len(all_neurons_df)):
-
-#         # information about this cell
-#         omr_cell_id = all_neurons_df.omr_neur_id.iloc[i]
-#         plane_id = int(str(all_neurons_df.plane.iloc[i]).split('_')[1])
-
-#         # get the visual responses of this cell, put it into a dictionary
-#         motion_responsive_dict = BCDict()
-#         omr_fish = omr_fish_volume[plane_id]
-#         omr_cell_extended_raw_resp = pd.DataFrame(omr_fish.extended_responses_normf).iloc[omr_cell_id]
-#         for s, stim in enumerate(motion_cues):
-#             if stim not in motion_responsive_dict.keys():
-#                 motion_responsive_dict[stim] = {}
-#             motion_resp = omr_cell_extended_raw_resp[stim]
-#             df_f_motion_resp = np.zeros(shape = np.array(motion_resp).shape)
-#             for a, arr in enumerate(motion_resp):
-#                 base_e = arr[:-omr_fish.offsets[0]]
-#                 plot_e = (arr - np.nanmean(base_e)) / np.nanmean(base_e)
-#                 df_f_motion_resp[a] = plot_e
-#             motion_responsive_dict[stim]['mean'] = np.nanmean(df_f_motion_resp, axis = 0) 
-#             motion_responsive_dict[stim]['std'] = np.nanstd(df_f_motion_resp, axis = 0)
-        
-#         # for each stimulated cell, gather the responses of the responding cell 
-#         responding_trace = resp_f_trace_array[i]
-#         resp_to_each_stimulation_dict = BCDict()
-#         avg_evoked_df_f_lst = []
-#         for s_ind, s_trace in enumerate(stim_f_trace_array):
-#             s_cell_id = f'stim{s_ind}'
-#             if s_cell_id not in resp_to_each_stimulation_dict.keys():
-#                 resp_to_each_stimulation_dict[s_cell_id] = {}
-#             stimmed_frames = stimulated_functional_types_df.stim_frames.values[s_ind]
-#             frame_subset = arrutils.subsection_arrays(stimmed_frames, window)
-#             if frame_subset[-1][-1] > len(s_trace): # adjust frames in case this is out of range
-#                 new_frame_subset = []
-#                 for s in frame_subset:
-#                     new_frame_subset.append([q for q in s if q < len(s_trace)])
-#                 frame_subset = np.array(new_frame_subset)
-
-#             resp_raw_trial = np.array([responding_trace[g] for g in frame_subset if len(responding_trace[g] ) > 0])
-#             resp_df_f_trial = np.zeros(shape = (len(resp_raw_trial), len(resp_raw_trial[0])))
-#             stim_evoked_df_f_trial = np.zeros(shape = (len(resp_raw_trial), 1))
-#             for d, f in enumerate(resp_raw_trial):
-#                 base_e = f[:-window[0]]
-#                 plot_e = (f - np.nanmean(base_e)) / np.nanmean(base_e)
-#                 stim_evoked_df_f_trial[d] = np.nanmedian(plot_e[:-window[0]]) # evoked df f for each trial
-#                 resp_df_f_trial[d] = plot_e # full trace for each trial
-            
-#             resp_to_each_stimulation_dict[s_cell_id] = [resp_df_f_trial]
-#             avg_evoked_df_f_lst.append(np.nanmean(stim_evoked_df_f_trial))
-
-#         # put all of this information into the new dataframe
-#         lst_motion_responses.append(motion_responsive_dict)
-#         lst_stim_responses.append(resp_to_each_stimulation_dict)
-#         lst_avg_evoked.append(avg_evoked_df_f_lst)
-
-#     new_info_df['motion_responses'] = lst_motion_responses
-#     new_info_df['stim_responses'] = lst_stim_responses
-#     new_info_df['avg_evoked_df_f'] = lst_avg_evoked
-
-#     if save:
-#         new_info_df.to_hdf(save_location.joinpath('vizmotion_photostim_info.h5'), key = 'df', mode = 'w')
-
-#     return new_info_df
+    return print('done')
 
 
 
@@ -1274,8 +1374,7 @@ def plotting_correlation_maps_avg_photostim_evoked_resp(vizmotion_photostim_info
 
 
 
-
-# this is to check the quality of the photostimulation dataset - wihtout automated gui
+# this is to check the quality of the photostimulation dataset - without automated gui
 class SinglePhotostimPipeline:
     def __init__(self, 
                  PhotostimFishVolume, 
