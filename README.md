@@ -1,90 +1,116 @@
 # caImageAnalysis
-<img align = "right" width = "240" src="mascot.png ">
 
-### Introduction
+Two-photon calcium imaging analysis using CaImAn, mesmerize, and fastplotlib.
 
-Calcium imaging functional analysis
+# Installation
+To set up Mamba, follow these steps:
 
-<br>
+1. Install Anaconda by following the instructions on the [official website](https://www.anaconda.com/download/success).
 
-The default class is a BaseFish from fishy.py. We offer a process.py for various analyses.
-The standard implementation runs motion correction via caiman and then source extraction via suite2p, 
-and most of the more advanced classes assume a suite2p folder with contained sources.
+Enter the following commands into the Terminal on Mac.
 
+2. Install [Homebrew](https://brew.sh):
 
-<br>
+    ```bash
+    /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+    ```
 
+3. Install [micromamba](https://mamba.readthedocs.io/en/latest/installation/micromamba-installation.html):
 
-<br>
-<br>
-We leverage a folder structure that contains all experiment items
+    ```bash
+    brew install micromamba
+    ```
 
-### Folder Structure
+4. If you get a `zsh: command not found: brew` error, run the following commands in this order and then try the above command again:
 
-<img align = "left" width = "500" src="resources\folder_overview.PNG ">
+    ```bash
+    cd /opt/homebrew/bin/
 
-<br>
-<br>
-<br>
-<br>
-<br>
-<br>
-<br>
-<br>
-<br>
-<br>
+    PATH=$PATH:/opt/homebrew/bin
 
-### Installation
-This assumes you are using Anaconda and Python 3:
+    echo export PATH=$PATH:/opt/homebrew/bin >> ~/.zshrc
+    ```
 
-1. Install [Mambaforge](https://github.com/conda-forge/miniforge#mambaforge)
+5. After `micromamba` is successfully installed, restart your terminal.
 
+6. Verify the installation:
 
-2. Create a new environment and install [Caiman](https://caiman.readthedocs.io/en/master/Installation.html#installing-caiman). Note: helpful information on caiman can be found [here](https://github.com/EricThomson/CCN_caiman_mesmerize_workshop_2023)
-    
-    `mamba create -n caiman -c conda-forge caiman`
+    ```bash
+    micromamba --version
+    ```
 
+7. Modify the shell configuration and set the root prefix location to activate environments more easily:
 
-3. Activate the envs (note: python should be 3.7x)
+    ```bash
+    micromamba shell init --shell zsh --root-prefix=~/.local/share/mamba
+    ```
 
-   `mamba activate caiman`
+8. For analysis of two-photon recordings of neurons, clone the following repository:
 
+    ```bash
+    git clone https://github.com/minel-arinel/caImageAnalysis.git
+    ```
 
-4. Install [suite2p](https://github.com/MouseLand/suite2p)
+9. Create the `mescore` environment:
 
-   ` python -m pip install suite2p`
+    ```bash
+    cd caImageAnalysis
 
+    micromamba create -f environment.yml
+    ```
 
-5. Edit suite2p documentation to fit with scipy and numpy versions compatible with caiman
+10. Activate the `mescore` environment:
 
-    \Lib\site-packages\suite2p\detection\sparsedetect.py 
+    ```bash
+    micromamba activate mescore
+    ```
 
-   Remove the 'keepdims' arg from line 256
+11. Confirm that the correct version of Python is installed (3.10.12):
 
+    ```bash
+    python --version
+    ```
 
-6. Install more packages
+12. Confirm that `caiman` and `mesmerize-core` are installed successfully:
 
-   ` python -m pip install tables nptdms pyarrow`
+    ```bash
+    ipython
+    ```
 
+    ```python
+    # Run in ipython
+    import caiman
+    import mesmerize_core
+    print(caiman.__version__)  # should be 1.9.15
+    print(mesmerize_core.__version__)  # should be 0.2.2
+    ```
 
-7. Optional: Download [mimic_alpha](https://github.com/montefra/mimic_alpha) into your new caiman envs - this package converts a list of RGB color that mimic a RGBA on a given background. This is useful for plotting.
+13. Finally, there are some bugs in these specific versions of `caiman` and `mesmerize-core`. They are fixed in later versions, but these versions also make the code incompatible. Therefore, we will manually fix this problem by replacing some of the `.py` files in these packages with the ones in the `caImageAnalysis` repository. 
 
+Replace the `~/.local/share/mamba/envs/mescore/lib/python3.10/site-packages/caiman/source_extraction/cnmf/estimates.py` file with the `~/caImageAnalysis/caImageAnalysis/replace/caiman/estimates.py` file.
 
+Replace the `~/.local/share/mamba/envs/mescore/lib/python3.10/site-packages/mesmerize_core/algorithms/cnmf.py` file with the `~/caImageAnalysis/caImageAnalysis/replace/mesmerize_core/cnmf.py` file.
 
+Replace the `~/.local/share/mamba/envs/mescore/lib/python3.10/site-packages/mesmerize_core/algorithms/mcorr.py` file with the `~/caImageAnalysis/caImageAnalysis/replace/mesmerize_core/mcorr.py` file.
 
-<br>
+## How to Use
 
-### Structure
+To run the `.ipynb` Jupyter notebooks:
 
+1. Activate the `mescore` environment:
 
-core: motion correction, source extraction, calculate factors <br> 
+    ```bash
+    micromamba activate mescore
+    ```
 
-utils: ideally things used multiple places, converts timestamps, stimuli, etc into dataframes <br> 
+2. Launch Jupyter Notebook:
 
-visualize: various visualization of response-classes, barcodes, neuron functions, etc <br> 
+    ```bash
+    jupyter notebook
+    ```
 
+3. Open the `.ipynb` file and run the code.
 
+## Notes
 
-<br><br><br>
-Issues:
-sometimes processing multiple fish at a time gives permission errors: unclear reproducibility, just refresh and give it another go
+- If you encounter any issues, ensure that all dependencies in the `environment.yml` file were successfully installed.
