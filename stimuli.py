@@ -206,14 +206,14 @@ def stimulus_start_frames_for_plots(frames_motion_on = 7, length_of_total_frame_
     returns a list of the starting frames for each stimulus in the set, this is what starts the shading in the plots
     '''
     stim_start_frames = []
-    start_value = frames_motion_on - 1
+    start_value = frames_motion_on
     for _ in range(number_of_stims_in_set):
         stim_start_frames.append(start_value)
         start_value += length_of_total_frame_arr
 
     return stim_start_frames
 
-def flexible_stim_shader(frames, stimmies, frames_motion_on, fs = 14, subplot = None, label = True, 
+def flexible_stim_shader(frames, stimmies, frames_motion_on, fs = 14, subplot = None, label = True,
                          ylim = 3, label_offset_x = -6, alpha = 0.3):
     import constants
     import matplotlib.pyplot as plt
@@ -325,6 +325,48 @@ def flexible_stim_shader(frames, stimmies, frames_motion_on, fs = 14, subplot = 
 def numToStim(dict):
     reverse_dict = {value: key for key, value in dict.items()}
     return reverse_dict
+
+def combine_binocular_stims_for_tail_df(df, column_name = 'tail_angle'):
+    '''
+    Combine all the binocular stimuli together
+    Requires flipping all the left tail angles
+    '''
+    df_copy = df.copy()
+
+    # Define rename mapping
+    stim_map = {
+        'medial_right': 'medial',
+        'lateral_right': 'lateral',
+        'medial_left': 'medial',
+        'lateral_left': 'lateral',
+        'left': 'binocular',
+        'right': 'binocular'
+    }
+
+    # Flip sign for the left-side versions
+    flip_stimuli = {'medial_left', 'lateral_left', 'left'}
+    if column_name is not None: # only if you need to flip the sign of the data
+        df_copy.loc[df_copy['tail_stimuli'].isin(flip_stimuli), column_name] *= -1
+
+    # Apply renaming for all cases
+    df_copy['tail_stimuli'] = df_copy['tail_stimuli'].replace(stim_map)
+
+    return df_copy
+
+def add_reps_to_stimulus_df(stim_df):
+    stim_df['rep'] = 0
+    # get the number of reps for each stim, choose number of reps based on the minimum value
+    all_reps = []
+    for each_stim in stim_df.stim_name.unique():
+        all_reps.append(len(stim_df[stim_df.stim_name == each_stim]))
+    no_repetitions = min(all_reps)
+
+    # set the rep value into a new column in the stimulus df
+    n_stims = stim_df.stim_name.nunique()
+    for i in range(no_repetitions):
+        stim_df.iloc[(n_stims*i):(n_stims*i+n_stims)]['rep'] = i
+    return stim_df
+
 
 def kaitlyn_pandastim_to_df(
     pstim_path,

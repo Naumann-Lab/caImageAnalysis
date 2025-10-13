@@ -15,14 +15,14 @@ import matplotlib.pyplot as plt
 from bcdict import BCDict
 
 import sys
-sys.path.append(r'C:\Users\NaumannLab_KEF\PyCharmProjects\imaging\caImageAnalysis')
+sys.path.append(r'C:\Users\Kaitlyn\PyCharmProjects\imaging\caImageAnalysis')
 # local imports
 import constants
 import angles
 from utilities import pathutils, arrutils, roiutils, coordutils, plotutils
 import stimuli
 import process
-import photostimulation
+import photostim_utils
 import tailtracking
 import bruker_images
 
@@ -53,12 +53,12 @@ class BaseFish:
         self.img_hz = self.hzReturner(self.frametimes_df) 
         
         if 'suite2p' in self.data_paths.keys():
-            self.load_suite2p() # loads in suite2p paths 
-            self.rescaled_img()   
+            self.load_suite2p() # loads in suite2p paths
+            self.is_cell()  # clean up cells (close to edge, not changing fluor, nan location, etc)
         if 'caiman' in self.data_paths.keys():
             self.load_caiman(caiman_type) # load in caiman data 
-            self.rescaled_img()
-            self.is_cell() # clean up cells that are not changing fluorescence
+            self.is_cell() # clean up cells (close to edge, not changing fluor, nan location, etc)
+
         
     def process_filestructure(self, midnight_noon = "noon"):
         self.data_paths = {}
@@ -113,11 +113,12 @@ class BaseFish:
                         self.data_paths["ps_xml"] = Path(entry.path)
                     elif "Voltage" not in entry.name and 'MarkPoints' not in entry.name:
                         self.data_paths["info_xml"] = Path(entry.path)
+                        self.um_per_px = bruker_images.get_micronstopixels_scale(self.data_paths['info_xml'])
                 elif entry.name.endswith("env"):
                     self.data_paths["info_env"] = Path(entry.path)
                 elif entry.name.endswith("csv") and 'Voltage' in entry.name:
                     self.data_paths["voltage_signal"] = Path(entry.path)
-                elif 'output.txt' in entry.name: # from automated gui experiments
+                elif ('output.txt' in entry.name) & ('pstim' not in entry.name): # from automated gui experiments
                     self.data_paths["ps_log"] = Path(entry.path)
                 elif 'stim_sites' in entry.name:
                     self.data_paths["stim_sites"] = Path(entry.path)
@@ -165,6 +166,7 @@ class BaseFish:
             self.data_paths["suite2p"].joinpath("stat.npy"), allow_pickle=True
         )
         self.f_cells = np.load(self.data_paths["suite2p"].joinpath("F.npy"))
+        self.rescaled_img()
 
     def load_caiman(self, caiman_type):
         # make a ops['refImg'] to be used later, like with suite2p data
@@ -187,30 +189,38 @@ class BaseFish:
         else:
             self.f_cells = np.load(self.data_paths["caiman"].joinpath("C.npy"))
         self.df_f_cells = np.load(self.data_paths["caiman"].joinpath("F_dff.npy"))
+        self.rescaled_img()
 
-    def is_cell(self):
+    def is_cell(self, edge_margin = 20):
         """
-        This is from the DC OMR paper
+        For all types of output:
+        0 - Always remove cells that are within 20 pixels of the border (for standard 512 x 512 FOV)
+        For caiman output:
         1 - Clean up the self.f_cells and self.df_f_cells according to self.iscell 
         2 - clean up cells that didn't change fluorscence throughout the trial at all
         3 - remove cells with any nan location values
         4 - if caiman data, then make sure the cells are within the brain region
         """
-        # 1 - is part of is cell index
-        iscell_index = np.where(self.iscell) 
+        # 0 - remove cells that are too close to the edge - for all sources
+        height, width = self.ops['refImg'].shape
+        edge_cell_indices = []
+        for idx, location_info in enumerate(self.stats):
+            x = location_info['xpix']
+            y = location_info['ypix']
+            # Compute min and max of the cell location
+            xmin = np.min(x)
+            xmax = np.max(x)
+            ymin = np.min(y)
+            ymax = np.max(y)
+            # Check if any pixel touches the margin
+            if (xmin < edge_margin or xmax > (width - edge_margin - 1) or ymin < edge_margin or ymax > (height - edge_margin - 1)):
+                edge_cell_indices.append(idx)
 
-        # 2 - cell is changing
-        # ischanging_index = np.where(np.amax(self.f_cells, 1) != np.amin(self.f_cells, 1))
-        # iscell_index = np.intersect1d(iscell_index, ischanging_index)
-        iscell_index = iscell_index[0]
-
-        # 3 - remove cells with a nan location
-        notcell_index = []
-        for e, x in enumerate(self.stats):
-            for value in x.values():
+            # Check if there is a nan location
+            for value in location_info.values():
                 if isinstance(value, float) and np.isnan(value):
-                    notcell_index.append(e)
-        iscell_index = [index for index in iscell_index if index not in notcell_index]
+                    edge_cell_indices.append(idx)
+        iscell_index = [index for index in range(len(self.f_cells)) if index not in edge_cell_indices]
 
         self.f_cells = self.f_cells[iscell_index]
         self.stats = self.stats[iscell_index]
@@ -218,11 +228,32 @@ class BaseFish:
             self.df_f_cells = self.df_f_cells[iscell_index]
 
         if 'caiman' in self.data_paths.keys():
+            # 1 - is part of is cell index
+            iscell_index = np.where(self.iscell)
+
+            # 2 - cell is changing
+            ischanging_index = np.where(np.amax(self.f_cells, 1) != np.amin(self.f_cells, 1))
+            iscell_index = np.intersect1d(iscell_index, ischanging_index)
+            # iscell_index = iscell_index[0]
+
+            # 3 - remove cells with a nan location
+            notcell_index = []
+            for e, x in enumerate(self.stats):
+                for value in x.values():
+                    if isinstance(value, float) and np.isnan(value):
+                        notcell_index.append(e)
+            iscell_index = [index for index in iscell_index if index not in notcell_index]
+
+            self.f_cells = self.f_cells[iscell_index]
+            self.stats = self.stats[iscell_index]
+            if hasattr(self, 'df_f_cells'):
+                self.df_f_cells = self.df_f_cells[iscell_index]
+
             # 4 - with caiman data, make sure that these cells are within the brain region
             try:
                 iscell_inbrain_index = np.array(self.return_cells_by_saved_roi('brain')) # if there is a good brain ROI
             except KeyError:
-                self.draw_roi('brain', overwrite=True) # in case you need to get the brain ROI again
+                self.draw_roi2('brain', overwrite=True) # in case you need to get the brain ROI again
                 iscell_inbrain_index = np.array(self.return_cells_by_saved_roi('brain'))
             iscell_index_2 = np.intersect1d(np.array(iscell_index), iscell_inbrain_index)
             self.f_cells = self.f_cells[iscell_index_2]
@@ -312,6 +343,67 @@ class BaseFish:
             cv2.destroyAllWindows()
 
         self.save_roi(title, overwrite)
+    
+    def draw_roi2(self, title="blank", overwrite=False, brightness=50, contrast=30):
+        
+        # Make a copy of the reference image
+        img = self.ops["refImg"].copy()
+        self.ptlist = []
+        
+        # Brightness / contrast adjustment
+        plot_img = np.int16(img)
+        plot_img = plot_img * (contrast / 127 + 1) - contrast + brightness
+        plot_img = np.clip(plot_img, 0, 255).astype(np.uint8)
+
+        # ---------- Try OpenCV GUI ----------
+        try:
+            import cv2
+
+            window_name = f"roiFinder_{title}"
+
+            def roigrabber(event, x, y, flags, params):
+                if event == cv2.EVENT_LBUTTONDOWN:  # left click
+                    if self.ptlist:
+                        cv2.line(plot_img, self.ptlist[-1], (x, y), (255, 255, 255), 2)
+                    cv2.circle(plot_img, (x, y), 3, (0, 255, 0), -1)
+                    self.ptlist.append((x, y))
+                    cv2.imshow(window_name, plot_img)
+
+                elif event == cv2.EVENT_RBUTTONDOWN:  # right click closes polygon
+                    if len(self.ptlist) > 2:
+                        cv2.line(plot_img, self.ptlist[-1], self.ptlist[0], (255, 255, 255), 2)
+                        cv2.imshow(window_name, plot_img)
+                    cv2.waitKey(500)
+                    cv2.destroyAllWindows()
+
+            cv2.namedWindow(window_name)
+            cv2.setMouseCallback(window_name, roigrabber)
+
+            cv2.imshow(window_name, plot_img)
+            cv2.waitKey(0)
+            cv2.destroyAllWindows()
+
+        except Exception as e:
+            print(f"[INFO] OpenCV GUI not available ({e}). Falling back to Matplotlib ROI selection.")
+            import matplotlib
+            matplotlib.use("Qt5Agg")
+
+            import matplotlib.pyplot as plt
+            from matplotlib.widgets import PolygonSelector
+
+            def onselect(verts):
+                self.ptlist = [(int(x), int(y)) for x, y in verts]
+                plt.close()
+
+            fig, ax = plt.subplots()
+            ax.imshow(plot_img, cmap='gray')
+            ax.set_title("Left-click to add points, right-click to close ROI")
+            selector = PolygonSelector(ax, onselect, useblit=True,
+                                        lineprops=dict(color='r', linestyle='-', linewidth=2, alpha=0.5))
+            plt.show()
+
+        # Save ROI after selection
+        self.save_roi(title, overwrite)
 
     def save_roi(self, save_name, overwrite):
         savePathFolder = self.folder_path.joinpath("rois")
@@ -340,7 +432,7 @@ class BaseFish:
         if overwrite:
             if roi_name not in self.roi_dict:
                 print("roi not found, please select")
-                self.draw_roi(title=roi_name)
+                self.draw_roi2(title=roi_name)
                 self.load_saved_rois()
 
         roi_points = np.load(self.roi_dict[roi_name])
@@ -366,7 +458,7 @@ class BaseFish:
     def return_x_midline(self):
         self.load_saved_rois()
         if 'midline' not in self.roi_dict.keys():
-            self.draw_roi(title="midline")
+            self.draw_roi2(title="midline")
             self.load_saved_rois()
         x_midline_points = np.load(self.roi_dict["midline"])
         x_midline = int(np.nanmean([x for x, y in x_midline_points]))
@@ -508,7 +600,7 @@ class TailTrackedFish(BaseFish):
             self.tail_df = self.tag_frames_to_df(self.frametimes_df, self.tail_df, 't_dt')
             self.tail_df.to_hdf(self.data_paths['tail'], key='tail')
         
-        self.tail_pearsonr_correlation(select_cells = None)
+        # self.tail_pearsonr_correlation(select_cells = None)
 
     def add_tail_paths(self, tail_key):
         try:
@@ -524,7 +616,8 @@ class TailTrackedFish(BaseFish):
     def tail_pearsonr_correlation(self, select_cells = None):
         import scipy
         new_tail_df = tailtracking.find_tail_sum_std(self.tail_df)
-        tail_trace = new_tail_df.groupby(['frame']).mean()['std'] # using standard deviation of tail sum for correlation
+        # using standard deviation of tail sum for correlation, fill nan with 0 to have this run
+        tail_trace = new_tail_df.groupby(['frame']).mean()['std'].fillna(0)
         if select_cells is None:
             cell_arr = self.f_cells
         else:
@@ -532,7 +625,7 @@ class TailTrackedFish(BaseFish):
         self.motor_pearson_corrs = [scipy.stats.pearsonr(trace[:len(tail_trace)], tail_trace)[0] for trace in cell_arr]
         self.motor_pearson_pvals = [scipy.stats.pearsonr(trace[:len(tail_trace)], tail_trace)[1] for trace in cell_arr]
 
-class VizStimFish(BaseFish):
+class VizStimFish(TailTrackedFish):
     def __init__(
         self,
         stim_key="stims",
@@ -752,61 +845,71 @@ class VizStimFish(BaseFish):
 
         return final_image * brightnessFactor
 
-class PhotostimFish(BaseFish):
+class PhotostimFish(VizStimFish):
     def __init__(
         self,
         rotate = True, 
         stim_type_keyword = 'single_cell',
         stimmed_plane = True,
+        photostim_frame_window = [-8, 12],
+        evoked_num_frames = 6,
+        identify_stim_cell_within_radius_um = 7,
         *args,
         **kwargs,
     ):
         '''
-        :param stim_type_keyword: what kind of stimulation type for this dataset
+        :param stim_type_keyword: what kind of stimulation type for this dataset, 'single_cell' or 'ensemble'
         :param rotate: is the image rotated 90 degrees
         :param stimmed_plane: is this plane stimulated (true or false), helpful when running through multiple planes in a volume
+        :param photostim_frame_window: how many frames to use for photostimulation period (before and after the event), default: 8 frames pre, 12 frames post
+        :param evoked_num_frames: how many frames to use for measuring the 'evoked' period, default: 6
         '''
         super().__init__(*args, **kwargs)
         self.add_parameter_df() # adding the stim parameters df if it exists
+        self.photostim_frame_window = photostim_frame_window
+        self.evoked_num_frames = evoked_num_frames
 
-        # 0 - prep the cell traces
+        # 0 - prep the cell traces, image
         self.normcells = arrutils.norm_fdff(self.f_cells)
         self.zdiff_cells = [arrutils.zdiffcell(z) for z in self.f_cells]
+        self.rescaled_img()
 
         # 1 - find bad frames and baseline frames, make sure this exists first #
         try:
             self.badframes_arr = np.array(np.load(Path(self.folder_path).joinpath('bad_frames.npy')))
         except: 
             print('find bad frames and re run suite2p')
-            photostimulation.save_badframes_arr(self)
+            photostim_utils.save_badframes_arr(self)
 
         if 'ps_xml' in self.data_paths.keys():
-            photostimulation.find_no_baseline_frames(self)
+            photostim_utils.find_no_baseline_frames(self)
         elif 'ps_log' in self.data_paths.keys():
-            photostimulation.find_no_baseline_frames(self)
+            photostim_utils.find_no_baseline_frames(self)
         else: # protecting the automated gui experiments to keep running with photostim fish
             self.baseline_frames = 0
 
+        # find out if this plane was stimulated or not...
+
         # 2 - gather and make the stim sites dataframe for different outputs #
         if ('stim_sites' not in self.data_paths.keys()) & (stimmed_plane == True): # need to create a stim sites df from scratch (works with MP files, voltage recording)
-            self.ps_event_duration, _ = photostimulation.collect_stimulation_times(self)
+            self.ps_event_duration, _ = photostim_utils.collect_stimulation_times(self)
             self.ps_event_duration_frames = int(np.ceil(self.ps_event_duration/1000 * self.img_hz))
             self.ps_event_start = arrutils.filter_list(lst = np.unique(self.badframes_arr), interval = self.ps_event_duration_frames)
-            self.stim_sites_df = photostimulation.identify_stim_sites(self, rotate, stimulation_type = stim_type_keyword)
+            self.stim_sites_df = photostim_utils.identify_stim_sites(self, rotate, stimulation_type = stim_type_keyword)
         if ('stim_sites' in self.data_paths.keys()) & (stimmed_plane == True): # need to upload current stim sites df (works with new automated output, normal outputs)
-            self.stim_sites_df = pd.read_hdf(self.data_paths['stim_sites'])
+            self.stim_sites_df = pd.read_hdf(self.data_paths['stim_sites'], key="stim")
             if 'stim_duration_ms' in self.stim_sites_df.columns: # if special output type
                 self.ps_event_duration = self.stim_sites_df.stim_duration_ms.iloc[0] # assuming all the same
                 self.ps_event_start = self.stim_sites_df.stim_frames.values # already put these into the dataframe
                 if 'x_stim' not in self.stim_sites_df.columns:
                     self.stim_sites_df = self.stim_sites_df.rename(columns={'x': 'x_stim', 'y': 'y_stim'})
         # can be done for all planes
-        self.ps_event_duration, _ = photostimulation.collect_stimulation_times(self)
+        self.ps_event_duration, _ = photostim_utils.collect_stimulation_times(self)
         self.ps_event_duration_frames = int(np.ceil(self.ps_event_duration/1000 * self.img_hz))
         self.ps_event_start = arrutils.filter_list(lst = np.unique(self.badframes_arr), interval = self.ps_event_duration_frames)
 
         # if 'caiman' in self.data_paths.keys(): # not working for the automated gui yet
-        #     photostimulation.create_new_ps_events_array(self) # making a new ps_events start array since trimmed frames from caiman processing
+        #     photostim_utils.create_new_ps_events_array(self) # making a new ps_events start array since trimmed frames from caiman processing
         #     self.ps_event_start = np.load(Path(self.folder_path).joinpath('ps_frames.npy'))
         #     self.ps_event_duration = 100 # arbitrary setting duration to 100 ms
         #     self.ps_event_duration_frames = 1 # thus frames is 1
@@ -814,11 +917,11 @@ class PhotostimFish(BaseFish):
         if stimmed_plane:
             # 3 - id the stim sites and save the raw traces #
             self.ps_event_duration_frames = int(np.ceil(self.ps_event_duration/1000 * self.img_hz))
-            self.raw_traces, self.points = photostimulation.collect_raw_traces(self)
-
-            # 4 - id the stimulated cells based on distance #
-            self.stimmed_cell_coords, self.stimmed_cell_id_array, self.stimmed_cells_matched_stim_ids_dict = self.identify_stim_cells(overlap = False)
-
+            self.raw_traces, self.points = photostim_utils.collect_raw_traces(self)
+            # 4 - id the stimulated cells based on distance & max response #
+            self.stimmed_cell_coords, self.stimmed_cell_id_array, self.stimmed_cells_matched_stim_ids_dict = self.identify_stim_cells(within_radius_um = identify_stim_cell_within_radius_um,
+                                                                                                                                      frame_window = [self.photostim_frame_window[0],
+                                                                                                                                                      self.evoked_num_frames])
             # 5 - build the photostim correlation dataframe #
             # self.build_ps_corrdf(frames_pre_post = photostim_window)
 
@@ -829,65 +932,141 @@ class PhotostimFish(BaseFish):
         else:
             pass
 
-    def identify_stim_cells(self, overlap = False):
+    def identify_stim_cells(self, within_radius_um = 10, frame_window = [-8, 6]):
         '''
-        Identify the suite2p cells that are stimulated in the dataset from the overlap of stim site locations
-        overlap: keyword to indicate if you want to use the centers of stim sites or the whole spiral size to overlap with cells
-        Returns: 
+        Identify the suite2p cells that are stimulated in the dataset from the overlap of stim site locations & max evoked responses
+
+        Returns:
         closest_coord_list = coordinates of the closest cell to the stim site
         closest_cell_id_array = the cell id of the closest cell to the stim site
+        closest_cell_id_dict = dict, keys are cell ids in the stim sites df, values are the cell ids from the fishy
         '''
+        closest_coord_list = []
+        closest_cell_id_array = np.zeros(shape = (len(self.stim_sites_df)))
+        try:
+            cell_ids = self.stim_sites_df.cell_ids.values
+        except:
+            cell_ids = range(len(self.stim_sites_df))
+        print(cell_ids)
+        closest_cell_id_dict = {i: [] for i in cell_ids}
+        all_rois = self.return_cell_rois(range(len(self.f_cells)))
+        for i in range(len(self.stim_sites_df)):
+            stim_cell_id = cell_ids[i]
+            print(f'finding match with stim site {stim_cell_id}')
+            # 1 - look at cells within very close radius from the stimulation cross
+            bruker_coordinate = [int(self.stim_sites_df.x_stim.iloc[i]), int(self.stim_sites_df.y_stim.iloc[i])]
+            if 'stim_frames' in self.stim_sites_df.columns: # if select stim frames for this stimulation
+                stimmed_frames = self.stim_sites_df.iloc[i].stim_frames
+                print(stimmed_frames)
+            else: # default it's just all the ps events on this plane
+                stimmed_frames = self.ps_event_start
+                print(stimmed_frames)
+            nearby_coords_cell_ids, nearby_coords_list = coordutils.determine_nearby_cells_xy(target_coord = bruker_coordinate,
+                                                                                           coordinates = all_rois,
+                                                                                           ums_per_px = self.um_per_px,
+                                                                                           radius_um= within_radius_um)
+            print(f'number of nearby cells {len(nearby_coords_cell_ids)}')
+            if len(nearby_coords_cell_ids) > 0: # if there are nearby vals
+                # 2 - get the max response in the evoked window range (df/f)
+                frame_subset = arrutils.subsection_arrays(stimmed_frames, frame_window) # get the frame subset to find df/f
+                if frame_subset[-1][-1] > len(self.f_cells[0]): # adjust frames in case this is out of range
+                    new_frame_subset = []
+                    for s in frame_subset:
+                        new_frame_subset.append([q for q in s if q < len(self.f_cells[0])])
+                    frame_subset = np.array(new_frame_subset)
+                resp_metric_arr = np.zeros(shape = (len(nearby_coords_cell_ids)))
+                for n, responding_trace in enumerate(self.f_cells[nearby_coords_cell_ids]): # has to be raw fluorescence to find df/f
+                    resp_raw_trial = np.array([responding_trace[g] for g in frame_subset if len(responding_trace[g] ) > 0])
+                    resp_df_f_trial = np.zeros(shape = (len(resp_raw_trial), len(resp_raw_trial[0])))
+                    for d, f in enumerate(resp_raw_trial):
+                        base_e = f[:-frame_window[0]] # i.e. frames 0:8
+                        plot_e = (f - np.nanmean(base_e)) / np.nanmean(base_e)
+                        resp_df_f_trial[d] = plot_e # full trace for each trial
+                    avg_resp_df_f = arrutils.pretty(np.nanmean(resp_df_f_trial, axis = 0), 2) # this looks much better on a smoothed trace (otherwise so noisy), only smoothing over 2 frames (about .5 sec)
+                    max_resp_df_f = np.nanmax(avg_resp_df_f[-frame_window[0]:-frame_window[0] + frame_window[1]])
+                    resp_metric = max_resp_df_f - np.nanmean(avg_resp_df_f[int(-frame_window[0] - self.img_hz):-frame_window[0]]) # max response - avg baseline of just 1 sec before stim
+                    resp_metric_arr[n] = resp_metric
 
-        if overlap == False:
-            # matching cells based on center
-            points_stim = [[int(self.stim_sites_df.x_stim.iloc[i]), int(self.stim_sites_df.y_stim.iloc[i])] 
-                       for i in range(len(self.stim_sites_df))] # stimulated points
-
-            # put in a dictionary here too
-            if 'cell_ids' in self.stim_sites_df.columns:
-                closest_cell_id_dict = {i:[] for i in self.stim_sites_df.cell_ids.values}
+                # 3 - choose the neuron that has the largest response from baseline to be the stimmed cell (but don't want to keep double in the list)
+                sorted_idx = np.argsort(resp_metric_arr)[::-1]
+                # Loop until we find the first one that's not already taken
+                for idx in sorted_idx:
+                    candidate_id = nearby_coords_cell_ids[idx]
+                    if candidate_id not in closest_cell_id_array:
+                        stimmed_cell_id = candidate_id
+                        stimmed_coord = nearby_coords_list[idx]
+                        break
+                closest_coord_list.append(stimmed_coord)
+                closest_cell_id_array[i] = stimmed_cell_id
+                closest_cell_id_dict[stim_cell_id] = [stimmed_cell_id]
             else:
-                closest_cell_id_dict = {i:[] for i in range(len(self.stim_sites_df))}   
-
-            closest_coord_list = []
-            closest_cell_id_array = np.zeros(shape = (len(points_stim)))
-            all_points = self.return_cell_rois(range(len(self.f_cells)))
-            for q, p in enumerate(points_stim):
-                closest_coord, closest_cell_id = coordutils.closest_coordinates(p[0], p[1], all_points)
-                closest_coord_list.append(closest_coord)
-                closest_cell_id_array[q] = closest_cell_id
-                if 'cell_ids' in self.stim_sites_df.columns:
-                    closest_cell_id_dict[self.stim_sites_df.cell_ids.iloc[q]].append(closest_cell_id)
-                else:
-                    closest_cell_id_dict[q].append(closest_cell_id)
-
-        elif overlap == True:
-            # first collect the xpix and ypix of the stimulation site based on the spiral size
-            um_to_px = bruker_images.get_micronstopixels_scale(self.data_paths['info_xml'])
-            stim_sites_stat_dict = {}
-            for p in range(len(self.stim_sites_df)):
-                radius_um = self.stim_sites_df.iloc[p].sp_size/2
-                if radius_um < 1:
-                    radius_um = 2.5 # default size just for now/in case
-                radius_px = radius_um/um_to_px
-                x_pix, y_pix = roiutils.points_within_circle(self.stim_sites_df.iloc[p].x_stim, 
-                                                            self.stim_sites_df.iloc[p].y_stim, radius_px)
-                stim_cell_id = int(self.stim_sites_df.iloc[p].cell_ids)
-                stim_sites_stat_dict[stim_cell_id] = {'xpix': x_pix, 'ypix': y_pix}
-            
-            # matching cell ids based on spiral size overlap and doing 1 to 1 matching
-            closest_cell_id_dict = coordutils.match_cell_ids(cell_arr1 = np.unique(self.stim_sites_df.cell_ids.values),
-                                                                stats_dict1 = stim_sites_stat_dict,
-                                                                cell_arr2 = np.arange(len(self.f_cells)), 
-                                                                stats_dict2 = self.stats,
-                                                                um_to_px = um_to_px)
-            # identifying what those coordinates are, removing nan's and converting all to integers
-            closest_cell_id_array = np.array([v for k, v in closest_cell_id_dict.items()])
-            closest_cell_id_array = closest_cell_id_array[~np.isnan(closest_cell_id_array)]
-            closest_cell_id_array = np.array([int(i) for i in closest_cell_id_array])
-            closest_coord_list = [self.return_singlecell_rois(m) for m in closest_cell_id_array]
+                closest_coord_list.append(np.nan)
+                closest_cell_id_array[i] = np.nan
+                closest_cell_id_dict[stim_cell_id] = [np.nan]
 
         return closest_coord_list, closest_cell_id_array, closest_cell_id_dict
+
+    # old version of the identify stim cells function - based purely on overlapping/spatial areas
+
+    # def identify_stim_cells(self, overlap = False):
+
+        # Identify the suite2p cells that are stimulated in the dataset from the overlap of stim site locations
+    #         overlap: keyword to indicate if you want to use the centers of stim sites or the whole spiral size to overlap with cells
+    #
+    #         Returns:
+    #         closest_coord_list = coordinates of the closest cell to the stim site
+    #         closest_cell_id_array = the cell id of the closest cell to the stim site
+
+        # if overlap == False:
+        #     # matching cells based on center
+        #     points_stim = [[int(self.stim_sites_df.x_stim.iloc[i]), int(self.stim_sites_df.y_stim.iloc[i])]
+        #                for i in range(len(self.stim_sites_df))] # stimulated points
+        #
+        #     # put in a dictionary here too
+        #     if 'cell_ids' in self.stim_sites_df.columns:
+        #         closest_cell_id_dict = {i:[] for i in self.stim_sites_df.cell_ids.values}
+        #     else:
+        #         closest_cell_id_dict = {i:[] for i in range(len(self.stim_sites_df))}
+        #
+        #     closest_coord_list = []
+        #     closest_cell_id_array = np.zeros(shape = (len(points_stim)))
+        #     all_points = self.return_cell_rois(range(len(self.f_cells)))
+        #     for q, p in enumerate(points_stim):
+        #         closest_coord, closest_cell_id = coordutils.closest_coordinates(p[0], p[1], all_points)
+        #         closest_coord_list.append(closest_coord)
+        #         closest_cell_id_array[q] = closest_cell_id
+        #         if 'cell_ids' in self.stim_sites_df.columns:
+        #             closest_cell_id_dict[self.stim_sites_df.cell_ids.iloc[q]].append(closest_cell_id)
+        #         else:
+        #             closest_cell_id_dict[q].append(closest_cell_id)
+        #
+        # elif overlap == True:
+        #     # first collect the xpix and ypix of the stimulation site based on the spiral size
+        #     um_to_px = bruker_images.get_micronstopixels_scale(self.data_paths['info_xml'])
+        #     stim_sites_stat_dict = {}
+        #     for p in range(len(self.stim_sites_df)):
+        #         radius_um = self.stim_sites_df.iloc[p].sp_size/2
+        #         if radius_um < 1:
+        #             radius_um = 2.5 # default size just for now/in case
+        #         radius_px = radius_um/um_to_px
+        #         x_pix, y_pix = roiutils.points_within_circle(self.stim_sites_df.iloc[p].x_stim,
+        #                                                     self.stim_sites_df.iloc[p].y_stim, radius_px)
+        #         stim_cell_id = int(self.stim_sites_df.iloc[p].cell_ids)
+        #         stim_sites_stat_dict[stim_cell_id] = {'xpix': x_pix, 'ypix': y_pix}
+        #
+        #     # matching cell ids based on spiral size overlap and doing 1 to 1 matching
+        #     closest_cell_id_dict = coordutils.match_cell_ids(cell_arr1 = np.unique(self.stim_sites_df.cell_ids.values),
+        #                                                         stats_dict1 = stim_sites_stat_dict,
+        #                                                         cell_arr2 = np.arange(len(self.f_cells)),
+        #                                                         stats_dict2 = self.stats,
+        #                                                         um_to_px = um_to_px)
+        #     # identifying what those coordinates are, removing nan's and converting all to integers
+        #     closest_cell_id_array = np.array([v for k, v in closest_cell_id_dict.items()])
+        #     closest_cell_id_array = closest_cell_id_array[~np.isnan(closest_cell_id_array)]
+        #     closest_cell_id_array = np.array([int(i) for i in closest_cell_id_array])
+        #     closest_coord_list = [self.return_singlecell_rois(m) for m in closest_cell_id_array]
+        #
+        # return closest_coord_list, closest_cell_id_array, closest_cell_id_dict
 
     def build_ps_corrdf(self, photostimulated_cell_arr = None, len_decay_frames = 10, ps_offset = 0, select_cells = None, frames_pre_post = [-3, 8], 
                         trace_type = 'raw', evoked_response_type = 'mean'):
@@ -1098,58 +1277,6 @@ class PhotostimFish(BaseFish):
 
         return roi_per_barcode_list, right_roi_per_barcode_list, left_roi_per_barcode_list
 
-        
-### THESE FXNS DO NOT WORK WELL but keeping for future iterations ###
-    def activity_distances(self, single_cell):
-        cell_nums = [c for c in range(len(self.normcells))]
-        cell_rois = self.return_cell_rois(c for c in cell_nums)
-        
-        self.activity_dist_df = pd.DataFrame({'cell_num': cell_nums, 'cell_rois': cell_rois})
-
-        self.activity_dist_df["avg_corr"] = pd.Series(dtype='int')
-        for c in range(len(self.activity_dist_df)):
-            coorVal_lst = [self.pscorr_dict[num][c] for num in range(len(self.photostim_events))]
-            self.activity_dist_df["avg_corr"][c] = np.nanmean(coorVal_lst)
-        
-        stimcell_lst = self.stimulated_cells_df.stim_cell.values
-        stimcell_lst = stimcell_lst[~np.isnan(stimcell_lst)]
-        stimulated_corr_lst = [cell_rois[int(r)] for r in stimcell_lst]
-
-        dists_lst = []
-        if single_cell == True:
-            for _s, s in enumerate(stimulated_corr_lst):
-                if int(s[1]) < 400:
-                    coor_lst = s
-                    self.single_stim_cellnum = self.stimulated_cells_df.stim_cell.iloc[_s]
-                else:
-                    pass
-        else:
-            coor_lst = stimulated_corr_lst
-
-        for r in cell_rois:
-            dists = [np.linalg.norm(np.array(coors) - np.array(r)) for coors in coor_lst]
-            dists_lst.append(min(dists))
-        self.activity_dist_df.loc[:, 'dist'] = dists_lst
-
-        post_avgs = []
-        pre_avgs = []
-        for c in self.activity_dist_df.cell_num:
-            post_lst = []
-            pre_lst = []
-            for num in range(len(self.photostim_events)):
-                pre_lst.append(self.photostim_resp_dict[num][c][:-self.stim_offsets[0]])
-                post_lst.append(self.photostim_resp_dict[num][c][-self.stim_offsets[0]:])
-            pre_avgs.append(np.nanmean(pre_lst, axis = 0))
-            post_avgs.append(np.nanmean(post_lst, axis = 0)) # average for one cell, added to master list
-
-        self.activity_dist_df['pre_stim_avgs'] = np.nanmean(pre_avgs, axis = 1)
-        self.activity_dist_df['post_stim_avgs'] = np.nanmean(post_avgs, axis = 1)
-
-        save_path = Path(self.xml_file).parents[0].joinpath("activity_distances.hdf")
-        self.activity_dist_df.to_hdf(save_path, key="act")
-        print('saved activity dist df')
-
-        return self.activity_dist_df
 
 class WorkingFish(VizStimFish):
     def __init__(self, corr_threshold=0.65, 
@@ -1180,6 +1307,7 @@ class WorkingFish(VizStimFish):
         self.stim_order = stim_order # order to stimuli for average trace plots
         if self.stim_order is None:
             self.stim_order = self.stimulus_df.stim_name.unique()
+        stimuli.add_reps_to_stimulus_df(self.stimulus_df)
         # self.neuron_each_stim_rep_arrays(stim_order)
         self.stim_start_frames = stimuli.stimulus_start_frames_for_plots(frames_motion_on = int(self.img_hz*seconds_motion_is_on), # 5 sec motion is on 
                                                                          length_of_total_frame_arr = np.diff(self.offsets)[0], 
@@ -1272,6 +1400,52 @@ class WorkingFish(VizStimFish):
                 self.neur_resps_each_stim_rep[n][r] = resp_arr
         
         return self.neur_resps_each_stim_rep
+
+    def single_neuron_df_f_all_stim_array(self, cell_id, stim_order, num_nan_spaces = 3):
+        '''
+        Make the df/f array for a single neuron, nan's between each stim responses (at the end of the trace)
+        :param cell_id: single neuron that you want to calculate this for
+        :param stim_order: stimuli order
+        :param num_nan_spaces: number of nan spaces to put between responses
+        :return: traces array, shape = n trials x frames + extra nan spaces (using offset values)
+        '''
+        extended_resp = pd.DataFrame(self.extended_responses_normf).iloc[cell_id][stim_order]
+
+        if 'rep' not in self.stimulus_df.columns:
+            self.stimulus_df['rep'] = 0
+            # get the number of reps for each stim, choose number of reps based on the minimum value
+            all_reps = []
+            for each_stim in self.stimulus_df.stim_name.unique():
+                all_reps.append(len(self.stimulus_df[self.stimulus_df.stim_name == each_stim]))
+            no_repetitions = min(all_reps)
+
+            # set the rep value into a new column in the stimulus df
+            n_stims = self.stimulus_df.stim_name.nunique()
+            for i in range(no_repetitions):
+                self.stimulus_df.iloc[(n_stims * i):(n_stims * i + n_stims)]['rep'] = i
+        num_trials = max(self.stimulus_df.rep) + 1
+
+        concatenated_traces_list = []
+        for n, each_stim_resp in enumerate(extended_resp.values):
+            each_stim_resp = np.array(each_stim_resp)
+            baseline_arr = each_stim_resp[:, :-self.offsets[0] - 1]
+            baseline_mean = np.nanmean(baseline_arr, axis=1)
+            df_f_arr = np.array([(arr - baseline_mean[i]) / baseline_mean[i] for i, arr in enumerate(each_stim_resp)])
+            if num_nan_spaces > 0:
+                df_f_arr_with_nan = np.hstack([df_f_arr, np.full((df_f_arr.shape[0], num_nan_spaces), np.nan)])
+                if df_f_arr_with_nan.shape[0] < num_trials:
+                    pad_rows = num_trials - df_f_arr_with_nan.shape[0]
+                    df_f_arr_with_nan = np.vstack(
+                        [df_f_arr_with_nan, np.full((pad_rows, df_f_arr_with_nan.shape[1]), np.nan)])
+            else:
+                df_f_arr_with_nan = df_f_arr
+
+            concatenated_traces_list.append(df_f_arr_with_nan)
+
+        df_f_cell_resp = np.concatenate(concatenated_traces_list, axis=1)
+
+        return df_f_cell_resp
+
 
     def build_stimdicts_extended_zdiff(self):
         # makes an array of z-scored calcium responses for each stim (not median)
@@ -1907,6 +2081,45 @@ class WorkingFish(VizStimFish):
                 self.barcoding_df['forw_resp'].iloc[i] = True
             if l in backward_resp_cell_lst:
                 self.barcoding_df['back_resp'].iloc[i] = True
+
+        # adding in some extra columns that I always need
+        self.barcoding_df['Pt'] = False
+        self.barcoding_df['supp_barcode'] = [None] * len(self.barcoding_df)
+        self.barcoding_df['supp_opposite_dir'] = [False] * len(self.barcoding_df)
+        self.barcoding_df['side'] = ['R'] * len(self.barcoding_df)
+
+        pt_neurons = self.return_cells_by_saved_roi('Pt')
+        for m, n in enumerate(self.barcoding_df.neur_ids.values):
+            # 1 - if pt neurons
+            if n in pt_neurons:
+                self.barcoding_df.at[m, 'Pt'] = True
+
+            # 2 - is suppressed by opposite direction
+            barcode = self.barcoding_df.iloc[m].barcode_code
+            barcoding_type = self.barcoding_df.iloc[m].barcoding
+            supp_barcode = barcoding.suppression_barcode_score(self, n, stims=self.stim_order, suppression_std_thresh=1)
+            self.barcoding_df['supp_barcode'].iloc[m] = supp_barcode
+            if 1 in supp_barcode:
+                if 'R' in barcoding_type:
+                    opposite_direction_inds = [i for i, val in enumerate(self.stim_order) if
+                                               ('right' not in val) and ('ing' not in val)]
+                if 'L' in barcoding_type:
+                    opposite_direction_inds = [i for i, val in enumerate(self.stim_order) if
+                                               ('left' not in val) and ('ing' not in val)]
+                if 1 in np.array(supp_barcode)[opposite_direction_inds]:
+                    self.barcoding_df['supp_opposite_dir'].iloc[m] = True
+
+            # 3 - if on the same side as the barcode
+            side_bool = barcoding.check_barcoded_neur_location(self.barcoding_df.neur_coords.iloc[m],
+                                                               self.return_x_midline(), barcoding_type)
+            side = barcoding_type.split('_')[1]
+            if (side_bool == True):
+                _side = side
+            elif (side_bool == False) & (side == 'R'):
+                _side = 'L'
+            else:
+                _side = 'R'
+            self.barcoding_df['side'].iloc[m] = _side
         
         return self.barcoding_df
 

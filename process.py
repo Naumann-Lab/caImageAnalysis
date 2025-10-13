@@ -121,7 +121,7 @@ def run_suite2p(base_fish, input_tau=1.5, spatial_scale = 0, custom_parameter_di
 
     imageHz = base_fish.hzReturner(base_fish.frametimes_df)
     try:
-        imagepath = base_fish.data_paths["move_corrected_image"]
+        imagepath = base_fish.data_paths[" "]
     except KeyError:
         imagepath = base_fish.data_paths["rotated_image"]
 

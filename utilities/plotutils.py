@@ -69,9 +69,9 @@ def clip_and_map_colors(values, vmin=-2, vmax=2, cmap_name='coolwarm'):
     
     # Clip the values between vmin and vmax
     clipped_values = np.clip(values_array, vmin, vmax)
-    
-    # Create a Normalize instance with the specified range
-    norm = matplotlib.colors.Normalize(vmin=vmin, vmax=vmax)
+
+    # Use TwoSlopeNorm to center at 0
+    norm = matplotlib.colors.TwoSlopeNorm(vmin=vmin, vcenter=0, vmax=vmax)
     
     # Choose a colormap
     cmap = plt.get_cmap(cmap_name)

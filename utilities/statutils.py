@@ -80,3 +80,18 @@ def weighted_avg_and_ci(data, weights=None, ci=0.95):
     upper = mean + t_score * se
 
     return mean, lower, upper
+
+def weighted_stdev(data, weights, ddof=0):
+    '''
+    Calculates the weighted standard deviation.
+    :param data: The data values.
+    :param weights: The corresponding weights for each data value.
+    :param ddof: Delta Degrees of Freedom. The divisor used in the calculation
+                    is sum(weights) - ddof. Default is 0 for population std.
+    :return: The weighted standard deviation.
+    '''
+    if len(data) != len(weights):
+        raise ValueError("Data and weights must have the same length.")
+    weighted_mean = np.sum(data * weights) / np.sum(weights)
+    weighted_variance = np.sum(weights * (data - weighted_mean) ** 2) / (np.sum(weights) - ddof)
+    return np.sqrt(weighted_variance)

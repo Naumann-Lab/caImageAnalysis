@@ -1,7 +1,9 @@
 import numpy as np
+import pandas as pd
+from pathlib import Path
 import constants
 from utilities import arrutils, clustering
-import stimuli
+import stimuli, angles
 from fishy import WorkingFish
 
 barcoding_8stim_order = [
@@ -88,8 +90,8 @@ def barcode_with_ideal_trace(vizstimfish, barcode_dict = constants.eva_typesL, n
             bool_val = True
             if (l == neuron_binary_code) & ('oMl' in typ):  # if the neuron's barcode matches one of those in the barcode dictionary
                 bool_val = check_oMl_location(cell_rois[n], x_midline, typ) 
-            if (l == neuron_binary_code) & ('iMm' in typ):  # if the neuron's barcode matches one of those in the barcode dictionary
-                bool_val = check_iMm_location(cell_rois[n], x_midline, typ)
+            if (l == neuron_binary_code) & ('Mm' in typ):  # if the neuron's barcode matches one of those in the barcode dictionary
+                bool_val = check_barcoded_neur_location(cell_rois[n], x_midline, typ)
             if (l == neuron_binary_code) & (bool_val== True):
                 type_dict[n] = typ
                 mean_neuron_arr = np.nanmean(neuron_arr, axis = 0)[:len(ideal_barcorde_dict[typ])]
@@ -121,8 +123,8 @@ def barcode_binary_score(vizstimfish, one_neuron_arr, stims = None, stim_start_f
     bool_dict_per_neuron = {key: 0 for key in stims}
     for e, l in enumerate(stim_start_frames):
         key = stims[e]
-        base_arr = np.nanmedian(one_neuron_arr[:, (l-base_length):l], axis = 1)
-        base_std = np.nanstd(one_neuron_arr[:, (l-base_length):l], axis = 1)
+        base_arr = np.nanmedian(one_neuron_arr[:, (l-base_length):l - 1], axis = 1)
+        base_std = np.nanstd(one_neuron_arr[:, (l-base_length):l - 1], axis = 1)
         if evoked_resp == 'median':
             evoked_arr = np.nanmedian(one_neuron_arr[:, l:(l+ frames_motion_on)], axis =1 )
         elif evoked_resp == 'max':
@@ -162,8 +164,8 @@ def barcode_binary_score_df_f(vizstimfish, one_neuron_arr, stims = None, stim_st
     bool_dict_per_neuron = {key: 0 for key in stims}
     for e, l in enumerate(stim_start_frames):
         key = stims[e]
-        base_arr = np.nanmean(one_neuron_arr[:, l+vizstimfish.offsets[0]:l], axis = 1)
-        base_std = np.nanstd(one_neuron_arr[:, l+vizstimfish.offsets[0]:l], axis = 1)
+        base_arr = np.nanmean(one_neuron_arr[:, l+vizstimfish.offsets[0]:l - 1], axis = 1)
+        base_std = np.nanstd(one_neuron_arr[:, l+vizstimfish.offsets[0]:l - 1], axis = 1)
         df_f_neuron_arr = np.array([(arr - base_arr[i]) / base_arr[i] for i, arr in enumerate(one_neuron_arr)])
         if evoked_resp == 'median':
             evoked_arr = np.nanmedian(df_f_neuron_arr[:, l:(l+ frames_motion_on)], axis =1 )
@@ -206,6 +208,39 @@ def find_forward_responders(vizstimfish, stim_order = ['forward', 'backward'],
 
     return forward_responders, backward_responders
 
+def suppression_barcode_score(vizstimfish, cell_num, stims = constants.eva_stims[:8], frames_motion_on = None,
+                              suppression_std_thresh = 1.8):
+    '''
+    Finding the suppression barcode score for a single neuron (with normalized values, it should not matter)
+    :param vizstimfish: data fish
+    :param cell_num: cell id that you want to calculate this for
+    :param stims: stim order of choice
+    :param frames_motion_on: the number of frames motion is on for, default is the seconds motion is on * img hz
+    :param suppression_std_thresh: standard deviation of the baseline calculated for true or false suppression
+    :return: list of binary 1, 0 where 1 is suppressed and 0 is not in order of the stimuli in the 'stims' parameter
+    '''
+    extended_resp = pd.DataFrame(vizstimfish.extended_responses_normf).iloc[cell_num][stims]
+    if frames_motion_on is None:
+        frames_motion_on = int(vizstimfish.img_hz * vizstimfish.seconds_motion_is_on)
+    num_trials = max(vizstimfish.stimulus_df.rep) + 1
+
+    suppression_barcode = []
+    for n, each_stim_resp in enumerate(extended_resp.values):
+        each_stim_resp = np.array(each_stim_resp)
+        baseline_arr = each_stim_resp[:, :-vizstimfish.offsets[0]]
+        baseline_mean = np.nanmean(baseline_arr, axis=1)
+        baseline_std = np.std(baseline_arr, axis=1)
+        # determining suppression barcode
+        count = 0
+        for e, each_trial in enumerate(each_stim_resp):
+            evoked_arr = each_trial[-vizstimfish.offsets[0]:-vizstimfish.offsets[0] + frames_motion_on]
+            if np.nanmean(evoked_arr) < (baseline_mean[e] - (suppression_std_thresh * baseline_std[e])):
+                count += 1
+        score = 1 if count >= int(0.8 * num_trials) else 0  # have to add 1 to the num trials since 0 indexing
+        suppression_barcode.append(score)
+
+    return suppression_barcode
+
 def check_oMl_location(cell_roi, x_midline, oMl_type):
     '''
     Check if the oMl neuron is on the predicted side of the brain based on the cell's location
@@ -221,22 +256,168 @@ def check_oMl_location(cell_roi, x_midline, oMl_type):
         else:
             return False
         
-def check_iMm_location(cell_roi, x_midline, iMm_type):
+def check_barcoded_neur_location(cell_roi, x_midline, barcode_type):
     '''
-    Check if the iMm neuron is on the predicted side of the brain based on the cell's location
+    Check if the barcoded neuron is on the 'correct' side of the brain based on the cell's location
     '''
     if cell_roi[0] < x_midline: # cell on left hemisphere
-        if 'iMm_L' in iMm_type:
+        if 'L' in barcode_type:
             return True
         else:
             return False
     elif cell_roi[0] > x_midline: # cell on right hemisphere
-        if 'iMm_R' in iMm_type:
+        if 'R' in barcode_type:
             return True
         else:
             return False
-        
-# whit's version of barcoding
+
+
+def make_Pt_R_and_L_side_barcoded_df(volume_barcoding_df):
+    # make a right and left specific barcoded neuron dataframes for photostim experiments
+    # ideally getting the Mm neurons first and then addding in forward responders
+    pt_barcoded_df = volume_barcoding_df[(volume_barcoding_df.Pt == True)]
+    R_choose_df = pd.concat([pt_barcoded_df[(pt_barcoded_df.barcoding.str.contains('Mm_R'))],
+                             pt_barcoded_df[(pt_barcoded_df.forw_resp == True)
+                                            & (pt_barcoded_df.back_resp == False) # really good forward responders
+                                             & (~pt_barcoded_df.barcoding.str.contains('Mm'))
+                                             & (pt_barcoded_df.barcoding.str.contains('R'))
+                                             & (pt_barcoded_df.side == 'R')]])
+    L_choose_df = pd.concat([pt_barcoded_df[(pt_barcoded_df.barcoding.str.contains('Mm_L'))],
+                             pt_barcoded_df[(pt_barcoded_df.forw_resp == True)
+                                            & (pt_barcoded_df.back_resp == False) # really good forward responders
+                                             & (~pt_barcoded_df.barcoding.str.contains('Mm'))
+                                             & (pt_barcoded_df.barcoding.str.contains('L'))
+                                             & (pt_barcoded_df.side == 'L')]])
+    R_choose_df.reset_index(drop = True, inplace = True)
+    L_choose_df.reset_index(drop = True, inplace = True)
+
+    R_custom_order = ['iMm_R', 'Mm_R', 'S_R', 'B_R', 'iB_R', 'ioB_R', 'oB_R', 'oMl_R']
+    R_barcoding_type = pd.CategoricalDtype(categories=R_custom_order, ordered=True)
+    R_choose_df['barcoding'] = R_choose_df['barcoding'].astype(R_barcoding_type)
+
+    L_custom_order = ['iMm_L', 'Mm_L', 'S_L', 'B_L', 'iB_L', 'ioB_L', 'oB_L','oMl_L' ]
+    L_barcoding_type = pd.CategoricalDtype(categories=L_custom_order, ordered=True)
+    L_choose_df['barcoding'] = L_choose_df['barcoding'].astype(L_barcoding_type)
+
+    sorted_R_choose_df = R_choose_df.sort_values(by=['barcoding', 'forw_resp'],
+                                                 ascending=[True, False])
+    sorted_L_choose_df = L_choose_df.sort_values(by=['barcoding', 'forw_resp'],
+                                                 ascending=[True, False,])
+    return sorted_R_choose_df, sorted_L_choose_df
+
+# finding forward responders in nMLF for stim experiments
+
+def find_forward_responsive_nMLF_cells_by_tuning(fishyvol, frames_motion_on = None, within_deg = 10, save = False):
+    '''
+    Finding forward responsive nMLF cells based on tuning
+    :param fishyvol: fish volume
+    :param frames_motion_on: number of frames that motion is on, default (None) is the imaging hz * seconds motion on
+    :param within_deg: the degree range from 0 deg that would be considered a forward responder
+    :param save: if you want to save the output dataframe
+    :return:
+    '''
+    if frames_motion_on is None:
+        frames_motion_on = int(fishyvol[0].img_hz * fishyvol[0].seconds_motion_is_on)
+
+    stimuli_lst = list(fishyvol[0].stimulus_df.stim_name.values.unique())
+    stim_angles = [constants.deg_dict[stim] for stim in stimuli_lst]
+    nmlf_df_lst = []
+    for f, fish in enumerate(fishyvol):
+        fish.load_saved_rois()
+        nmlf_cells = fish.return_cells_by_saved_roi('nMLF')
+        nmlf_rois = fish.return_cell_rois(nmlf_cells)
+        x_midline = fish.return_x_midline()
+        for i, n in enumerate(nmlf_cells):
+            sideness = 'left' if nmlf_rois[i][0] <= x_midline else 'right'
+            stim_responses = []
+            for stim in stimuli_lst:
+                trials = np.array(fish.extended_responses_normf[stim][n])
+                all_trial_responses = np.zeros(shape=(len(trials), 1))
+                for t, v in enumerate(trials):
+                    trial_baseline_mean = v[:-fish.offsets[0]].mean()
+                    trial_baseline_std = v[:-fish.offsets[0]].std()
+                    trial_response_mean = v[-fish.offsets[0]:-fish.offsets[0] + frames_motion_on].mean()
+                    trial_response_tuning_value = (trial_response_mean - trial_baseline_mean) / trial_baseline_std
+                    all_trial_responses[t] = trial_response_tuning_value
+                response_overall = all_trial_responses.mean(axis=0)[0]
+                stim_responses.append(response_overall)
+            weights = np.nanmax(stim_responses)
+            weighted_angle = angles.weighted_mean_angle(stim_angles, stim_responses)
+
+            bool_resp = True if (weighted_angle >= -within_deg) & (weighted_angle <= within_deg) else False
+            nmlf_df_lst.append({
+                "plane": f,
+                "cell_id": n,
+                "region": 'nMLF',
+                "location": nmlf_rois[i],
+                "side": sideness,
+                'forward_resp': bool_resp,
+                'weighted_angle': weighted_angle,
+                'weights': weights})
+
+        nmlf_df = pd.DataFrame(nmlf_df_lst)
+        if save:
+            nmlf_df.to_hdf(Path(fish.folder_path.parents[1]).joinpath('nmlf_df.h5'),
+                           key='nmlf')  # save this nmlf dataframe for future reference in case
+    return nmlf_df
+
+
+def find_forward_responsive_nMLF_cells(fishyvol, threshold = 1.8, frames_motion_on = None,
+                                       num_baseline_frames = 10, save = False):
+    '''
+    Finding forward responsive nMLF cells based on thresholding using same ideas as above (stricter)
+    I found that this will miss some responsive forward cells, so made a new function
+    :param fishyvol:
+    :param threshold:
+    :param frames_motion_on:
+    :param num_baseline_frames:
+    :param save:
+    :return:
+    '''
+
+    if frames_motion_on is None:
+        frames_motion_on = int(fishyvol[0].img_hz * fishyvol[0].seconds_motion_is_on)
+    num_of_stim_reps = list(fishyvol[0].stimulus_df.stim_name.values).count('forward')
+
+    nmlf_df_lst = []
+    for f, fish in enumerate(fishyvol):
+        fish.load_saved_rois()
+        nmlf_cells = fish.return_cells_by_saved_roi('nMLF')
+        nmlf_rois = fish.return_cell_rois(nmlf_cells)
+        x_midline = fish.return_x_midline()
+        for i, n in enumerate(nmlf_cells):
+            forward_responses = np.array(fish.extended_responses_normf['forward'][n])
+            baseline_means = np.nanmean(forward_responses[:, -fish.offsets[0]-num_baseline_frames:-fish.offsets[0]], axis=1)
+            baseline_stds = np.nanstd(forward_responses[:, -fish.offsets[0]-num_baseline_frames:-fish.offsets[0]], axis=1)
+            response_means = np.nanmean(
+                forward_responses[:, -fish.offsets[0]:-fish.offsets[0] + frames_motion_on],
+                axis=1)
+
+            responsive_reps = 0
+            for r in range(len(response_means)):
+                if response_means[r] >= (threshold * baseline_stds[r]) + baseline_means[r]:
+                    responsive_reps += 1
+            bool_resp = True if responsive_reps == int(0.8*num_of_stim_reps) else False # we want very forward responsive nmlf neurons
+
+            sideness = 'left' if nmlf_rois[i][0] <= x_midline else 'right'
+            nmlf_df_lst.append({
+                "plane": f,
+                "cell_id": n,
+                "region": 'nMLF',
+                "location": nmlf_rois[i],
+                "side": sideness,
+                'forward_resp': bool_resp,
+                # "motor_corr": fish.motor_pearson_corrs[n],
+                # "motor_corr_pval": fish.motor_pearson_pvals[n],
+            })
+    nmlf_df = pd.DataFrame(nmlf_df_lst)
+    if save:
+        nmlf_df.to_hdf(Path(fish.folder_path.parents[1]).joinpath('nmlf_df.h5'),
+                   key='nmlf')  # save this nmlf dataframe for future reference in case
+
+    return nmlf_df
+
+### whit's version of barcoding ###
 def barcode_score_per_stim(stim_on_frame_list, motion_sensitive_pt_cal_act, n_rep = 3, r_thresh = 0.65):
     '''
     this will find the barcode id per stimulus for each neuron, ends up in a 0 if it does not respond or 1 if it does respond to that stimulus

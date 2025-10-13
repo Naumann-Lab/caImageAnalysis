@@ -1,7 +1,7 @@
 import cv2
 import os
 import numpy as np
-
+import matplotlib.pyplot as plt
 from pathlib import Path
 
 
@@ -15,7 +15,6 @@ def create_circular_mask(img_shape, x, y, radius):
     dist_from_center = np.sqrt((X - x) ** 2 + (Y - y) ** 2)
     
     return dist_from_center <= radius
-
 
 def create_polygon_mask(image_shape, polygon_coords):
     """
@@ -48,6 +47,67 @@ def create_polygon_mask(image_shape, polygon_coords):
     mask = mask_flat.reshape(h, w)
 
     return mask.astype(np.uint8)
+
+# making masks out of rsChrmine images (or any red channel image)
+
+def make_red_channel_image_masks(reference_stack_path, otsu_thresh_factor = 1.1, save_mask_directory = None):
+    '''
+    Make masks from red channel reference images, using Otsu thresholding
+    :param reference_stack_path: folder path to the reference stack for the red channel
+    :param otsu_thresh_factor: factor to multiply to the otsu threshold value (increase or decrease the mask expression)
+    :param save_mask_directory: folder to save the mask, titled 'rschrmine_mask.npy'
+    :return: plot of the original red channel images, and the mask images
+    '''
+    import scipy
+    from skimage.filters import threshold_otsu
+    from skimage.morphology import remove_small_objects
+    import sys
+    sys.path.append(r'C:\Users\Kaitlyn\PyCharmProjects\imaging\caImageAnalysis')
+    from bruker_images import collect_img_array_from_individual_volumes
+
+    ch1_img_stack = collect_img_array_from_individual_volumes(reference_stack_path, n=50,
+                                                                            plane_idx=None, channel='Ch1')
+    ch1_img_stack = [scipy.ndimage.rotate(img, angle=90) for img in ch1_img_stack]
+
+    fig, ax = plt.subplots(2, len(ch1_img_stack), figsize=(20, 10))
+    for i in range(len(ch1_img_stack)):
+        img = ch1_img_stack[i]
+        ax[0, i].imshow(ch1_img_stack[i], cmap='gray', vmax=np.percentile(ch1_img_stack[i], 99))
+        # make mask
+        thresh_val = threshold_otsu(img)
+        mask = img > (thresh_val * otsu_thresh_factor)
+        mask = remove_small_objects(mask, min_size=10)  # remove small specks
+        ax[1, i].imshow(mask, cmap="gray")
+        # save the mask in the folder to use later
+        if save_mask_directory is not None:
+            np.save(Path(save_mask_directory).joinpath(f'output_folders/plane_{i}/rschrmine_mask.npy'), mask)
+    [a.axis('off') for a in ax.flatten()]
+
+    return plt.show()
+
+
+def cells_per_mask(cell_dicts, mask, min_frac=0.2):
+    """
+    Identify which cells are overlapping with the red channel/rschrmine masks
+    Here we use the masks to find the cells
+
+    cell_dicts: list of cell dictionaries with 'ypix' and 'xpix' (stats attribute in the BaseFish class)
+    mask: 2D boolean array
+    min_frac: fraction of overlap to call a cell 'positive'
+    Returns: list of cell_ids that are overlapping with the mask and all the fraction of overlap for the cell_dicts
+    """
+    overlapping_cells = []
+    overlapping_fracs = []
+    for i, cell in enumerate(cell_dicts):
+        ypix, xpix = cell['ypix'], cell['xpix']
+        overlap = mask[ypix, xpix]
+        frac = overlap.mean()
+        if frac >= min_frac:
+            overlapping_cells.append(i)
+        overlapping_fracs.append(frac)
+
+    return overlapping_cells, overlapping_fracs
+
 
 # these two next functions are essentially the same
 
@@ -178,41 +238,93 @@ path.contains_points(points)
 
 """
 
-class clickReturner:
-    '''
-    Use to click a certain point on the image and return the coordinates of the point
-    '''
-    def __init__(self, img):
-        self.img = img
-        self.ptlist = []
-        
-    def click(self, title="blank"):
-        import cv2
 
-        img_arr = np.zeros((max(self.img.shape), max(self.img.shape)))
+class MultiPlaneCellSelector:
+    """
+    Interactive selection of cells across multiple planes with optional overlays.
+    """
 
-        for x in np.arange(self.img.shape[0]):
-            for y in np.arange(self.img.shape[1]):
-                img_arr[x, y] = self.img[x, y]
+    def __init__(self, masks, overlay_points=None, overlay_colors=None):
+        """
+        Parameters
+        ----------
+        masks : list of 2D numpy arrays
+            Each array is a binary mask or image for a plane.
+        overlay_points : list of lists of (x, y) tuples, optional
+            Points to overlay on each plane (same length as masks).
+        overlay_colors : list of lists of str, optional
+            Colors for each overlay point.
+        """
+        self.masks = masks
+        self.n_planes = len(masks)
+        self.overlay_points = overlay_points if overlay_points is not None else [None] * self.n_planes
+        self.overlay_colors = overlay_colors if overlay_colors is not None else [None] * self.n_planes
+        self.selected_cells = []
 
-        def roigrabber(event, x, y, flags, params):
-            if event == 1:  # left click
-                cv2.line(self.img, pt1=(x, y), pt2=(x, y), color=(255, 255), thickness=3)
-                self.ptlist.append((x, y))
-            if event == 2:  # right click
-                cv2.destroyAllWindows()
+    def select_cells(self, n_cells=None, title="Select cells"):
+        """
+        Interactive matplotlib window to select cells across all planes.
 
-        cv2.namedWindow(f"roiFinder_{title}")
+        Parameters
+        ----------
+        n_cells : int or None
+            If set, stops after exactly this many clicks.
+            If None, selection continues until Enter is pressed.
+        title : str
+            Window title.
 
-        cv2.setMouseCallback(f"roiFinder_{title}", roigrabber)
+        Returns
+        -------
+        selected_cells : list of (plane_id, x, y)
+            List of selected coordinates with plane index.
+        """
+        fig, axes = plt.subplots(1, self.n_planes, figsize=(6 * self.n_planes, 6))
+        if self.n_planes == 1:
+            axes = [axes]
 
-        cv2.imshow(f"roiFinder_{title}", self.img)
+        fig.suptitle(title)
+
+        # Show each plane
+        for i, ax in enumerate(axes):
+            ax.imshow(self.masks[i], cmap="gray")
+            ax.set_title(f"Plane {i}")
+            ax.axis("off")
+
+            # Add overlays if provided
+            if self.overlay_points[i] is not None:
+                colors = self.overlay_colors[i] if self.overlay_colors[i] is not None else ["limegreen"] * len(
+                    self.overlay_points[i])
+                for (pt, clr) in zip(self.overlay_points[i], colors):
+                    ax.scatter(pt[0], pt[1], color=clr, s=20, alpha=0.8)
+
+        print("Click on cells. Press Enter to finish.")
+
+        def onclick(event):
+            if event.inaxes is None:  # clicked outside axes
+                return
+
+            if event.inaxes in axes:
+                plane_id = list(axes).index(event.inaxes)
+                if event.xdata is None or event.ydata is None:
+                    return
+                x, y = int(event.xdata), int(event.ydata)
+                self.selected_cells.append((x, y, plane_id))
+                event.inaxes.scatter(x, y, color="red", s=80, edgecolor="k")
+                fig.canvas.draw()
+
+                if n_cells is not None and len(self.selected_cells) >= n_cells:
+                    plt.close(fig)
+
+        cid = fig.canvas.mpl_connect("button_press_event", onclick)
+        plt.show(block=True)
+
+        # After closing interactive window, switch backend back to inline
         try:
-            cv2.waitKey(0)
-            cv2.destroyAllWindows()
-        except:
-            cv2.destroyAllWindows()
-        return 
+            import IPython
+            ipython = IPython.get_ipython()
+            if ipython is not None:
+                ipython.run_line_magic("matplotlib", "inline")
+        except Exception as e:
+            print("Could not reset backend:", e)
 
-    def get_pt(self):
-        return self.ptlist[-1]
+        return self.selected_cells

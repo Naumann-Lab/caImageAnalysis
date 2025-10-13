@@ -27,9 +27,9 @@ def tolerant_mean(arrs):
 
 def norm_0to1(cell_array):
     if len(cell_array.shape) == 1:
-        norm_cell_arr = np.array((cell_array - np.min(cell_array)) / (np.max(cell_array) - np.min(cell_array)))
+        norm_cell_arr = np.array((cell_array - np.nanmin(cell_array)) / (np.nanmax(cell_array) - np.nanmin(cell_array)))
     else:
-        norm_cell_arr = np.array([(c - np.min(c)) / (np.max(c) - np.min(c)) for c in cell_array])
+        norm_cell_arr = np.array([(c - np.nanmin(c)) / (np.nanmax(c) - np.nanmin(c)) for c in cell_array])
     return norm_cell_arr
 
 def norm_fdff(cell_array):
@@ -144,3 +144,40 @@ def sort_array_by_max(arr):
     sorted_arr = arr[sorted_indices]
     
     return sorted_arr, sorted_indices
+
+
+def fix_equal_interval(lst, tol=1e-6):
+    """
+    Detect the dominant interval in a list of numbers,
+    remove entries that break spacing, and return cleaned list + bad indices.
+    """
+    from collections import Counter
+    if len(lst) < 3:
+        return lst, []
+
+    lst_sorted = sorted(enumerate(lst), key=lambda x: x[1])
+    indices, values = zip(*lst_sorted)
+    diffs = np.diff(values)
+
+    # 1. Find the most common step (rounded for floating precision)
+    step_counts = Counter(np.round(diffs, 6))
+    target_step = step_counts.most_common(1)[0][0]
+
+    # 2. Build expected sequence starting from the first value
+    expected = [values[0]]
+    while expected[-1] + target_step <= values[-1] + tol:
+        expected.append(expected[-1] + target_step)
+
+    # 3. Compare actual vs expected, keep closest matches
+    cleaned_indices = []
+    bad_indices = list(indices)  # start assuming all bad
+
+    for exp in expected:
+        diffs_to_exp = np.abs(np.array(values) - exp)
+        i = np.argmin(diffs_to_exp)
+        if diffs_to_exp[i] < tol and indices[i] in bad_indices:
+            cleaned_indices.append(indices[i])
+            bad_indices.remove(indices[i])
+
+    cleaned_list = [lst[i] for i in sorted(cleaned_indices)]
+    return cleaned_list, sorted(bad_indices)

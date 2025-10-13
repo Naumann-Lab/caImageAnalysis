@@ -65,6 +65,23 @@ binocular_dict = {
     "lateral_right" : [1, 0, 1]
 }
 
+combined_binocular_dict = {
+    "medial" : [0, 1, 0],
+    "lateral" : [1, 0, 1],
+    "binocular" : [0, 0, 0],
+    "converging" : [0, 1, 1],
+    "diverging" : [1, 0, 1],
+}
+
+shearing_stims_dict = {
+    'forward_backward': [0, 0, 0],
+    'forward_x': [0, .5, .5],
+    'backward_x': [1, 0.647, 0],
+    'backward_forward': [0, 0, 0],
+    'x_forward': [0, .5, .5],
+    'x_backward': [1, 0.647, 0],
+}
+
 nulldict = {
     "right": "left",
     "left": "right",
@@ -96,6 +113,35 @@ deg_dict = {
     "backward_right": 135,
 }
 
+deg_dict_expanded = {
+    "right": 90,
+    "forward_right": 45,
+    "forward": 0,
+    "forward_left": 315,
+    "left": 270,
+    "backward_left": 215,
+    "backward": 180,
+    "backward_right": 135,
+
+    # adding in the other directions so that i can make tuning circles as well
+    "medial_right": 45,
+    "converging": 0,
+    "medial_left": 315,
+    "lateral_left": 215,
+    "diverging": 180,
+    "lateral_right": 135,
+    "forward_backward": 0,
+    "forward_x": 60,
+    "x_backward": 300,
+    "backward_forward": 180,
+    "backward_x": 120,
+    "x_forward": 240,
+}
+
+direction_types_dict = {'cardinal': ['forward', 'right', 'backward', 'left'],
+                        'binocular': ['converging','medial_right', 'right', 'lateral_right',  'diverging', 'lateral_left', 'left', 'medial_left'],
+                        'shearing': ['forward_backward', 'forward_x', 'backward_x', 'backward_forward', 'x_forward','x_backward',]}
+
 
 eva_stims = [
     "converging",
@@ -109,6 +155,17 @@ eva_stims = [
     "forward",
     "backward",
 ]
+
+eva_types_colors = {
+    "oB": 'tab:blue',
+    "B": 'tab:orange',
+    "iB": 'tab:pink',
+    "ioB": 'tab:brown',
+    "iMm": 'tab:green',
+    "Mm": 'tab:cyan',
+    "oMl": 'tab:purple',
+    "S": 'tab:olive'
+}
 
 eva_typesL = {
     "oB": [False, True, True, True, True, False, False, False, True, True],

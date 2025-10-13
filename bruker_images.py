@@ -1,3 +1,10 @@
+import warnings
+import logging
+# Suppress tifffile logging warnings
+logging.getLogger('tifffile').setLevel(logging.ERROR)
+# Optional: also suppress standard UserWarnings if needed
+warnings.filterwarnings("ignore", category=UserWarning, module="tifffile")
+
 import os
 from pathlib import Path
 import shutil
@@ -11,7 +18,7 @@ import caiman as cm
 from scipy.signal import find_peaks
 
 import sys
-sys.path.append(r'C:\Users\NaumannLab_KEF\PyCharmProjects\imaging\caImageAnalysis')
+sys.path.append(r'C:\Users\Kaitlyn\PyCharmProjects\imaging\caImageAnalysis')
 from utilities import pathutils, arrutils
 # import fishy
 
@@ -340,6 +347,7 @@ def get_zstep_vals(info_xml_file, etl = True):
     if etl:
         zstep_vals = np.unique(all_etl_steps)
         zstep_vals = arrutils.filter_list(zstep_vals, 2)
+        zstep_vals, _ = arrutils.fix_equal_interval(zstep_vals)
 
     return zstep_vals
 
@@ -407,3 +415,162 @@ def concatenate_datasets(experiment_folders, new_directory, full_duration_per_st
     complete_bad_frames_arr = np.concatenate(new_bad_frames_lst)
     np.save(Path(save_fld).joinpath('bad_frames.npy'), complete_bad_frames_arr)
 
+def collect_img_array_from_individual_volumes(folder, n = 30, plane_idx = 0, channel = 'Ch2'):
+    '''
+    Collect all img files in a folder, that are individual tifs & volumes
+    :param folder: folder path that contains the individual images
+    :param n: number of images to collect (default = 30)
+    :param plane_idx: index of the plane to collect (default = 0)
+    :param channel: channel to collect (default = 'Ch2', or can be "Ch1")
+    :return: list of all the images read in the folder
+    '''
+    import warnings
+    warnings.filterwarnings("ignore", category=UserWarning, module="tifffile")
+
+    stack_img_lst = []
+    _n = 0
+    for file in os.listdir(folder):
+        if file.endswith('.ome.tif') and channel in file:
+            stack_img_lst.append(imread(folder / file))
+            _n = _n + 1
+            if _n == n:
+                break
+    full_stack_img_array = np.array(stack_img_lst)
+    if plane_idx == None:
+        _stack_img_array = full_stack_img_array
+    else:
+        _stack_img_array = full_stack_img_array[:,plane_idx,:,:]
+    stack_img_array = np.nanmean(_stack_img_array[:n,:,:], axis = 0)
+
+    return stack_img_array
+
+def find_drift_between_images(img1_path, img2_path, ref_stack_array_path, info_xml_path,
+                              alignment_mode='enhanced', ref_stack_z_microns=1):
+    '''
+    Find drift between two images, in relation to a reference stack
+    img1 and img2 should be tif files
+    ref_stack_array_path is a numpy array (saved after running xcorrelation on the scope)
+    alignment_mode - the correlation mode that you want to run for the alignment algorithm
+
+    returns: results dictionary with the drift in um for x, y, z between the images (in relation to the reference stack)
+    '''
+    import matplotlib.pyplot as plt
+    sys.path.append(r'C:\Users\Kaitlyn\PyCharmProjects\imaging\scopeslip')
+    import crossCorrelation
+
+    import warnings
+    warnings.filterwarnings("ignore", category=UserWarning, module="tifffile")
+
+    # 1 - read in images & array, make averages, find microns to pixel conversion
+    try: # if you have tif files
+        full_img1 = imread(img1_path)
+        img1 = np.nanmean(full_img1[50:550, :, :], axis=0) # having at least 300 images should work best for xcorr
+    except: # if you have numpy arrays
+        img1 = collect_img_array_from_individual_volumes(img1_path, n = 400, plane_idx = 0)
+        img1 = np.rot90(img1)
+    try:   
+        full_img2 = imread(img2_path)
+        img2 = np.nanmean(full_img2[50:550, :, :], axis=0)
+    except:    
+        img2 = collect_img_array_from_individual_volumes(img2_path, n = 400, plane_idx = 0)
+        img2 = np.rot90(img2)
+
+    if 'npy' in ref_stack_array_path.name:
+        ref_stack_arr = np.load(ref_stack_array_path)
+        ref_stack_arr = np.array([np.rot90(plane) for plane in ref_stack_arr])
+    else:
+        ref_stack_arr = collect_img_array_from_individual_volumes(ref_stack_array_path, plane_idx = None)
+        ref_stack_arr = np.array([np.rot90(plane) for plane in ref_stack_arr])
+
+    um_to_px = get_micronstopixels_scale(info_xml_path)
+
+    # 2 - run cross correlation against the reference stack for each image
+    img1_xcorr = crossCorrelation.CrossCorrelationAlignment(target_volume=ref_stack_arr, image=img1,
+                                                            correlation_mode=alignment_mode)
+    img2_xcorr = crossCorrelation.CrossCorrelationAlignment(target_volume=ref_stack_arr, image=img2,
+                                                            correlation_mode=alignment_mode)
+
+    img1_shiftx, img1_shifty, img1_shiftz = img1_xcorr.align(img1_xcorr.image)
+    print(img1_shiftx, img1_shifty, img1_shiftz)
+    img2_shiftx, img2_shifty, img2_shiftz = img2_xcorr.align(img2_xcorr.image)
+    print(img2_shiftx, img2_shifty, img2_shiftz)
+
+    # 3- plot the overlays
+    # plot the overlays with the reference stack
+    # plot_imgs_with_overlay(img1, ref_stack_arr[img1_shiftz], 'img1', 'img1 ref match')
+    # plot_imgs_with_overlay(img2, ref_stack_arr[img2_shiftz], 'img2', 'img2 ref match')
+
+    fig, ax = plot_imgs_with_overlay(img1, img2, 'img1', 'img2', boost_red = False, grayscale = False)
+    plt.show()
+
+    # 4 - determine the drift (in pixels and microns)
+    x_diff = img1_shiftx - img2_shiftx
+    y_diff = img1_shifty - img2_shifty
+    z_diff = img1_shiftz - img2_shiftz
+
+    y_diff = -y_diff # flipped since origin of images is at top left (important for plotting/matching cell ids)
+
+    # i know that the ref stack is 1 um, so the z_diff is the same in um
+    z_diff_um = z_diff * ref_stack_z_microns
+    x_diff_um = '{:.2f}'.format(x_diff * um_to_px)
+    y_diff_um = '{:.2f}'.format(y_diff * um_to_px)
+
+    results_um = {'x_drift_um': x_diff_um,
+               'y_drift_um': y_diff_um,
+               'z_drift_um': z_diff_um}
+    results_px = {'x_drift_px': '{:.2f}'.format(x_diff),
+                  'y_drift_px': '{:.2f}'.format(y_diff),
+                  'z_drift_px': '{:.2f}'.format(z_diff)}
+
+    return results_um, results_px
+
+
+def plot_imgs_with_overlay(imgA, imgB, titleA='imageA', titleB='imageB', boost_red = True, grayscale = False):
+
+    import matplotlib.pyplot as plt
+    if grayscale == False: # plotting red and green channels
+        imgA_norm = (imgA - imgA.min()) / (imgA.max() - imgA.min())  # Normalize
+        imgB_norm = (imgB - imgB.min()) / (imgB.max() - imgB.min())
+        imgA_norm = imgA_norm ** 0.85  # Slight gamma correction
+        imgB_norm = imgB_norm ** 0.6
+
+        rgb = np.zeros((imgA.shape[0], imgA.shape[1], 3), dtype=float)
+        if boost_red:
+            rgb[..., 0] = np.clip(imgB_norm * 1.6, 0, 1)  # Red channel boosted
+        else:
+            rgb[..., 0] = imgB_norm
+        rgb[..., 1] = imgA_norm  # Green channel
+        rgb = np.clip(rgb, 0, 1)
+    else: # plotting red and grayscale channels
+        rgb = make_grayscale_and_red_overlay(imgA, imgB)
+
+    fig, ax = plt.subplots(1, 3, figsize=(15, 5))
+    ax[0].imshow(imgA, cmap='gray', vmax=np.percentile(imgA, 99))
+    ax[0].set_title(titleA)
+    ax[1].imshow(imgB, cmap='gray', vmax=np.percentile(imgB, 99))
+    ax[1].set_title(titleB)
+    ax[2].imshow(rgb)
+    ax[2].set_title("Red = Image 2, Green = Image 1")
+    [a.axis('off') for a in ax.flatten()]
+    plt.tight_layout()
+
+    return fig, ax  # return so caller can add to them
+
+def make_grayscale_and_red_overlay(imgA, imgB):
+    '''
+    Making a grayscale and red overlay image
+    :param imgA: image 1 (gray image)
+    :param imgB: image 2 (red image)
+    :return: the overlap
+    '''
+
+    imgA_norm = (imgA - imgA.min()) / (imgA.max() - imgA.min())  # Normalize
+    imgB_norm = (imgB - imgB.min()) / (imgB.max() - imgB.min())
+    imgA_norm = imgA_norm ** 0.8  # Slight gamma correction
+    imgB_norm = imgB_norm ** 0.7
+
+    rgb = np.stack([imgA_norm, imgA_norm, imgA_norm], axis=-1)
+    red_overlay = np.clip(imgB_norm * 1.3, 0, 1)
+    rgb[..., 0] = np.clip(rgb[..., 0] + red_overlay, 0, 1)  # add to red channel
+
+    return rgb
