@@ -253,12 +253,13 @@ def build_functional_types_df_for_ensembles(omr_fishvolume,
                                                    key in key_order if
                                                    key in stim_photostimFish.stimmed_cells_matched_stim_ids_dict}
             print(f'sorted dict: {stim_photostimFish.stimmed_cells_matched_stim_ids_dict}')
+            stimmed_photostim_cell_array = np.array(list(sorted_stimmed_closest_cell_id_dict.keys()))
             stimmed_cell_id_array = np.array(list(sorted_stimmed_closest_cell_id_dict.values()))
             print(f'sorted array: {stimmed_cell_id_array}')
 
             omr_photostim_cell_id_lst = []
             bad_indices = []
-            for idx, actual_s_cell in enumerate(stimmed_cell_id_array):
+            for idx, actual_s_cell in enumerate(stimmed_cell_id_array): # match the OMR cell id to the photostimmed cell number
                 for o_cell_id, s_cell_id in matched_cell_ids.items():
                     if actual_s_cell == s_cell_id:
                         omr_photostim_cell_id_lst.append(int(o_cell_id))
@@ -269,6 +270,7 @@ def build_functional_types_df_for_ensembles(omr_fishvolume,
             # now get make sure to add the correct stim frame and events for each cell
             stim_frames = stim_photostimFish.stim_sites_df.stim_frames.values
             stim_events = stim_photostimFish.stim_sites_df.stim_events.values
+            remove_stim_num = []
             for n in range(len(stimmed_cell_id_array)):
                 if n not in bad_indices:
                     sub_functional_types_df.loc[[omr_photostim_cell_id_lst[n]], 'photostim'] = True
@@ -279,13 +281,16 @@ def build_functional_types_df_for_ensembles(omr_fishvolume,
                         [stim_events[n]],
                         index=sub_functional_types_df.index[[omr_photostim_cell_id_lst[n]]])
                 else:  # still add to the dataframe, just at the very end of it
-                    stim_cell = int(stimmed_cell_id_array[n])
-                    stim_cell_roi = stim_photostimFish.return_singlecell_rois(stim_cell)
-                    new_row = {'resp_cell_id': 'None', 'omr_neur_id': 'None', 'stim_neur_id': stim_cell,
-                               'neur_coords': stim_cell_roi, 'plane': stim_photostimFish.stim_sites_df.plane.values[n],
-                               'region': 'Pt', 'visual_barcode': 'None', 'motion_responses': 'None', 'photostim': True,
-                               'stim_frames': stim_frames[n], 'stim_events': stim_events[n]}
-                    sub_functional_types_df.loc[len(sub_functional_types_df)] = new_row
+                    if not np.isnan(stimmed_cell_id_array[n][0]): # ignoring a stimulated cell if it is a nan value also in the stim dataset
+                        stim_cell = int(stimmed_cell_id_array[n])
+                        stim_cell_roi = stim_photostimFish.return_singlecell_rois(stim_cell)
+                        new_row = {'resp_cell_id': 'None', 'omr_neur_id': 'None', 'stim_neur_id': stim_cell,
+                                   'neur_coords': stim_cell_roi, 'plane': stim_photostimFish.stim_sites_df.plane.values[n],
+                                   'region': 'Pt', 'visual_barcode': 'None', 'motion_responses': 'None', 'photostim': True,
+                                   'stim_frames': stim_frames[n], 'stim_events': stim_events[n]}
+                        sub_functional_types_df.loc[len(sub_functional_types_df)] = new_row
+                    else: # keep track of the nan one, to remove that index from the final stim order key list
+                        remove_stim_num.append(stimmed_photostim_cell_array[n])
 
             if plot_stim_sites:
                 try:
@@ -318,6 +323,9 @@ def build_functional_types_df_for_ensembles(omr_fishvolume,
     functional_types_df = pd.concat(df_lst).reset_index(drop=True)
     try:
         stim_key_order = [item for sublist in stim_key_order for item in sublist]
+        if len(remove_stim_num) > 0:
+            for r in remove_stim_num:
+                stim_key_order.remove(r)
         final_functional_types_df = photostim_data_pipeline.add_resp_cell_ids_to_df(functional_types_df,
                                                                                 specific_stim_key_order=stim_key_order)
     except:
@@ -326,29 +334,80 @@ def build_functional_types_df_for_ensembles(omr_fishvolume,
     return final_functional_types_df
 
 
+def update_regions_in_df_post_alignment(df, master_folder_path):
+    """
+    Updates the 'region' column of df based on polygon membership.
+    Run this post alignment, rois that you will gather are Pt, nMLF, aHB
+    master_folder_path: directory containing subfolders for each plane (plane_0, plane_1, ...) (ends with output_folders)
+    """
+    from shapely.geometry import Point, Polygon
+
+    updated_regions = []
+
+    # Cache polygons by plane
+    polygon_dict = {}
+    for plane_folder in os.listdir(master_folder_path):
+        if not plane_folder.startswith("plane_"):
+            continue
+        plane_roi_path = os.path.join(master_folder_path, plane_folder, 'rois')
+        polygons = {}
+        for f in os.listdir(plane_roi_path):
+            if f.endswith(".npy"):
+                region_name = os.path.splitext(f)[0]
+                print(region_name)
+                polygon_coords = np.load(os.path.join(plane_roi_path, f))
+                print(len(polygon_coords))
+                polygons[region_name] = Polygon(polygon_coords)
+        polygon_dict[plane_folder] = polygons
+
+    # Iterate over rows and assign regions
+    for _, row in df.iterrows():
+        plane = row["plane"]
+        coord = row["neur_coords"]
+        if not isinstance(coord, (list, tuple, np.ndarray)) or len(coord) != 2:
+            updated_regions.append(np.nan)
+            continue
+
+        point = Point(coord[0], coord[1])
+        polygons = polygon_dict.get(plane, {})
+        assigned_region = np.nan
+
+        for region_name, poly in polygons.items():
+            if poly.contains(point):
+                assigned_region = region_name
+                break  # if you want one region per cell
+
+        updated_regions.append(assigned_region)
+
+    df["region"] = updated_regions
+    return df
+
+
 def gather_ensemble_activity_subsets(stim_fishvolume, master_stim_sites_df, master_stim_ensemble_df, evoked_window=6):
     # 1 - gather all the stimmed traces that is in the master stim sites
     stimmed_cell_info_dict = BCDict()
     for i, cell_id in enumerate(master_stim_sites_df.cell_ids.values):
-        if cell_id not in stimmed_cell_info_dict.keys():
-            stimmed_cell_info_dict[cell_id] = {}
         fishy = stim_fishvolume.volumes[master_stim_sites_df.iloc[i].plane]
         stimmed_cell_id = fishy.stimmed_cells_matched_stim_ids_dict[cell_id][0]
+        if not isinstance(stimmed_cell_id, float): #if there is a match in cell ids (not nan vals)
+            # add to the dictionary
+            if cell_id not in stimmed_cell_info_dict.keys():
+                stimmed_cell_info_dict[cell_id] = {}
 
-        # collect traces
-        norm_trace = fishy.normcells[stimmed_cell_id]
-        avg_baseline = np.nanmean(fishy.normcells[stimmed_cell_id][fishy.baseline_frames - 20: fishy.baseline_frames])
-        global_df_f_trace = (norm_trace - avg_baseline) / avg_baseline
-        zscore_trace = fishy.zdiff_cells[stimmed_cell_id]
+            # collect traces
+            norm_trace = fishy.normcells[stimmed_cell_id]
+            avg_baseline = np.nanmean(fishy.normcells[stimmed_cell_id][fishy.baseline_frames - 20: fishy.baseline_frames])
+            global_df_f_trace = (norm_trace - avg_baseline) / avg_baseline
+            zscore_trace = fishy.zdiff_cells[stimmed_cell_id]
 
-        # get all frames, ROI for the cell
-        cell_specific_ps_events = np.array(fishy.ps_event_start)
-        location = fishy.return_singlecell_rois(stimmed_cell_id)
-        stimmed_cell_info_dict[cell_id] = {'norm_trace': norm_trace,
-                                           'zscore_trace': zscore_trace,
-                                           'global_df_f_trace': global_df_f_trace,
-                                           'roi': location,
-                                           'ps_frames': cell_specific_ps_events}
+            # get all frames, ROI for the cell
+            cell_specific_ps_events = np.array(fishy.ps_event_start)
+            location = fishy.return_singlecell_rois(stimmed_cell_id)
+            stimmed_cell_info_dict[cell_id] = {'norm_trace': norm_trace,
+                                               'zscore_trace': zscore_trace,
+                                               'global_df_f_trace': global_df_f_trace,
+                                               'roi': location,
+                                               'ps_frames': cell_specific_ps_events}
 
     # 2 - use this information to gather the ensemble traces, weights
     baseline_frames = np.arange(0, -fishy.photostim_frame_window[0])
@@ -376,14 +435,15 @@ def gather_ensemble_activity_subsets(stim_fishvolume, master_stim_sites_df, mast
                     if stim_cell_key not in sub_single_ensemble_trace_dict:
                         sub_single_ensemble_trace_dict[stim_cell_key] = []
                     # calculate cell trace
-                    cell_trace = stimmed_cell_info_dict[each_cell][trace_type]
-                    matching_ps_frames = stimmed_cell_info_dict[each_cell]['ps_frames'][stim_events]
-                    frame_subset = arrutils.subsection_arrays(matching_ps_frames, offsets=fishy.photostim_frame_window)
-                    cell_trace_subsets = np.array([cell_trace[a] for a in frame_subset])
-                    baseline_per_trial = np.nanmean(cell_trace_subsets[:, baseline_frames], axis=1)
-                    evoked_per_trial = np.nanmean(cell_trace_subsets[:, evoked_frames], axis=1)
-                    if trace_type == 'norm_trace':  # use this to find the 'local df/f'
-                        cell_trace_subsets = np.array([(arr - baseline_per_trial[l]) / baseline_per_trial[l] for l, arr in
+                    if each_cell in stimmed_cell_info_dict.keys():
+                        cell_trace = stimmed_cell_info_dict[each_cell][trace_type]
+                        matching_ps_frames = stimmed_cell_info_dict[each_cell]['ps_frames'][stim_events]
+                        frame_subset = arrutils.subsection_arrays(matching_ps_frames, offsets=fishy.photostim_frame_window)
+                        cell_trace_subsets = np.array([cell_trace[a] for a in frame_subset])
+                        baseline_per_trial = np.nanmean(cell_trace_subsets[:, baseline_frames], axis=1)
+                        evoked_per_trial = np.nanmean(cell_trace_subsets[:, evoked_frames], axis=1)
+                        if trace_type == 'norm_trace':  # use this to find the 'local df/f'
+                            cell_trace_subsets = np.array([(arr - baseline_per_trial[l]) / baseline_per_trial[l] for l, arr in
                                                        enumerate(cell_trace_subsets)])
                     sub_single_ensemble_trace_dict[stim_cell_key] = cell_trace_subsets
 
@@ -408,130 +468,187 @@ def gather_ensemble_evoked_tail_data(stim_fishvol, master_ensemble_df):
 
     return ensemble_tail_data_dict
 
-def add_ensemble_responses_to_df(functional_types_df, master_stim_ensemble_df, data_fishvolume, evoked_frame_window=8):
+def add_ensemble_responses_to_df(functional_types_df, master_stim_ensemble_df, data_fishvolume, photostim_frame_window = None):
     '''
-    Adding the photostimulation responses for all the responding cells but actually their responses to ensembles not stimulated cells individually
+    Adding the photostimulation responses for all the responding cells, actually their responses to ensembles not stimulated cells individually
+    Now better to include local df/f (baseline per stim event), global df/f (baseline avg before every stim event),
+    local zscore (zscoring only around the stim event), global zscore (entire trace zscored, then take the subset)
     :param functional_types_df: the master functional types dataframe that you are adding these responses to
     :param master_stim_ensemble_df: the df that has all the ensemble information (called: master_stim_ensembles.h5)
     :param data_fishvolume: the stimulated data fishvolume
-    :param evoked_frame_window: the number of frames post photostimulation event that you will take the avg activity over
     :return: the functional types df now with the photostimulation responses
     '''
-    resp_f_trace_array, resp_norm_trace_array, resp_zscore_trace_array = photostim_data_pipeline.prepare_data_for_plotting(
+
+    _, all_norm_trace_array, all_zscore_trace_array = photostim_data_pipeline.prepare_data_for_plotting(
         functional_types_df, data_fishvolume)
     stimulated_ensembles = master_stim_ensemble_df.ensemble_id.values
     stimulated_ensembles_stim_events = master_stim_ensemble_df.stim_events.values
     resp_cell_planes = functional_types_df.plane.values
 
-    for t, traces in enumerate([resp_norm_trace_array, resp_zscore_trace_array]):
-        trace_type = 'df/f' if t == 0 else 'zscore'
-        photostimulation_responses_lst = []
-        avg_evoked_activity_master_lst = []
+    # 1 - raw traces in subsets for ease in analysis
+    raw_traces_dict = BCDict()
+    raw_norm_list = []
+    zscore_global_list = []
+    for resp_cell_id, responding_trace in enumerate(all_norm_trace_array):
+        if resp_cell_id not in raw_traces_dict.keys():
+            raw_traces_dict[resp_cell_id] = {}
+        plane_fishy = data_fishvolume.volumes[resp_cell_planes[resp_cell_id]]
+        resp_cell_ps_frames = plane_fishy.ps_event_start
+        resp_cell_zscored_array = all_zscore_trace_array[resp_cell_id]
+        resp_cell_zscored_dict = {}  # for dataframe
+        resp_cell_raw_dict = {}  # for dataframe
+        for e_index, e_id in enumerate(stimulated_ensembles):
+            if e_id not in raw_traces_dict[resp_cell_id].keys():
+                raw_traces_dict[resp_cell_id][e_id] = []
+                resp_cell_zscored_dict[e_id] = []
+            stim_events = stimulated_ensembles_stim_events[e_index]
+            stimmed_frames = [resp_cell_ps_frames[s] for s in stim_events]  # should be the correct frames
+            if photostim_frame_window is None:
+                photostim_frame_window = plane_fishy.photostim_frame_window
+            frame_subset = arrutils.subsection_arrays(stimmed_frames, photostim_frame_window)
+            if frame_subset[-1][-1] > len(responding_trace):  # adjust frames in case this is out of range
+                new_frame_subset = []
+                for s in frame_subset:
+                    new_frame_subset.append([q for q in s if q < len(responding_trace)])
+                frame_subset = np.array(new_frame_subset)
+            resp_raw_trial = np.array([responding_trace[g] for g in frame_subset if len(responding_trace[g]) > 0])
+            raw_traces_dict[resp_cell_id][e_id] = resp_raw_trial  # shape = trials x frames
+            resp_cell_raw_dict[e_id] = [resp_raw_trial]
+            resp_raw_zscore = np.array(
+                [resp_cell_zscored_array[g] for g in frame_subset if len(resp_cell_zscored_array[g]) > 0])
+            resp_cell_zscored_dict[e_id] = [resp_raw_zscore]
+        raw_norm_list.append(resp_cell_raw_dict)
+        zscore_global_list.append(resp_cell_zscored_dict)  # entire trace zscored before looking at subset
 
-        # for each responding cell, get the responses of that cell to each stimulation event
-        for resp_cell_id, responding_trace in enumerate(traces):
+    # 2 - calculate local df/f, global df/f, zscore
+    dff_local_list = []
+    dff_global_list = []
+    zscore_local_list = []
+    for each_cell, trace_subset_dict in raw_traces_dict.items():
+        dff_local_resp_to_each_ensemble = {}
+        dff_global_resp_to_each_ensemble = {}
+        zscore_local_resp_to_each_ensemble = {}
+        zscore_global_resp_to_each_ensemble = {}
+        for ensemble_name, array in trace_subset_dict.items():
+            local_dff_resp_traces = np.zeros(shape=(len(array), len(array[0])))
+            local_zscore_resp_traces = np.zeros(shape=(len(array), len(array[0])))
+            avg_baseline_per_trial = []
+            for a, arr in enumerate(array):
+                base_e = arr[:-photostim_frame_window[0]]  # anything before the photostim event
+                avg_baseline_per_trial.append(np.nanmean(base_e))
+                trace_e = (arr - np.nanmean(base_e)) / np.nanmean(base_e)
+                local_dff_resp_traces[a] = trace_e  # full trace for each trial
+                local_zscore_resp_traces[a] = scipy.stats.zscore(trace_e)
+            dff_local_resp_to_each_ensemble[ensemble_name] = [local_dff_resp_traces]
+            zscore_local_resp_to_each_ensemble[ensemble_name] = [local_zscore_resp_traces]
 
-            # need to index into the correct plane for that cell to gather the right ps event frames
-            plane_fishy = data_fishvolume.volumes[resp_cell_planes[resp_cell_id]]
-            resp_cell_ps_frames = plane_fishy.ps_event_start
+            global_dff_resp_traces = np.zeros(shape=(len(array), len(array[0])))
+            global_avg_baseline = np.nanmean(avg_baseline_per_trial)
+            for a, arr in enumerate(array):
+                global_dff = (arr - global_avg_baseline) / global_avg_baseline
+                global_dff_resp_traces[a] = global_dff
+            dff_global_resp_to_each_ensemble[ensemble_name] = [global_dff_resp_traces]
 
-            resp_to_each_ensemble_dict = BCDict()
-            avg_evoked_activity_lst = []
-            for e_index, e_id in enumerate(stimulated_ensembles):
-                if e_id not in resp_to_each_ensemble_dict.keys():
-                    resp_to_each_ensemble_dict[e_id] = {}
-                stim_events = stimulated_ensembles_stim_events[e_index]
-                stimmed_frames = [resp_cell_ps_frames[s] for s in stim_events]  # should be the correct frames
-                frame_subset = arrutils.subsection_arrays(stimmed_frames, plane_fishy.photostim_frame_window)
+        dff_local_list.append(dff_local_resp_to_each_ensemble)
+        dff_global_list.append(dff_global_resp_to_each_ensemble)
+        zscore_local_list.append(zscore_local_resp_to_each_ensemble)
 
-                if frame_subset[-1][-1] > len(responding_trace):  # adjust frames in case this is out of range
-                    new_frame_subset = []
-                    for s in frame_subset:
-                        new_frame_subset.append([q for q in s if q < len(responding_trace)])
-                    frame_subset = np.array(new_frame_subset)
-
-                resp_raw_trial = np.array([responding_trace[g] for g in frame_subset if len(responding_trace[g]) > 0])
-                resp_df_f_trial = np.zeros(shape=(len(resp_raw_trial), len(resp_raw_trial[0])))
-                resp_raw_trial2 = np.zeros(shape=(len(resp_raw_trial), len(resp_raw_trial[0])))
-                stim_evoked_df_f_trial = np.zeros(shape=(len(resp_raw_trial), 1))
-                stim_evoked_raw_trial = np.zeros(shape=(len(resp_raw_trial), 1))
-
-                for d, f in enumerate(resp_raw_trial):
-                    if trace_type == 'df/f':
-                        base_e = f[:-plane_fishy.photostim_frame_window[0]]  # anything before the photostim event
-                        plot_e = (f - np.nanmean(base_e)) / np.nanmean(base_e)
-                        evoked_e = np.nanmean(plot_e[-plane_fishy.photostim_frame_window[0]:-
-                                                                                            plane_fishy.photostim_frame_window[
-                                                                                                0] + evoked_frame_window])  # evoked df f for each trial
-                        stim_evoked_df_f_trial[d] = evoked_e
-                        resp_df_f_trial[d] = plot_e  # full trace for each trial
-                    if trace_type == 'zscore':
-                        # calculate raw traces of your input array
-                        evoked_raw = np.nanmean(f[-plane_fishy.photostim_frame_window[0]:-
-                                                                                         plane_fishy.photostim_frame_window[
-                                                                                             0] + evoked_frame_window])  # evoked raw trace for each trial
-                        stim_evoked_raw_trial[d] = evoked_raw
-                        resp_raw_trial2[d] = f  # full trace for each trial
-
-                if trace_type == 'df/f':
-                    resp_to_each_ensemble_dict[e_id] = [resp_df_f_trial]
-                    avg_evoked_activity_lst.append(np.nanmean(stim_evoked_df_f_trial))
-                if trace_type == 'zscore':  # only want raw zscore traces, no need to normalize to baseline
-                    resp_to_each_ensemble_dict[e_id] = [resp_raw_trial2]
-                    avg_evoked_activity_lst.append(np.nanmean(stim_evoked_raw_trial))
-
-            # put all of this information into lists to add to the final dataframe
-            photostimulation_responses_lst.append(resp_to_each_ensemble_dict)
-            avg_evoked_activity_master_lst.append(avg_evoked_activity_lst)
-
-            if trace_type == 'df/f':
-                df_f_photostim_responses_lst = photostimulation_responses_lst
-                df_f_avg_evoked_activity_lst = avg_evoked_activity_master_lst
-            else:
-                zscore_photostim_responses_lst = photostimulation_responses_lst
-                zscore_avg_evoked_activity_lst = avg_evoked_activity_master_lst
-
-    functional_types_df['stim_responses'] = df_f_photostim_responses_lst
-    functional_types_df['avg_evoked_df_f'] = df_f_avg_evoked_activity_lst
-    functional_types_df['stim_responses_zscore'] = zscore_photostim_responses_lst
-    functional_types_df['avg_evoked_zscore'] = zscore_avg_evoked_activity_lst
+    # 3 - add these new columns to the dataframe
+    functional_types_df['stim_responses_norm_raw'] = raw_norm_list
+    functional_types_df['stim_responses_dff_local'] = dff_local_list
+    functional_types_df['stim_responses_dff_global'] = dff_global_list
+    functional_types_df['stim_responses_zscore_local'] = zscore_local_list
+    functional_types_df['stim_responses_zscore_global'] = zscore_global_list
+    if 'stim_responses' in functional_types_df.columns:
+        functional_types_df = functional_types_df.drop(['stim_responses', 'avg_evoked_df_f', 'stim_responses_zscore', 'avg_evoked_zscore'], axis=1)
 
     return functional_types_df
 
 
+def min_distance_from_ensemble_um(stim_spots_px, responder_px, xy_um_per_px, plane_spacing_um=7.0, use_z=True):
+    """
+    Find the minimum distance of a cell from an ensemble
+    stim_spots_px: list of (x_px, y_px, plane_index)
+    responder_px:   (x_px, y_px, plane_index)
+    xy_um_per_px:   float, µm per pixel in XY
+    plane_spacing_um: float, µm between planes (default 7)
+    use_z: whether to include z-distance
+    returns: closest_val: the minimum distance from the ensemble
+    """
+    distances = []
+    rx, ry, rp = responder_px
+    for s in stim_spots_px:
+        sx, sy, sp = s
+        dx_um = (sx - rx) * xy_um_per_px
+        dy_um = (sy - ry) * xy_um_per_px
+        dz_um = (sp - rp) * plane_spacing_um if use_z else 0.0
+        d = math.sqrt(dx_um*dx_um + dy_um*dy_um + dz_um*dz_um)
+        distances.append((s, d))
+    closest, closest_val = min(distances, key=lambda x: x[1])
+
+    return closest_val
+
 # gather activated and suppressed neurons for an ensemble
-def get_ps_responders_with_tuning(ensemble_id, huge_df, photostim_event_frame=8, evoked_response_window=8,
-                                  activated_std_threshold=3, suppressed_std_threshold=2):
+def get_ps_responders_dataframe(ensemble_id, huge_df,
+                                photostim_event_frame=8, evoked_response_window=8,
+                                activated_std_threshold=3, suppressed_std_threshold=2,
+                                amplitude_threshold = 0,
+                                type_of_traces = 'stim_responses_dff_local',
+                                no_stimmmed_cells = True,
+                                ensemble_weights = [] ):
+    '''
+    Gather responders that are activated and suppressed to an ensemble
+    Returns a subset of the big functional types dataframe to gather other features of the responder neurons
+    :param ensemble_id: ensemble id (i.e. 'A')
+    :param huge_df: the large functional types dataframe
+    :param photostim_event_frame: at what frame does the stimuluation start
+    :param evoked_response_window: the response window to check out post photostimulation for looking at evoked activity
+    :param activated_std_threshold: standard deviation threshold for activated neurons
+    :param suppressed_std_threshold:standard deviation threshold for suppressed neurons (negative)
+    :param amplitude_threshold: amplitude threshold for stimulation responses (must have an evoked activity larger or smaller than this number for associated responders, default is 0 (no amplitude threshold)
+    :param type_of_traces: the column of traces for finding responders
+    :param no_stimmmed_cells: if True, no photostimmed cells are included
+    :return: responders dataframe and the evoked activity per cell (in order of the responders dataframe rows)
+    '''
+
     inds_of_df = []
     evoked_dff = []
 
-    for each_neur, each_neuron_resp in enumerate(huge_df.stim_responses.values):
-        if 'stim' not in huge_df.iloc[each_neur].resp_cell_id:
-            responses_to_ensemble = each_neuron_resp[0][ensemble_id]
-            baseline_frames = responses_to_ensemble[:, :photostim_event_frame - 1]  # trials x time
-            mean_baseline_activity_per_trial = np.nanmean(baseline_frames, axis=1)  # avg baseline activity per trial
-            std_per_trial = np.std(baseline_frames, axis=1)  # calculate std per trial first
-            avg_baseline_activity = np.nanmean(mean_baseline_activity_per_trial)
-            evoked_frames = responses_to_ensemble[:,
-                            photostim_event_frame: photostim_event_frame + evoked_response_window]
-            mean_evoked_activity_per_trial = np.nanmean(evoked_frames, axis=1)  # avg evoked dff activity per trial
+    if no_stimmmed_cells == True:
+        subset_df = huge_df[huge_df.resp_cell_id.str.contains('resp')]
+    else:
+        subset_df = huge_df
+
+    for each_neur, each_neuron_resp in enumerate(subset_df[type_of_traces].values):
+        responses_to_ensemble = each_neuron_resp[ensemble_id][0]
+        baseline_frames = responses_to_ensemble[:, :photostim_event_frame - 1]  # trials x time
+        mean_baseline_activity_per_trial = np.nanmean(baseline_frames, axis=1)  # avg baseline activity per trial
+        evoked_frames = responses_to_ensemble[:,
+                        photostim_event_frame: photostim_event_frame + evoked_response_window]
+        mean_evoked_activity_per_trial = np.nanmean(evoked_frames, axis=1)  # avg evoked dff activity per trial
+
+        if len(ensemble_weights) > 1:
+            avg_evoked_activity = np.average(mean_evoked_activity_per_trial, weights=ensemble_weights)
+            avg_baseline_activity = np.average(mean_baseline_activity_per_trial, weights=ensemble_weights)
+            # Compute the weighted variance of baseline means (not of within-trial stds)
+            weighted_var_baseline = np.average((mean_baseline_activity_per_trial - avg_baseline_activity) ** 2, weights=ensemble_weights)
+            std_across_trials = np.sqrt(weighted_var_baseline)
+        else:
             avg_evoked_activity = np.nanmean(mean_evoked_activity_per_trial)
-            if avg_evoked_activity >= (avg_baseline_activity + (activated_std_threshold * np.nanmean(std_per_trial))):
-                inds_of_df.append(each_neur)
-                evoked_dff.append(avg_evoked_activity)
-            if avg_evoked_activity <= (avg_baseline_activity - (suppressed_std_threshold * np.nanmean(std_per_trial))):
-                inds_of_df.append(each_neur)
-                evoked_dff.append(avg_evoked_activity)
+            avg_baseline_activity = np.nanmean(mean_baseline_activity_per_trial)
+            std_across_trials = np.nanstd(mean_baseline_activity_per_trial)
 
-    responder_df = huge_df.iloc[inds_of_df]
-    rois_of_responders = np.array(responder_df.neur_coords.values)
-    tuning_colors = np.array(responder_df.tuning_color.values)
-    tuning_angles = np.array(responder_df.tuning_angle.values)
-    tuning_strengths = np.array(responder_df.tuning_weight.values)
-    responder_unique_cell_ids = np.array(responder_df.resp_cell_id.values)
+        if (avg_evoked_activity >= (avg_baseline_activity + (activated_std_threshold * std_across_trials))) & (avg_evoked_activity >= amplitude_threshold):
+            inds_of_df.append(each_neur)
+            evoked_dff.append(avg_evoked_activity)
+        if (avg_evoked_activity <= (avg_baseline_activity - (suppressed_std_threshold * std_across_trials))) & (avg_evoked_activity <= -amplitude_threshold) :
+            inds_of_df.append(each_neur)
+            evoked_dff.append(avg_evoked_activity)
 
-    return rois_of_responders, np.array(
-        evoked_dff), tuning_colors, tuning_angles, tuning_strengths, responder_unique_cell_ids
+    responder_df = subset_df.iloc[inds_of_df]
+    evoked_dff = np.array(evoked_dff)
+
+    return responder_df, evoked_dff
 
 
 def plot_ps_connectivity_map(ax, stim_locations, responder_locations, responder_vals, responder_tuning_clrs,
@@ -605,3 +722,111 @@ def plot_directional_tuning_with_ps_activity(ax, ensemble_tuning_angle, ensemble
     ax.plot([mean_angle, mean_angle], [0, mean_strength], color='black', lw=2, linestyle='-', zorder=15)
 
     ax.set_rmin(0.0)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# 10/20/25 - OLD BUT KEEPING IN CASE
+
+# def add_ensemble_responses_to_df(functional_types_df, master_stim_ensemble_df, data_fishvolume, evoked_frame_window=8):
+#     '''
+#     Adding the photostimulation responses for all the responding cells but actually their responses to ensembles not stimulated cells individually
+#     :param functional_types_df: the master functional types dataframe that you are adding these responses to
+#     :param master_stim_ensemble_df: the df that has all the ensemble information (called: master_stim_ensembles.h5)
+#     :param data_fishvolume: the stimulated data fishvolume
+#     :param evoked_frame_window: the number of frames post photostimulation event that you will take the avg activity over
+#     :return: the functional types df now with the photostimulation responses
+#     '''
+#     resp_f_trace_array, resp_norm_trace_array, resp_zscore_trace_array = photostim_data_pipeline.prepare_data_for_plotting(
+#         functional_types_df, data_fishvolume)
+#     stimulated_ensembles = master_stim_ensemble_df.ensemble_id.values
+#     stimulated_ensembles_stim_events = master_stim_ensemble_df.stim_events.values
+#     resp_cell_planes = functional_types_df.plane.values
+#
+#     for t, traces in enumerate([resp_norm_trace_array, resp_zscore_trace_array]):
+#         trace_type = 'df/f' if t == 0 else 'zscore'
+#         photostimulation_responses_lst = []
+#         avg_evoked_activity_master_lst = []
+#
+#         # for each responding cell, get the responses of that cell to each stimulation event
+#         for resp_cell_id, responding_trace in enumerate(traces):
+#
+#             # need to index into the correct plane for that cell to gather the right ps event frames
+#             plane_fishy = data_fishvolume.volumes[resp_cell_planes[resp_cell_id]]
+#             resp_cell_ps_frames = plane_fishy.ps_event_start
+#
+#             resp_to_each_ensemble_dict = BCDict()
+#             avg_evoked_activity_lst = []
+#             for e_index, e_id in enumerate(stimulated_ensembles):
+#                 if e_id not in resp_to_each_ensemble_dict.keys():
+#                     resp_to_each_ensemble_dict[e_id] = {}
+#                 stim_events = stimulated_ensembles_stim_events[e_index]
+#                 stimmed_frames = [resp_cell_ps_frames[s] for s in stim_events]  # should be the correct frames
+#                 frame_subset = arrutils.subsection_arrays(stimmed_frames, plane_fishy.photostim_frame_window)
+#
+#                 if frame_subset[-1][-1] > len(responding_trace):  # adjust frames in case this is out of range
+#                     new_frame_subset = []
+#                     for s in frame_subset:
+#                         new_frame_subset.append([q for q in s if q < len(responding_trace)])
+#                     frame_subset = np.array(new_frame_subset)
+#
+#                 resp_raw_trial = np.array([responding_trace[g] for g in frame_subset if len(responding_trace[g]) > 0])
+#                 resp_df_f_trial = np.zeros(shape=(len(resp_raw_trial), len(resp_raw_trial[0])))
+#                 resp_raw_trial2 = np.zeros(shape=(len(resp_raw_trial), len(resp_raw_trial[0])))
+#                 stim_evoked_df_f_trial = np.zeros(shape=(len(resp_raw_trial), 1))
+#                 stim_evoked_raw_trial = np.zeros(shape=(len(resp_raw_trial), 1))
+#
+#                 for d, f in enumerate(resp_raw_trial):
+#                     if trace_type == 'df/f':
+#                         base_e = f[:-plane_fishy.photostim_frame_window[0]]  # anything before the photostim event
+#                         plot_e = (f - np.nanmean(base_e)) / np.nanmean(base_e)
+#                         evoked_e = np.nanmean(plot_e[-plane_fishy.photostim_frame_window[0]:-
+#                                                                                             plane_fishy.photostim_frame_window[
+#                                                                                                 0] + evoked_frame_window])  # evoked df f for each trial
+#                         stim_evoked_df_f_trial[d] = evoked_e
+#                         resp_df_f_trial[d] = plot_e  # full trace for each trial
+#                     if trace_type == 'zscore':
+#                         # calculate raw traces of your input array
+#                         evoked_raw = np.nanmean(f[-plane_fishy.photostim_frame_window[0]:-
+#                                                                                          plane_fishy.photostim_frame_window[
+#                                                                                              0] + evoked_frame_window])  # evoked raw trace for each trial
+#                         stim_evoked_raw_trial[d] = evoked_raw
+#                         resp_raw_trial2[d] = f  # full trace for each trial
+#
+#                 if trace_type == 'df/f':
+#                     resp_to_each_ensemble_dict[e_id] = [resp_df_f_trial]
+#                     avg_evoked_activity_lst.append(np.nanmean(stim_evoked_df_f_trial))
+#                 if trace_type == 'zscore':  # only want raw zscore traces, no need to normalize to baseline
+#                     resp_to_each_ensemble_dict[e_id] = [resp_raw_trial2]
+#                     avg_evoked_activity_lst.append(np.nanmean(stim_evoked_raw_trial))
+#
+#             # put all of this information into lists to add to the final dataframe
+#             photostimulation_responses_lst.append(resp_to_each_ensemble_dict)
+#             avg_evoked_activity_master_lst.append(avg_evoked_activity_lst)
+#
+#             if trace_type == 'df/f':
+#                 df_f_photostim_responses_lst = photostimulation_responses_lst
+#                 df_f_avg_evoked_activity_lst = avg_evoked_activity_master_lst
+#             else:
+#                 zscore_photostim_responses_lst = photostimulation_responses_lst
+#                 zscore_avg_evoked_activity_lst = avg_evoked_activity_master_lst
+#
+#     functional_types_df['stim_responses'] = df_f_photostim_responses_lst
+#     functional_types_df['avg_evoked_df_f'] = df_f_avg_evoked_activity_lst
+#     functional_types_df['stim_responses_zscore'] = zscore_photostim_responses_lst
+#     functional_types_df['avg_evoked_zscore'] = zscore_avg_evoked_activity_lst
+#
+#     return functional_types_df

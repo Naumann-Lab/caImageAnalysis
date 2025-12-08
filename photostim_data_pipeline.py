@@ -18,6 +18,7 @@ from bcdict import BCDict
 import shutil
 from tiffile import imread
 import math
+import scipy
 
 # local imports
 from utilities import arrutils, plotutils, statutils, coordutils, roiutils, pathutils
@@ -692,7 +693,7 @@ def prepare_data_for_plotting(data_df, fishvolume, dataset_type='stim'):
     '''
     f_trace_array = np.zeros(shape=(len(data_df), len(fishvolume[0].f_cells[0])))
     normf_trace_array = np.zeros(shape=(len(data_df), len(fishvolume[0].f_cells[0])))
-    zscored_trace_array = np.zeros(shape=(len(data_df), len(fishvolume[0].zdiff_cells[0])))
+    zscored_trace_array = np.zeros(shape=(len(data_df), len(fishvolume[0].f_cells[0])))
     if dataset_type == 'stim':
         cell_ids = data_df.stim_neur_id.values
     if dataset_type == 'omr':
@@ -701,8 +702,11 @@ def prepare_data_for_plotting(data_df, fishvolume, dataset_type='stim'):
         r_cell = int(r_cell)
         dataFish = fishvolume.volumes[data_df.plane.values[r_ind]]
         f_trace_array[r_ind] = dataFish.f_cells[r_cell]
-        normf_trace_array[r_ind] = dataFish.normcells[r_cell]
-        zscored_trace_array[r_ind] = dataFish.zdiff_cells[r_cell]
+        arr = dataFish.normcells[r_cell]
+        z = (arr - np.nanmean(arr)) / np.nanstd(arr) # manually zscoring
+        normf_trace_array[r_ind] = arr
+        # zscored_trace_array[r_ind] = dataFish.zdiff_cells[r_cell] # i realized that this is causing a smoothing issue...
+        zscored_trace_array[r_ind] = z
 
     return f_trace_array, normf_trace_array, zscored_trace_array
 

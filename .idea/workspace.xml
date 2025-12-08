@@ -5,31 +5,13 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="0a2cab2c-7fe4-4ebc-ad9d-622d597d9f7f" name="Changes" comment="added more photostim fxns">
-      <change afterPath="$PROJECT_DIR$/photostim_ensemble.py" afterDir="false" />
       <change beforePath="$USER_HOME$/Analysis/2023_CaImAn_SfNworkshop/caiman_central/workshops/sfn_2023/cnmf/demo_pipeline_local.ipynb" beforeDir="false" afterPath="$USER_HOME$/Analysis/2023_CaImAn_SfNworkshop/caiman_central/workshops/sfn_2023/cnmf/demo_pipeline_local.ipynb" afterDir="false" />
       <change beforePath="$USER_HOME$/Analysis/2023_CaImAn_SfNworkshop/caiman_central/workshops/sfn_2023/fastplotlib/intro_demo.ipynb" beforeDir="false" afterPath="$USER_HOME$/Analysis/2023_CaImAn_SfNworkshop/caiman_central/workshops/sfn_2023/fastplotlib/intro_demo.ipynb" afterDir="false" />
       <change beforePath="$USER_HOME$/Analysis/2023_CaImAn_SfNworkshop/caiman_central/workshops/sfn_2023/mesmerize/cnmfe.ipynb" beforeDir="false" afterPath="$USER_HOME$/Analysis/2023_CaImAn_SfNworkshop/caiman_central/workshops/sfn_2023/mesmerize/cnmfe.ipynb" afterDir="false" />
       <change beforePath="$USER_HOME$/Analysis/2023_CaImAn_SfNworkshop/caiman_central/workshops/sfn_2023/mesmerize/mcorr_cnmf.ipynb" beforeDir="false" afterPath="$USER_HOME$/Analysis/2023_CaImAn_SfNworkshop/caiman_central/workshops/sfn_2023/mesmerize/mcorr_cnmf.ipynb" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/caImageAnalysis.iml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/caImageAnalysis.iml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/misc.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/misc.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/vcs.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/vcs.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/angles.py" beforeDir="false" afterPath="$PROJECT_DIR$/angles.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/bruker_images.py" beforeDir="false" afterPath="$PROJECT_DIR$/bruker_images.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/constants.py" beforeDir="false" afterPath="$PROJECT_DIR$/constants.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/examples/photostim_processing_plotting_examples.ipynb" beforeDir="false" afterPath="$PROJECT_DIR$/examples/photostim_processing_plotting_examples.ipynb" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/fishy.py" beforeDir="false" afterPath="$PROJECT_DIR$/fishy.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/photostim_data_pipeline.py" beforeDir="false" afterPath="$PROJECT_DIR$/photostim_data_pipeline.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/photostimulation.py" beforeDir="false" afterPath="$PROJECT_DIR$/photostim_utils.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/process.py" beforeDir="false" afterPath="$PROJECT_DIR$/process.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/stimuli.py" beforeDir="false" afterPath="$PROJECT_DIR$/stimuli.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tailtracking.py" beforeDir="false" afterPath="$PROJECT_DIR$/tailtracking.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/utilities/arrutils.py" beforeDir="false" afterPath="$PROJECT_DIR$/utilities/arrutils.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/utilities/barcoding.py" beforeDir="false" afterPath="$PROJECT_DIR$/utilities/barcoding.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/utilities/coordutils.py" beforeDir="false" afterPath="$PROJECT_DIR$/utilities/coordutils.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/utilities/plotutils.py" beforeDir="false" afterPath="$PROJECT_DIR$/utilities/plotutils.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/utilities/roiutils.py" beforeDir="false" afterPath="$PROJECT_DIR$/utilities/roiutils.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/utilities/statutils.py" beforeDir="false" afterPath="$PROJECT_DIR$/utilities/statutils.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/photostim_ensemble.py" beforeDir="false" afterPath="$PROJECT_DIR$/photostim_ensemble.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -250,6 +232,7 @@
       <workItem from="1755887641454" duration="6458000" />
       <workItem from="1756143103422" duration="145154000" />
       <workItem from="1758202636152" duration="21179000" />
+      <workItem from="1760558893271" duration="11835000" />
     </task>
     <task id="LOCAL-00001" summary="changes to bruker organization for PV 5.8">
       <option name="closed" value="true" />

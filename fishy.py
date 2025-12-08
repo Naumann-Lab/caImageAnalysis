@@ -845,7 +845,7 @@ class VizStimFish(TailTrackedFish):
 
         return final_image * brightnessFactor
 
-class PhotostimFish(VizStimFish):
+class PhotostimFish(TailTrackedFish):
     def __init__(
         self,
         rotate = True, 

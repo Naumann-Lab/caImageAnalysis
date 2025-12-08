@@ -500,7 +500,7 @@ def identify_stim_sites(somebasefish, rotate = True, stimulation_type = 'single_
                 #check if one of the stimulation inds is in the group inds from these lines
                 group_num = [g for g, group_ind_lst in enumerate(group_inds) if one_index_stimulated in group_ind_lst][0]
                 if group_num == 0:
-                    ind_start = [i+2 for i, line in enumerate(lines) if "PVMarkPoints" in line and "active" in line][0]
+                    ind_start = [i+2 for i, line in enumerate(lines)  if "PVMarkPoints" in line and "active" in line][0]
                     ind_end = [i for i, line in enumerate(lines) if "PVGalvoPointGroup" in line][1]
                 else:
                     ind_start = [i+1 for i, line in enumerate(lines) if "PVGalvoPointGroup" in line][group_num - 1]

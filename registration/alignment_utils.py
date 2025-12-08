@@ -4,12 +4,13 @@ from PIL import Image
 import numpy as np
 import cv2
 import matplotlib.pyplot as plt
+from pathlib import Path
 
 # local imports
 from . import sitkalignment
 
 import sys
-sys.path.append(r'C:\Users\NaumannLab_KEF\PyCharmProjects\imaging')
+sys.path.append(r'C:\Users\Kaitlyn\PyCharmProjects\imaging')
 from scopeslip.planeAlignment import PlaneAlignment
 
 def test_alignment_parameters(reference_img, target_img, scale_penalities = [20, 50, 100], 
@@ -78,6 +79,92 @@ def test_alignment_parameters(reference_img, target_img, scale_penalities = [20,
     
     return dice_coeff_lst, best_scale_pen, best_registered_img
 
+def update_test_alignment_parameters(reference_img,
+                                        target_img,
+                                        scale_penalities=[20, 50, 100],
+                                        iteration_tuple=(5000, 5000),
+                                        master_save_path=None,
+                                        plot=True,
+                                        manual_select=True
+                                    ):
+    """
+    Test different scale penalties for sitk registration and plot the results.
+    Optionally lets the user pick the best one by eye.
+    To be used with the automated analysis script
+    """
+    dice_coeff_lst = []
+    registered_img_lst = []
+
+    print("\n--- Testing scale penalties ---")
+    for sp in scale_penalities:
+        print(f"Running registration with scale penalty = {sp}")
+        save_alignment_path = master_save_path + f'_sp_{sp}'
+        registered_img = sitkalignment.register_image2(
+            reference_img, target_img, savepath=save_alignment_path,
+            scalePenalty=sp, iterations=iteration_tuple
+        )
+        registered_img_lst.append(registered_img)
+
+        # Compute Dice (optional)
+        pa_class = PlaneAlignment(target=reference_img, stack=registered_img, method='otsu')
+        dice = pa_class.lossReturn()
+        dice_coeff_lst.append(dice)
+
+        if plot:
+            fig, ax = plt.subplots(1, 3, figsize=(12, 6))
+            ax[0].imshow(reference_img, cmap="gray",
+                         vmax=np.percentile(reference_img, 97),
+                         vmin=np.percentile(reference_img, 30))
+            ax[1].imshow(registered_img, cmap="gray",
+                         vmax=np.percentile(registered_img, 97),
+                         vmin=np.percentile(registered_img, 30))
+
+            merge = np.zeros((*reference_img.shape, 3))
+            merge[..., 0] = 2 * reference_img / reference_img.max()
+            merge[..., 1] = 2 * registered_img / registered_img.max()
+            ax[2].imshow(merge)
+
+            for a in ax: a.axis("off")
+            ax[0].set_title("Reference")
+            ax[1].set_title(f"Registered (scale penalty={sp})")
+            ax[2].set_title("Merge")
+            plt.tight_layout()
+            plt.savefig(Path((str(save_alignment_path) + '.png')))
+            plt.show(block=False)
+            plt.close(fig)
+
+            print(f"Displayed scale penalty {sp}, Dice={dice:.3f}")
+
+    # --- User manually picks best image ---
+    if manual_select:
+        print("\nAll scale penalty tests complete.")
+        print("Dice coefficients:")
+        for sp, dice in zip(scale_penalities, dice_coeff_lst):
+            print(f"  {sp}: {dice:.3f}")
+
+        while True:
+            try:
+                user_choice = input(f"\nEnter preferred scale penalty from {scale_penalities}: ").strip()
+                user_choice = int(user_choice)
+                if user_choice in scale_penalities:
+                    best_img_ind = scale_penalities.index(user_choice)
+                    print(f"✅ You selected scale penalty {user_choice}")
+                    break
+                else:
+                    print("Invalid input, please enter one of the tested values.")
+            except ValueError:
+                print("Please enter a valid integer.")
+    else:
+        # Automatic selection by Dice score
+        best_img_ind = int(np.argmax(dice_coeff_lst))
+        user_choice = scale_penalities[best_img_ind]
+        print(f"Automatically selected best scale penalty by Dice: {user_choice}")
+
+    best_scale_pen = user_choice
+    best_registered_img = registered_img_lst[best_img_ind]
+
+    return dice_coeff_lst, best_scale_pen, best_registered_img
+
 def extract_mask_boundaries(image_array, points_per_contour=20):
     """
     Extracts boundary points from a mask in a TIFF file.
@@ -118,6 +205,151 @@ def extract_mask_boundaries(image_array, points_per_contour=20):
             points.extend(contour_points)
 
     return np.array(points), binary_mask, len(contours)
+
+def update_extract_mask_boundaries(image_array, points_per_contour=200, merge_contours=True):
+    """
+    Extracts ordered boundary outlines from a mask image using spline fitting,
+    supporting multiple disconnected components.
+
+    Args:
+        image_array (array): 2D array of pixel values of your mask image.
+        points_per_contour (int): number of points to extract per contour.
+
+    Returns:
+        list[np.ndarray]: List of ordered boundary arrays [(x1, y1), (x2, y2), ...] per contour.
+        np.ndarray: Binary mask used to extract contours.
+        int: Number of contours found.
+    """
+    import numpy as np
+    import cv2
+    from scipy.interpolate import splprep, splev
+
+    # Step 1: Normalize and convert to 8-bit
+    scaled_mask = ((image_array - image_array.min()) /
+                   (image_array.max() - image_array.min()) * 255).astype(np.uint8)
+
+    # Step 2: Binarize using Otsu's method
+    _, binary_mask = cv2.threshold(scaled_mask, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+
+    # Step 3: Connected components to separate each distinct object
+    num_labels, labels = cv2.connectedComponents(binary_mask)
+
+    ordered_contours = []
+
+    # Step 4: Extract contour from each connected region
+    for label in range(1, num_labels):  # skip background (label 0)
+        mask_i = np.uint8(labels == label) * 255
+        contours, _ = cv2.findContours(mask_i, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+        if not contours:
+            continue
+
+        # Use the largest contour for this component
+        contour = max(contours, key=cv2.contourArea)
+        contour = contour[:, 0, :]  # shape (N, 2)
+
+        x, y = contour[:, 0], contour[:, 1]
+
+        # Step 5: Fit a spline through contour points to order them smoothly
+        try:
+            tck, u = splprep([x, y], s=2.0, per=True)
+            u_new = np.linspace(0, 1, points_per_contour)
+            x_new, y_new = splev(u_new, tck)
+            ordered_points = np.vstack([x_new, y_new]).T
+        except Exception as e:
+            # print(f"Spline fitting failed for component {label}, returning raw contour:", e)
+            ordered_points = contour
+
+        ordered_contours.append(ordered_points.astype(int))
+
+    # Step 6: Optionally merge all contours into one combined boundary
+    if merge_contours and len(ordered_contours) > 1:
+        all_points = np.vstack(ordered_contours)
+        # Compute convex hull to make a clean merged outline
+        hull = cv2.convexHull(all_points)
+        hull = hull[:, 0, :]  # (N, 2)
+
+        x, y = hull[:, 0], hull[:, 1]
+        try:
+            tck, u = splprep([x, y], s=2.0, per=True)
+            u_new = np.linspace(0, 1, points_per_contour)
+            x_new, y_new = splev(u_new, tck)
+            merged_contour = np.vstack([x_new, y_new]).T.astype(int)
+        except Exception as e:
+            print("Spline fitting failed for merged contour, returning raw hull:", e)
+            merged_contour = hull.astype(int)
+
+        return merged_contour, binary_mask, len(ordered_contours)
+
+    # Step 7: Return separate contours if not merged
+    return ordered_contours, binary_mask, len(ordered_contours)
+
+
+def subtract_overlapping_polygons(poly1_points, poly2_points, verbose=False):
+    """
+    Removes overlap between two polygons so that poly2 overrides poly1 in any overlapping region.
+    Most helpful for nmlf and ahb polygons
+    Parameters
+    ----------
+    poly1_points : array-like
+        Nx2 array of (x, y) coordinates for the first polygon.
+    poly2_points : array-like
+        Mx2 array of (x, y) coordinates for the second polygon.
+    verbose : bool, optional
+        If True, prints debug information.
+
+    Returns
+    -------
+    new_poly1_arr : np.ndarray
+        Cleaned coordinates of polygon 1 (after removing overlap with polygon 2).
+    new_poly2_arr : np.ndarray
+        Cleaned coordinates of polygon 2.
+    """
+    from shapely.geometry import Polygon
+
+    # Convert to shapely polygons
+    poly1 = Polygon(poly1_points)
+    poly2 = Polygon(poly2_points)
+
+    # Fix invalid polygons
+    if not poly1.is_valid:
+        if verbose:
+            print("Fixing Polygon 1...")
+        poly1 = poly1.buffer(0)
+    if not poly2.is_valid:
+        if verbose:
+            print("Fixing Polygon 2...")
+        poly2 = poly2.buffer(0)
+
+    # Subtract overlapping area (poly2 overrides poly1)
+    poly1_clean = poly1.difference(poly2)
+    poly2_clean = poly2
+
+    # Optionally print area stats
+    if verbose:
+        overlap_area = poly1.intersection(poly2).area
+        print(f"Overlap area: {overlap_area:.2f}")
+        print(f"Poly1 area before: {poly1.area:.2f}, after cleaning: {poly1_clean.area:.2f}")
+
+    # Convert shapely geometry → numpy arrays
+    def poly_to_array(poly):
+        """Handles Polygon or MultiPolygon → single array of integer coords."""
+        if poly.is_empty:
+            return np.empty((0, 2), dtype=int)
+        if poly.geom_type == "Polygon":
+            coords = np.array(poly.exterior.coords)
+        elif poly.geom_type == "MultiPolygon":
+            # Take the largest piece if multiple remain
+            largest = max(poly.geoms, key=lambda g: g.area)
+            coords = np.array(largest.exterior.coords)
+        else:
+            raise TypeError(f"Unexpected geometry type: {poly.geom_type}")
+        return np.round(coords).astype(int)
+
+    new_poly1_arr = poly_to_array(poly1_clean)
+    new_poly2_arr = poly_to_array(poly2_clean)
+
+    return new_poly1_arr, new_poly2_arr
+
 
 def unembed_points_from_space(points, original_width, original_height, embed_size=1024):
     """
@@ -258,4 +490,30 @@ def map_points_back(points, angle, image_shape):
         original_points.append((x, y))
     
     return original_points
+
+def resize_and_center_crop(img, target_size=512):
+    """Resize so the smallest side = target_size, then center-crop to target_size×target_size.
+    Necessary when going to run cross correlation between the functional image and the reference stack for finding the best match in Z
+    Note: works for 512 x 512 images for now, need to troublshoot if it will work for new dimensions
+    :param img: np.array
+    :param target_size: int (square dimensions that you are changing the image to fit)
+    :return: np.array (the cropped image)
+    """
+    h, w = img.shape[:2]
+
+    # Compute scale factor
+    scale = target_size / min(w, h)
+    new_w = int(round(w * scale))
+    new_h = int(round(h * scale))
+
+    # Resize
+    img_resized = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_CUBIC)
+
+    # Center crop
+    x_start = (new_w - target_size) // 2
+    y_start = (new_h - target_size) // 2
+
+    img_cropped = img_resized[y_start:y_start + target_size, x_start:x_start + target_size]
+
+    return img_cropped
 
