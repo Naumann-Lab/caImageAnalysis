@@ -113,6 +113,14 @@ deg_dict = {
     "backward_right": 135,
 }
 
+eight_directions_ordered = ['forward',
+                            'forward_right',
+                            'right',
+                            'backward_right',
+                            'backward',
+                            'backward_left',
+                            'left']
+
 deg_dict_expanded = {
     "right": 90,
     "forward_right": 45,

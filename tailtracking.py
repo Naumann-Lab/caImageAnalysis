@@ -14,7 +14,7 @@ sys.path.append(r'C:\Users\Kaitlyn\PyCharmProjects\imaging\caImageAnalysis')
 from utilities import arrutils
 import constants, stimuli
 
-
+### creating the tail df ###
 def bhvr_log_to_df(bhvr_log_path, metadata_log_path):
     '''
     turning stytra behavior log into a pandas dataframe with datetime stamps
@@ -85,6 +85,49 @@ def tail_df_creator(bhvr_data_folder, saving = True):
         all_tail_data.to_hdf(bhvr_data_folder.joinpath('tail_df.h5'), key='tail')
         print('saved tail dataframe')
 
+### tail data with pstim data ###
+def tag_pstim_df_with_tail_frames(tail_df, pstim_df):
+    '''
+    Add in 'tail frame' column to the stimulus df (helpful when you want to pair WITHOUT imaging data)
+    this is the same as the 'tag frames' function in fishy by specific for pstim df and a tail df
+    :param tail_df: typical tail df, all of the data from the bhvr log, need to have a 't_dt' col with datetime
+    :param pstim_df: typical pandastim stimulus df, need to have a 'time' col with datetime
+    :return: new pstim_df with the matching 'tail_frame' in a separate column
+    '''
+
+    if tail_df.t_dt.values[0] > tail_df.t_dt.values[-1]:  # overnight
+        # pre-midnight tail_df and pstim_df
+        tail_df_premidnight = tail_df[tail_df['t_dt'] > tail_df['t_dt'].iloc[-1]]
+        pstim_df_premidnight = pstim_df[pstim_df['time'] > pstim_df['time'].values[-1]]
+        frame_matches_premidnight = [
+         tail_df_premidnight[tail_df_premidnight['t_dt'] < pstim_df_premidnight['time'].values[-1]].index[i] for i
+         in
+         range(len(pstim_df_premidnight))]
+        # post-midnight frametimes_df and df
+        tail_df_postmidnight = tail_df[tail_df['t_dt'] < tail_df['t_dt'].values[0]]
+        pstim_df_postmidnight = pstim_df[pstim_df['time'] < pstim_df['time'].values[0]]
+        # use a for loop to deal with if the first frame of post-midnight df is actually earlier than first frame of
+        # post-midnight frametimes_df, but still after midnight.
+        frame_matches_postmidnight = []
+        for i in range(len(pstim_df_postmidnight)):
+         smaller_df = tail_df_postmidnight[tail_df_postmidnight['t_dt'] < pstim_df_postmidnight['time'].values[i]]
+         if smaller_df.empty:
+             frame_matches_postmidnight = frame_matches_postmidnight + [frame_matches_premidnight[-1]]
+         else:
+             frame_matches_postmidnight = frame_matches_postmidnight + [smaller_df.index[-1]]
+        frame_matches = frame_matches_premidnight + frame_matches_postmidnight
+    else:
+        frame_matches = [tail_df[tail_df.t_dt < pstim_df.time.values[i]].index[-1] for i in range(len(pstim_df))]
+
+    pstim_df.loc[:, "tail_frame"] = frame_matches
+    pstim_df = pstim_df[pstim_df['tail_frame'] != 0]
+    pstim_df.reset_index(inplace=True, drop=True)
+
+    pstim_df = stimuli.add_repetitions_to_stimulus_df(pstim_df)
+
+    return pstim_df
+
+### helpful utils ###
 def dateToMillisec(datetime):
     '''
     Changes datetime object into milliseconds
@@ -114,14 +157,15 @@ def normalize_tail_sum(tail_sum_values):
     return norm_tail_sum_values_filled
 
 
-def analyze_tail(tail_df, stimulus_df, img_hz, stimulus_s = 5, strength_boundary = 0.25, min_on_s = 0.1, cont_cutoff_s = 0.05):
+def analyze_tail(tail_df, stimulus_df, img_hz, stimulus_df_frame_col = 'frame',
+                 stimulus_s = 5, strength_boundary = 0.25, min_on_s = 0.1, cont_cutoff_s = 0.05):
     """
     # from cleo - danionella paper
     works in conjunction with the stimulus df (with visual motion cues)
     capture tail events happened in the current inputs.
         stimulus_df: the dataframe contain all the stimulus and their onset frames
         tail_df: the dataframe of the tail movement and their corresponding frames
-        img_hz: imaging speed
+        img_hz: imaging speed (NOTE: will be different if using imaging or tail frames)
         stimuli_s: the seconds that the stimuli was on
         strength_boundary: the minimal std for a tail to be counted as on - in general can be the std of the tail sum, or can set arbirtatirly
         min_on_s: the minimal frame for a bout to be considered bouts (in tail frames)
@@ -183,7 +227,10 @@ def analyze_tail(tail_df, stimulus_df, img_hz, stimulus_s = 5, strength_boundary
     cont_tuples = [(on, off) for on, off in zip(cont_on_index, cont_off_index) if off - on > (min_on_s * tail_hz)]
 
     #calculate the actual frame(approx.) and image onset index/frames
-    cont_tuples_imageframe = [(tail_df.iloc[tu[0]].frame, tail_df.iloc[tu[1]].frame) for tu in cont_tuples]
+    if stimulus_df_frame_col == 'frame':
+        cont_tuples_imageframe = [(tail_df.iloc[tu[0]].frame, tail_df.iloc[tu[1]].frame) for tu in cont_tuples]
+    else: # else we don't care about this column
+        cont_tuples_imageframe = np.full(len(cont_tuples), np.nan)
 
     tail_strength = np.full(len(cont_tuples), np.nan)
     tail_angle = np.full(len(cont_tuples), np.nan)
@@ -210,11 +257,18 @@ def analyze_tail(tail_df, stimulus_df, img_hz, stimulus_s = 5, strength_boundary
         crossing = np.count_nonzero(np.diff(crossing))
         tail_frequency_s[i] = np.divide(crossing / 2, tail_duration_s[i])
         if not stimulus_df.empty:
-            if cont_tuples_imageframe[i][0] > stimulus_df.iloc[0]['frame'] :
-                stimulus_responding = stimulus_df[stimulus_df['frame'] <= cont_tuples_imageframe[i][0]].iloc[-1]#find the nearest stimuli before and see if tail happens within the stimulus
-                if stimulus_responding['frame'] + stimulus_s * img_hz >= cont_tuples_imageframe[i][0]:#if tail starts before the stimulus ends
-                    tail_stimuli[i] = stimulus_responding['stim_name']
-                    tail_stimuli_rep[i] = stimulus_responding['rep']
+            if stimulus_df_frame_col == 'frame': # comparing IMAGING frames with the stimulus
+                if cont_tuples_imageframe[i][0] > stimulus_df.iloc[0][stimulus_df_frame_col] :
+                    stimulus_responding = stimulus_df[stimulus_df[stimulus_df_frame_col] <= cont_tuples_imageframe[i][0]].iloc[-1]#find the nearest stimuli before and see if tail happens within the stimulus
+                    if stimulus_responding[stimulus_df_frame_col] + stimulus_s * img_hz >= cont_tuples_imageframe[i][0]:#if tail starts before the stimulus ends
+                        tail_stimuli[i] = stimulus_responding['stim_name']
+                        tail_stimuli_rep[i] = stimulus_responding['rep']
+            else: # comparing TAIL frames with the stimulus
+                if cont_tuples[i][0] > stimulus_df.iloc[0][stimulus_df_frame_col] :
+                    stimulus_responding = stimulus_df[stimulus_df[stimulus_df_frame_col] <= cont_tuples[i][0]].iloc[-1]#find the nearest stimuli before and see if tail happens within the stimulus
+                    if stimulus_responding[stimulus_df_frame_col] + stimulus_s * img_hz >= cont_tuples[i][0]:#if tail starts before the stimulus ends
+                        tail_stimuli[i] = stimulus_responding['stim_name']
+                        tail_stimuli_rep[i] = stimulus_responding['rep']
 
     tail_bout_df = pd.DataFrame(
         {'cont_tuples_tailindex': cont_tuples, 'cont_tuples_imageframe': cont_tuples_imageframe,
@@ -227,7 +281,8 @@ def analyze_tail(tail_df, stimulus_df, img_hz, stimulus_s = 5, strength_boundary
 
 ### PLOTTING TAIL DATA ###
 
-def make_bout_plots(tail_analysis_dataframe, stimuli_groups=None, stimuli_color_dict=None, bout_count_lim = 20):
+def make_bout_plots(tail_analysis_dataframe, stimuli_groups=None, stimuli_color_dict=None,
+                    length_of_stim_rep_s = 6, norm_to_spont = True, plot_both = True):
     if stimuli_color_dict == None:
         stimuli_color_dict = {**constants.monocular_dict, **constants.combined_binocular_dict,
                               **constants.shearing_stims_dict, **{'spontaneous': [0.5, 0.5, 0.5]}}
@@ -248,12 +303,41 @@ def make_bout_plots(tail_analysis_dataframe, stimuli_groups=None, stimuli_color_
             ['right', 'left'])]])  # putting the right and left back in for better plotting
     else:
         final_df = tail_analysis_dataframe
+
+    if norm_to_spont:
+        original_vals = final_df['tail_angle'].values
+        spont_median = np.median(final_df[final_df.tail_stimuli == 'spontaneous']['tail_angle'].values)
+        norm_vals = original_vals - spont_median
+        final_df['tail_angle'] = norm_vals
+
     final_df = final_df[final_df['tail_stimuli'].isin(stim_order)]
-    bouts_per_stim = final_df.groupby('tail_stimuli').size().reset_index(name='total_bouts')
-    bouts_per_stim = bouts_per_stim.set_index('tail_stimuli').reindex(stim_order, fill_value=0).reset_index()
+    # # derive the bouts per stim - keeping in case i want to use this later
+    # bouts_per_stim = final_df.groupby('tail_stimuli').size().reset_index(name='total_bouts')
+    # bouts_per_stim = bouts_per_stim.set_index('tail_stimuli').reindex(stim_order, fill_value=0).reset_index()
+    # reps_per_stim = pd.DataFrame(columns=['tail_stimuli', 'length_in_s'], index=np.arange(len(stim_order)))
+    # for i, each_stim in enumerate(stim_order):
+    #     subdf = final_df[final_df.tail_stimuli == each_stim]
+    #     reps_per_stim.iloc[i]['tail_stimuli'] = each_stim
+    #     reps_per_stim.iloc[i]['length_in_s'] = (subdf.tail_stimuli_rep.nunique()) * length_of_stim_rep_s
+    #     if each_stim == 'spontaneous': # if spontaneous, just keep the number of reps to be the same as the number of bouts so it just goes to 1
+    #         reps_per_stim.iloc[i]['length_in_s'] = bouts_per_stim[bouts_per_stim.tail_stimuli == 'spontaneous'].total_bouts.values[0]
+    # bouts_per_stim['bouts_per_s'] = bouts_per_stim['total_bouts'] / reps_per_stim['length_in_s']
+
+    # now make it so that bouts are counted as bouts per sec
+    all_stim_df_lst = []
+    for i, each_stim in enumerate(stim_order):
+        stim_df = final_df[final_df.tail_stimuli == each_stim]
+        grouped_stim_df = stim_df.groupby('tail_stimuli_rep').size().reset_index(name='total_bouts')
+        grouped_stim_df['tail_stimuli'] = each_stim
+        grouped_stim_df['bouts_per_s'] = grouped_stim_df['total_bouts'] / length_of_stim_rep_s
+        if each_stim == 'spontaneous':
+            grouped_stim_df['bouts_per_s'] = grouped_stim_df['total_bouts'] / grouped_stim_df['total_bouts']
+        grouped_stim_df = grouped_stim_df[['tail_stimuli', 'bouts_per_s']]
+        all_stim_df_lst.append(grouped_stim_df)
+    bouts_per_s_df = pd.concat(all_stim_df_lst).reset_index(drop=True)
 
     # metrics to plot
-    metrics = ['tail_angle', 'tail_frequency_s', 'tail_duration_s', 'tail_strength', 'bout_count']
+    metrics = ['tail_angle', 'tail_frequency_s', 'tail_duration_s', 'tail_strength', 'bouts_per_s']
 
     # ORDERED BY STIMULI ORDER/GROUPS
     fig1, axes1 = plt.subplots(nrows=len(metrics), ncols=1, figsize=(12, 15), sharex=True)
@@ -263,22 +347,26 @@ def make_bout_plots(tail_analysis_dataframe, stimuli_groups=None, stimuli_color_
             width = len(group)
             ax.axvspan(start - 0.5 + 0.1, start + width - 0.5 - 0.1, color='lightgray', alpha=0.08)
             start += width
-        if metric != 'bout_count':
-            sns.boxplot(x='tail_stimuli', y=metric, data=final_df, ax=ax, boxprops=dict(alpha=0.4), width=0.6,
-                        order=stim_order, palette=sorted_palette, showfliers=False)
-            sns.stripplot(x='tail_stimuli', y=metric, data=final_df, ax=ax,
-                          order=stim_order, hue='tail_stimuli', palette=sorted_palette, dodge=False, size=4, alpha=0.7)
-            if metric == 'tail_angle':
-                ax.axhline(0, color='lightgray')
-            if metric == 'tail_duration_s':
-                ax.set_ylim(0, 1)
-            ax.get_legend().remove()
-            ax.axhline(np.nanmedian(final_df[final_df.tail_stimuli == 'spontaneous'][metric].values), color = 'k', linestyle='--')
+        plot_df = final_df
+        if metric == 'bouts_per_s':
+            plot_df = bouts_per_s_df
+            bars = sns.barplot(x='tail_stimuli', y=metric, data=plot_df, width=0.6,alpha=0.4,
+                               order=stim_order, palette=sorted_palette, ax=ax,
+                               capsize = 0.2,errwidth = 1, errorbar = 'se')
         else:
-            bars = sns.barplot(x='tail_stimuli', y='total_bouts', data=bouts_per_stim, width=0.6,
-                               order=stim_order, palette=sorted_palette, ax=ax)
-            ax.set_ylim(0, bout_count_lim)  # maybe change this? depending...
+            sns.boxplot(x='tail_stimuli', y=metric, data=plot_df, ax=ax, boxprops=dict(alpha=0.4), width=0.6,
+                        order=stim_order, palette=sorted_palette, showfliers=False)
+        sns.stripplot(x='tail_stimuli', y=metric, data=plot_df, ax=ax,
+                      order=stim_order, hue='tail_stimuli', palette=sorted_palette, dodge=False, size=4, alpha=0.7)
+        ax.get_legend().remove()
+        if metric == 'tail_angle':
+            ax.axhline(0, color='lightgray')
+            if norm_to_spont:
+                ax.set_ylabel('normalized tail angle')
+        if metric == 'tail_duration_s':
+            ax.set_ylim(0, 1)
 
+        ax.axhline(np.nanmedian(plot_df[plot_df.tail_stimuli == 'spontaneous'][metric].values), color = 'k', linestyle='--')
         ax.set_ylabel(metric)
         ax.set_xlabel('')  # only bottom plot will have xlabel
         ax.tick_params(axis='x', rotation=45)  # rotate stimuli labels
@@ -287,36 +375,39 @@ def make_bout_plots(tail_analysis_dataframe, stimuli_groups=None, stimuli_color_
     fig1.tight_layout()
 
     # ORDERED BY MAXIMUM VALUE TO MINIMUM, REGARDLESS OF STIM
-    fig2, axes2 = plt.subplots(nrows=len(metrics), ncols=1, figsize=(12, 16))
-    for ax, metric in zip(axes2, metrics):
-        if metric != 'bout_count':
-            order = final_df.groupby('tail_stimuli')[metric].median().sort_values(ascending=False).index
-        else:
-            order = bouts_per_stim.set_index('tail_stimuli')['total_bouts'].sort_values(ascending=False).index
-        sorted_palette = {k: stimuli_color_dict[k] for k in order}
+    if plot_both:
+        fig2, axes2 = plt.subplots(nrows=len(metrics), ncols=1, figsize=(12, 16))
+        for ax, metric in zip(axes2, metrics):
+            if metric != 'bout_count':
+                order = final_df.groupby('tail_stimuli')[metric].median().sort_values(ascending=False).index
+            else:
+                order = bouts_per_stim.set_index('tail_stimuli')['total_bouts'].sort_values(ascending=False).index
+            sorted_palette = {k: stimuli_color_dict[k] for k in order}
 
-        if metric != 'bout_count':
-            sns.boxplot(x='tail_stimuli', y=metric, data=final_df, ax=ax, boxprops=dict(alpha=0.4), width=0.6,
-                        order=order, palette=sorted_palette, showfliers=False)
-            sns.stripplot(x='tail_stimuli', y=metric, data=final_df, ax=ax, order=order,
-                          palette=sorted_palette, dodge=False, size=4, alpha=0.7)
-            if metric == 'tail_angle':
-                ax.axhline(0, linestyle='--', color='lightgray')
-            if metric == 'tail_duration_s':
-                ax.set_ylim(0, 1)
-            ax.axhline(np.nanmedian(final_df[final_df.tail_stimuli == 'spontaneous'][metric].values), color='k',
-                       linestyle='--')
-        else:
-            sns.barplot(x='tail_stimuli', y='total_bouts', data=bouts_per_stim, width=0.6, order=order,
-                        palette=sorted_palette, ax=ax)
-            ax.set_ylim(0, bout_count_lim)
-        ax.tick_params(axis='x', labelsize=8)
-        ax.set_ylabel(metric)
-        ax.set_xlabel('')
-        ax.tick_params(axis='x', rotation=45)
-    axes2[-1].set_xlabel('Stimulus')
-    sns.despine()
-    fig2.tight_layout()
+            if metric != 'bout_count':
+                sns.boxplot(x='tail_stimuli', y=metric, data=final_df, ax=ax, boxprops=dict(alpha=0.4), width=0.6,
+                            order=order, palette=sorted_palette, showfliers=False)
+                sns.stripplot(x='tail_stimuli', y=metric, data=final_df, ax=ax, order=order,
+                              palette=sorted_palette, dodge=False, size=4, alpha=0.7)
+                if metric == 'tail_angle':
+                    ax.axhline(0, linestyle='--', color='lightgray')
+                if metric == 'tail_duration_s':
+                    ax.set_ylim(0, 1)
+                ax.axhline(np.nanmedian(final_df[final_df.tail_stimuli == 'spontaneous'][metric].values), color='k',
+                           linestyle='--')
+            else:
+                sns.barplot(x='tail_stimuli', y='total_bouts', data=bouts_per_stim, width=0.6, order=order,
+                            palette=sorted_palette, ax=ax)
+                ax.set_ylim(0, bout_count_lim)
+            ax.tick_params(axis='x', labelsize=8)
+            ax.set_ylabel(metric)
+            ax.set_xlabel('')
+            ax.tick_params(axis='x', rotation=45)
+        axes2[-1].set_xlabel('Stimulus')
+        sns.despine()
+        fig2.tight_layout()
+    else:
+        fig2 = 'None'
 
     return fig1, fig2
 
@@ -364,7 +455,7 @@ def make_cleo_polar_plot(ax, this_tail_bout_df, stim_directions, plotting_variab
 
         # scatter points
         if scatter:
-            ax.scatter(np.radians(tail_angle), tail_plotting_variable,
+            ax.scatter(np.deg2rad(tail_angle), tail_plotting_variable,
                    color=tail_stimuli_color, linewidth=0, s=3, alpha=0.5, zorder=3)
 
         for stim in set(tail_stimuli_lst):
@@ -373,7 +464,7 @@ def make_cleo_polar_plot(ax, this_tail_bout_df, stim_directions, plotting_variab
             if stim_angles_deg.size == 0:
                 continue
 
-            stim_angles_rad = np.radians(stim_angles_deg)
+            stim_angles_rad = np.deg2rad(stim_angles_deg)
             # mean_angle = np.arctan2(np.sin(stim_angles_rad).mean(),
             #                         np.cos(stim_angles_rad).mean())
             mean_angle = np.arctan2(np.nanmedian(np.sin(stim_angles_rad)),

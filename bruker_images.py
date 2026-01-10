@@ -114,7 +114,12 @@ def bruker_img_organization(folder_path, testkey = 'Cycle', safe=False, single_p
         save_fld = Path(new_output).joinpath(f"single_plane")
         if not os.path.exists(save_fld):
             os.mkdir(save_fld)
-        m.save(os.path.join(save_fld,'img_stack.tif'))
+        # m.save(os.path.join(save_fld,'img_stack.tif'), bigtiff=True)
+        # m is a Timeseries object
+        arr = np.asarray(m, dtype=np.uint16)
+
+        save_path = os.path.join(save_fld, 'img_stack.tif')
+        imwrite(save_path, arr, bigtiff=True)
 
         save_path = Path(save_fld).joinpath(
             "frametimes.h5"
@@ -507,6 +512,8 @@ def find_drift_between_images(img1_path, img2_path, ref_stack_array_path, info_x
     x_diff = img1_shiftx - img2_shiftx
     y_diff = img1_shifty - img2_shifty
     z_diff = img1_shiftz - img2_shiftz
+
+    # in relation to img2: img2_aligned = img2 + (img1 − img2)
 
     y_diff = -y_diff # flipped since origin of images is at top left (important for plotting/matching cell ids)
 

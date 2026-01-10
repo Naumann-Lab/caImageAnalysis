@@ -235,7 +235,34 @@ def add_resp_cell_ids_to_df(functional_types_df, specific_stim_key_order = []):
 
     return updated_functional_types_df
 
-def gather_visual_motion_responses_for_df(vizstimfishy, cell_id_array = None, motion_cues = constants.photostim_motion_cues):
+def reorder_and_assign_resp_ids(df):
+    '''
+    Add the responding cell id to the dataframe
+    updated way to make sure i keep the correct stim site idx in the dataframe
+    '''
+    # --- 1. split dataframe ---
+    df_existing = df[df['resp_cell_id'].notna()].copy()
+    df_missing  = df[df['resp_cell_id'].isna()].copy()
+
+    # --- 2. sort missing by plane + omr_neur_id ---
+    # ensure plane sorts by numeric suffix if "plane_2" strings:
+    df_missing = df_missing.copy()
+    df_missing['plane_num'] = df_missing['plane'].str.extract('(\d+)').astype(int)
+    df_missing = df_missing.sort_values(['plane_num', 'omr_neur_id'])
+
+    # --- 3. assign new resp ids ---
+    df_missing['resp_cell_id'] = [
+        f"resp_{i}" for i in range(len(df_missing))]
+
+    # drop helper column
+    df_missing = df_missing.drop(columns='plane_num')
+
+    # --- 4. put original stim rows at *bottom*, then new ones ---
+    df_out = pd.concat([df_missing, df_existing], ignore_index=True)
+
+    return df_out.reset_index(drop=True)
+
+def gather_visual_motion_responses_for_df(vizstimfishy, cell_id_array = None, motion_cues = constants.photostim_motion_cues, get_df_f = True):
     '''
     Getting the complete visual motion response from the OMR dataset for each cell in the OMR dataset
     vizstimfishy = VizStimFish object, the OMR dataset (one fish, one plane)
@@ -259,9 +286,12 @@ def gather_visual_motion_responses_for_df(vizstimfishy, cell_id_array = None, mo
             motion_resp = omr_cell_extended_raw_resp[stim]
             df_f_motion_resp = np.zeros(shape = np.array(motion_resp).shape)
             for a, arr in enumerate(motion_resp):
-                base_e = arr[:-vizstimfishy.offsets[0]]
-                plot_e = (arr - np.nanmean(base_e)) / np.nanmean(base_e)
-                df_f_motion_resp[a] = plot_e 
+                if get_df_f:
+                    base_e = arr[:-vizstimfishy.offsets[0]]
+                    plot_e = (arr - np.nanmean(base_e)) / np.nanmean(base_e)
+                    df_f_motion_resp[a] = plot_e
+                else:
+                    df_f_motion_resp[a] = arr # keeps it just normalized, not taking a baseline prior
             # gathering mean and std response around the visual motion cue
             motion_responsive_dict[stim]['mean'] = np.nanmean(df_f_motion_resp, axis = 0) 
             motion_responsive_dict[stim]['std'] = np.nanstd(df_f_motion_resp, axis = 0)

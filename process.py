@@ -18,10 +18,40 @@ def run_image_rotation(base_fish, angle=0, crop=0.075):
 
     image = image[:, :, int(image.shape[2] * crop) :]
 
-    rotated_image = [rotate(img, angle=angle) for img in image]
-    imwrite(
-        base_fish.folder_path.joinpath("img_rotated.tif"), rotated_image, bigtiff=True
-    )
+    rotated_image = [rotate(img, reshape=False, angle=angle).astype(img.dtype) for img in image]
+    imwrite(base_fish.folder_path.joinpath("img_rotated.tif"), rotated_image, bigtiff=True)
+
+def run_image_rotation_90deg(base_fish, crop=0.0):
+    """
+    Rotate the imaging movie by +90 degrees (counter-clockwise) and save to disk.
+    Uses np.rot90 → preserves dtype & avoids file size bloat seen with scipy.rotate.
+
+    Parameters
+    ----------
+    base_fish : object
+        Your fish object containing data_paths and folder_path
+    crop : float
+        Optional fraction to crop from the left side (same behavior as your original).
+    """
+
+    import numpy as np
+    from tifffile import imread, imwrite
+
+    # load full movie: shape (T, Y, X)
+    image = imread(base_fish.data_paths["image"])
+
+    # optional crop on X dimension *before* rotation
+    if crop > 0:
+        crop_px = int(image.shape[2] * crop)
+        image = image[:, :, crop_px:]
+
+    # rotate all frames by 90 degrees CCW
+    # axes=(1,2) means rotate in the spatial dimensions only
+    rotated = np.rot90(image, k=1, axes=(1, 2))
+
+    # write to disk
+    out_path = base_fish.folder_path.joinpath("img_rotated.tif")
+    imwrite(out_path, rotated.astype(image.dtype), bigtiff=True)
 
 
 def run_movement_correction(
@@ -84,8 +114,7 @@ def run_movement_correction(
     output = m_els
     
     if cropped:
-        output = m_els[
-            :,
+        output = m_els[:,
             2 * bord_px_rig : -2 * bord_px_rig,
             2 * bord_px_rig : -2 * bord_px_rig,
         ] # this output is actually a cropped image
@@ -239,6 +268,7 @@ def run_caiman_cnmf(base_fish, custom_parameter_dict = None, match_suite2p = Tru
                          }
     
     if custom_parameter_dict is not None: # can edit parameters as you want
+        print('loading in custom parameters')
         for key in custom_parameter_dict:
             if key in parameter_dict:
                 parameter_dict[key] = custom_parameter_dict[key]
@@ -285,6 +315,7 @@ def run_caiman_cnmf(base_fish, custom_parameter_dict = None, match_suite2p = Tru
     print('saved cnmf results')
 
     # saving calcium traces
+    print(f'shape of raw traces {cnmf_refit.estimates.C.shape}')
     np.save(Path(moveto_folder).joinpath('raw.npy'), cnmf_refit.estimates.C + cnmf_refit.estimates.YrA) # raw traces
     np.save(Path(moveto_folder).joinpath('C.npy'), cnmf_refit.estimates.C) # denoised calcium
     np.save(Path(moveto_folder).joinpath('F_dff.npy'),cnmf_refit.estimates.F_dff) # df/f traces
@@ -307,6 +338,7 @@ def run_caiman_cnmf(base_fish, custom_parameter_dict = None, match_suite2p = Tru
 
     #saving accepted cells
     accepted_cells_arr = np.zeros(shape = len(coordinates_arr))
+    print(f'shape of accepted traces {accepted_cells_arr.shape}')
     for i in cnmf_refit.estimates.idx_components:
         accepted_cells_arr[i] = 1
     np.save(Path(moveto_folder).joinpath('iscell.npy'), accepted_cells_arr) # boolean, if a cell or not

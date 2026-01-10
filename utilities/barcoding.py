@@ -305,6 +305,37 @@ def make_Pt_R_and_L_side_barcoded_df(volume_barcoding_df):
                                                  ascending=[True, False,])
     return sorted_R_choose_df, sorted_L_choose_df
 
+def make_Pt_R_and_L_side_df_opposite_tuned(volume_barcoding_df):
+    # make a right and left specific barcoded neuron dataframes for photostim experiments
+    # grab all the most backward responsive, not forward responsive neurons
+    # first Pt neurons, no Mm neurons
+    pt_barcoded_df = volume_barcoding_df[(volume_barcoding_df.Pt == True) & (~volume_barcoding_df.barcoding.str.contains('Mm'))]
+    R_choose_df = pt_barcoded_df[(pt_barcoded_df.forw_resp == False)
+                                & (pt_barcoded_df.back_resp == True) # really good backward responders
+                                    & (pt_barcoded_df.barcoding.str.contains('R'))
+                                    & (pt_barcoded_df.side == 'R')]
+    L_choose_df = pt_barcoded_df[(pt_barcoded_df.forw_resp == False)
+                                & (pt_barcoded_df.back_resp == True) # really good backward responders
+                                    & (pt_barcoded_df.barcoding.str.contains('L'))
+                                    & (pt_barcoded_df.side == 'L')]
+    R_choose_df.reset_index(drop = True, inplace = True)
+    L_choose_df.reset_index(drop = True, inplace = True)
+
+    R_custom_order = ['S_R', 'B_R', 'iB_R', 'ioB_R', 'oB_R', 'oMl_R'] # definitely don't want any Mm neurons here..
+    R_barcoding_type = pd.CategoricalDtype(categories=R_custom_order, ordered=True)
+    R_choose_df['barcoding'] = R_choose_df['barcoding'].astype(R_barcoding_type)
+
+    L_custom_order = ['S_L', 'B_L', 'iB_L', 'ioB_L', 'oB_L','oMl_L' ]
+    L_barcoding_type = pd.CategoricalDtype(categories=L_custom_order, ordered=True)
+    L_choose_df['barcoding'] = L_choose_df['barcoding'].astype(L_barcoding_type)
+
+    sorted_R_choose_df = R_choose_df.sort_values(by=['barcoding', 'back_resp'],
+                                                 ascending=[True, False])
+    sorted_L_choose_df = L_choose_df.sort_values(by=['barcoding', 'back_resp'],
+                                                 ascending=[True, False,])
+    return sorted_R_choose_df, sorted_L_choose_df
+
+
 # finding forward responders in nMLF for stim experiments
 
 def find_forward_responsive_nMLF_cells_by_tuning(fishyvol, frames_motion_on = None, within_deg = 10, save = False):

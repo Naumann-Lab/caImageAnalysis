@@ -130,13 +130,107 @@ def add_control_ensemble_above(e_df):
 
     return new_e_df
 
+def add_both_side_ensemble(ensemble_df, right_Pt_row, left_Pt_row, ensemble_name = 'all'):
+    '''
+    Add combined hemisphere ensemble (right and left Pt)
+    right_Pt_row: the full row of the ensemble on the right side (from the 'ensemble_df')
+    left_Pt_row: the full row of the ensemble on the left side (from the 'ensemble_df')
+    ensemble_df: the dataframe with all the ensembles together (each row)
+    ensemble_name: name of the new combined across sides ensemble, default = 'all'
+    By changing the name, you can add in several ensembles stimulated across hemispheres ('all')
+
+    returns: the new ensemble df, with the added control ensemble
+    '''
+    both_side_stim_row = {'barcoding': ensemble_name,
+                            'ensemble_size': right_Pt_row.ensemble_size + left_Pt_row.ensemble_size,
+                            'ensemble_cells': right_Pt_row.ensemble_cells + left_Pt_row.ensemble_cells ,
+                            'ensemble_coords': right_Pt_row.ensemble_coords + left_Pt_row.ensemble_coords ,
+                            'min_dist_px': min([right_Pt_row.min_dist_px, left_Pt_row.min_dist_px]),
+                            'min_dist_um': min([right_Pt_row.min_dist_um, left_Pt_row.min_dist_um])}
+    new_ensemble_df = ensemble_df.append(both_side_stim_row, ignore_index=True)
+
+    return new_ensemble_df
+
+def add_control_shiftx(ensemble_df, e_coords, shift_x, control_e_name = 'control_shiftx'):
+    '''
+    Add a control ensemble, shifted in x direction (off the fish brain)
+    ensemble_df: the dataframe with all the ensembles together (each row)
+    e_coords: coordinates of the ensemble that you just want to shift to the right/left in x
+    shift_x: the distance to shift in x direction (always add in this value)
+    control_e_name: the name of the new control ensemble, default: 'control_shiftx'
+
+    returns: the new ensemble df, with the added control ensemble
+    '''
+
+    shiftx_coords = [(e[0]+shift_x, e[1], e[2]) for e in e_coords] #(x, y, plane)
+    new_row_for_df = {'barcoding': control_e_name,
+                        'ensemble_size': len(shiftx_coords),
+                        'ensemble_cells': [-1]*len(shiftx_coords),
+                        'ensemble_coords': shiftx_coords,
+                        'min_dist_px': 0,
+                        'min_dist_um': 0}
+    new_ensemble_df = ensemble_df.append(new_row_for_df, ignore_index=True)
+
+    return new_ensemble_df
+
+
+def collect_unique_ensemble_coords(n_cells, list_of_images):
+    '''
+    Collect unique ensemble coordinates from clicking on FOV
+    n_cells: number of cells to select for this unique ensemble
+    list_of_images: list of all the images to select cells from (typically the mean image per plane)
+    '''
+    selector = roiutils.MultiPlaneCellSelector(list_of_images)
+    selected_cells = selector.select_cells(n_cells=n_cells)
+    return selected_cells
+
+
+def add_unique_ensemble(ensemble_df, unique_coords, list_of_images, e_name='unique', um_per_pixel=0.6, plot=True):
+    '''
+    Add in a unique ensemble just by clicking points across the FOV
+    Will need to add in new cell names for the unique cell numbers (if on the brain, otherwise -1 is good)
+    ensemble_df: the dataframe with all the ensembles together (each row)
+    unique_coords: coordinate list, each coord is in shape (x, y, z)
+    list_of_images: list of all the images to select cells from (typically the mean image per plane)
+    e_name: name of the new ensemble, default = 'unique'
+    um_per_pixel: scale of um/px, default = 0.6
+    plot: True/False, plot the location of the new ensemble chosen
+
+    returns: the new ensemble df, with the added unique ensemble in the last row
+    '''
+
+    dists = scipy.spatial.distance.pdist(unique_coords, 'euclidean')
+    min_pairwise_dist = dists.min() if len(dists) > 0 else np.inf
+    min_pairwise_dist_um = np.inf if min_pairwise_dist == np.inf else min_pairwise_dist * um_per_pixel
+
+    if plot:
+        fig, ax = plt.subplots(1, len(list_of_images), figsize=(10, 10))
+        for i, img in enumerate(list_of_images):
+            ax[i].imshow(img, cmap='gray', vmax=np.percentile(img, 99))
+            ax[i].axis('off')
+            ax[i].set_title(f'plane {i}')
+        for x, y, z in unique_coords:
+            ax[z].scatter(x, y)
+        plt.tight_layout()
+        plt.show()
+
+    new_row_for_df = {'barcoding': e_name,
+                      'ensemble_size': len(unique_coords),
+                      'ensemble_cells': [-1] * len(unique_coords),
+                      'ensemble_coords': unique_coords,
+                      'min_dist_px': min_pairwise_dist,
+                      'min_dist_um': min_pairwise_dist_um}
+    new_ensemble_df = ensemble_df.append(new_row_for_df, ignore_index=True)
+
+    return new_ensemble_df
+
 
 
 # --- ANALYZING DATA FROM ENSEMBLE STIMULATION --- #
 def build_functional_types_df_for_ensembles(omr_fishvolume,
                                             stim_fishvolume,
                                             omr_fishvolume_barcoding_df,
-                                            match_cells_within_radius_um=10,
+                                            # match_cells_within_radius_um=10, # no longer need this with new way to match Bruker to cell
                                             regions=['Pt', 'Hb', 'nMLF'],
                                             motor_correlation=False,
                                             plot_stim_sites=True):
@@ -165,7 +259,7 @@ def build_functional_types_df_for_ensembles(omr_fishvolume,
 
     # process the functional information for all neurons into a giant dataframe, now just working with the OMR fish volume and the stim fish volume
     df_lst = []
-    stim_key_order = []
+    final_stim_key_order = []
     for plane in np.unique(omr_fishvolume_barcoding_df.plane.values):
         sub_functional_types_df = pd.DataFrame(
             columns=['resp_cell_id', 'omr_neur_id', 'stim_neur_id', 'neur_coords', 'plane', 'region',
@@ -226,73 +320,89 @@ def build_functional_types_df_for_ensembles(omr_fishvolume,
             xy_offset = (0, 0)
             print('no xy offset saved between datasets')
 
-        matched_cell_ids = coordutils.match_cell_ids(sub_functional_types_df.omr_neur_id.values, omr_Fish.stats,
-                                                     range(len(stim_photostimFish.f_cells)), stim_photostimFish.stats,
-                                                     um_to_px=stim_photostimFish.um_per_px,
-                                                     xy_offset=xy_offset)
+        # in case there are no stimmed cells on that plane
+        if 'stim_sites' in stim_photostimFish.data_paths.keys():
+            photostimmed_cells = stim_photostimFish.stimmed_cell_id_array
+        else:
+            photostimmed_cells = []
 
-        sub_functional_types_df['stim_neur_id'] = matched_cell_ids.values()
+        matches_omr_to_stim_dict, aligned_stim_coords = coordutils.match_omr_to_stim_coords(
+                    omr_indices=np.arange(len(omr_Fish.f_cells)),
+                    omr_coords=omr_Fish.return_cell_rois(range(len(omr_Fish.f_cells))),
+                    stim_indices=np.arange(len(stim_photostimFish.f_cells)),
+                    stim_coords=stim_photostimFish.return_cell_rois(range(len(stim_photostimFish.f_cells))),
+                    stimmed_indices=photostimmed_cells,
+                    xy_offset=xy_offset,
+                    max_distance=7,
+                    tile_size=30)
+
+        # Fill DataFrame column
+        print('matching OMR and Stim cells')
+        ordered_omr_to_stim_cell_matches = []
+        for omr_idx in sub_functional_types_df.omr_neur_id.values:
+            try:
+                stim_cell_id = matches_omr_to_stim_dict[omr_idx]
+                ordered_omr_to_stim_cell_matches.append(stim_cell_id)
+            except:
+                ordered_omr_to_stim_cell_matches.append('None')
+        sub_functional_types_df['stim_neur_id'] = ordered_omr_to_stim_cell_matches
 
         if 'stim_sites' in stim_photostimFish.data_paths.keys():
             # need to identify which neurons were photostimulated by matching spatially between OMR and stim datasets
             print('matching stimulation sites with OMR cells')
-            if not hasattr(stim_photostimFish, 'stimmed_cell_coords'):
-                print('identifying stim cells in the fish class')
-                stim_photostimFish.stimmed_cell_coords, stim_photostimFish.stimmed_cell_id_array, stim_photostimFish.stimmed_cells_matched_stim_ids_dict = PhotostimFish.identify_stim_cells(
-                                                                                                                                                    stim_photostimFish,
-                                                                                                                                                    within_radius_um=match_cells_within_radius_um,
-                                                                                                                                                    frame_window=[stim_photostimFish.photostim_frame_window[0],
-                                                                                                                                                                  stim_photostimFish.evoked_num_frames])
 
             # sort the stimmed cell ids by the cell id order of the stim sites df
             # important for the next step of matching the stim events and frames
             key_order = stim_photostimFish.stim_sites_df.cell_ids.values
-            stim_key_order.append(key_order)
-            print(f'df order: {key_order}')
+            print(f'unsorted df order: {key_order}')
             sorted_stimmed_closest_cell_id_dict = {key: stim_photostimFish.stimmed_cells_matched_stim_ids_dict[key] for
                                                    key in key_order if
-                                                   key in stim_photostimFish.stimmed_cells_matched_stim_ids_dict}
+                                                   key in stim_photostimFish.stimmed_cells_matched_stim_ids_dict.keys()}
+            sorted_key_order = list(sorted_stimmed_closest_cell_id_dict.keys())
+            final_stim_key_order.append(sorted_key_order)
+            print(f'sorted df order: {sorted_key_order}')
             print(f'sorted dict: {stim_photostimFish.stimmed_cells_matched_stim_ids_dict}')
-            stimmed_photostim_cell_array = np.array(list(sorted_stimmed_closest_cell_id_dict.keys()))
-            stimmed_cell_id_array = np.array(list(sorted_stimmed_closest_cell_id_dict.values()))
-            print(f'sorted array: {stimmed_cell_id_array}')
+            stimmed_cell_id_array = np.array([a for a in sorted_stimmed_closest_cell_id_dict.values()])
+            print(f'sorted stim cell array: {stimmed_cell_id_array}')
 
-            omr_photostim_cell_id_lst = []
-            bad_indices = []
-            for idx, actual_s_cell in enumerate(stimmed_cell_id_array): # match the OMR cell id to the photostimmed cell number
-                for o_cell_id, s_cell_id in matched_cell_ids.items():
-                    if actual_s_cell == s_cell_id:
-                        omr_photostim_cell_id_lst.append(int(o_cell_id))
-                if actual_s_cell not in matched_cell_ids.values():
+            # gather the matching OMR cells to each stimulated cell
+            omr_photostim_cell_id_lst = [] # list of matching omr to stim cells (for plotting)
+            bad_indices = [] # list of all the stim cells that don't match an OMR cell
+            # match the OMR cell id to the photostimmed cell number & add to the dataframe
+            for n, stim_site_idx in enumerate(sorted_key_order):
+                stim_cell = int(sorted_stimmed_closest_cell_id_dict[stim_site_idx])
+                stim_frames = stim_photostimFish.stim_sites_df[
+                    stim_photostimFish.stim_sites_df.cell_ids == stim_site_idx].stim_frames.values[0]
+                stim_events = stim_photostimFish.stim_sites_df[
+                    stim_photostimFish.stim_sites_df.cell_ids == stim_site_idx].stim_events.values[0]
+                if stim_cell not in matches_omr_to_stim_dict.values():
                     omr_photostim_cell_id_lst.append('None')
-                    bad_indices.append(idx)
-            print(f'omr_photostim_cell_id_lst: {omr_photostim_cell_id_lst}')
-            # now get make sure to add the correct stim frame and events for each cell
-            stim_frames = stim_photostimFish.stim_sites_df.stim_frames.values
-            stim_events = stim_photostimFish.stim_sites_df.stim_events.values
-            remove_stim_num = []
-            for n in range(len(stimmed_cell_id_array)):
-                if n not in bad_indices:
-                    sub_functional_types_df.loc[[omr_photostim_cell_id_lst[n]], 'photostim'] = True
-                    sub_functional_types_df.loc[[omr_photostim_cell_id_lst[n]], 'stim_frames'] = pd.Series(
-                        [stim_frames[n]],
-                        index=sub_functional_types_df.index[[omr_photostim_cell_id_lst[n]]])
-                    sub_functional_types_df.loc[[omr_photostim_cell_id_lst[n]], 'stim_events'] = pd.Series(
-                        [stim_events[n]],
-                        index=sub_functional_types_df.index[[omr_photostim_cell_id_lst[n]]])
-                else:  # still add to the dataframe, just at the very end of it
-                    if not np.isnan(stimmed_cell_id_array[n][0]): # ignoring a stimulated cell if it is a nan value also in the stim dataset
-                        stim_cell = int(stimmed_cell_id_array[n])
-                        stim_cell_roi = stim_photostimFish.return_singlecell_rois(stim_cell)
-                        new_row = {'resp_cell_id': 'None', 'omr_neur_id': 'None', 'stim_neur_id': stim_cell,
-                                   'neur_coords': stim_cell_roi, 'plane': stim_photostimFish.stim_sites_df.plane.values[n],
-                                   'region': 'Pt', 'visual_barcode': 'None', 'motion_responses': 'None', 'photostim': True,
-                                   'stim_frames': stim_frames[n], 'stim_events': stim_events[n]}
-                        sub_functional_types_df.loc[len(sub_functional_types_df)] = new_row
-                    else: # keep track of the nan one, to remove that index from the final stim order key list
-                        remove_stim_num.append(stimmed_photostim_cell_array[n])
+                    bad_indices.append(n)
 
-            if plot_stim_sites:
+                    stim_cell_roi = stim_photostimFish.return_singlecell_rois(stim_cell)
+                    plane = stim_photostimFish.stim_sites_df[
+                        stim_photostimFish.stim_sites_df.cell_ids == stim_site_idx].plane.values[0]
+                    new_row = {'resp_cell_id': f'stim_{stim_site_idx}', 'omr_neur_id': 'None', 'stim_neur_id': stim_cell,
+                               'neur_coords': stim_cell_roi, 'plane': plane,'region': 'Pt',
+                               'visual_barcode': 'None', 'motion_responses': 'None',
+                               'photostim': True, 'stim_frames': stim_frames, 'stim_events': stim_events}
+                    sub_functional_types_df.loc[len(sub_functional_types_df)] = new_row
+                else:
+                    omr_cell_id = int([o_cell_id for o_cell_id, s_cell_id in matches_omr_to_stim_dict.items() if stim_cell == s_cell_id][0])
+                    omr_photostim_cell_id_lst.append(omr_cell_id)
+
+                    sub_functional_types_df.loc[[omr_cell_id], 'stim_neur_id'] = stim_cell
+                    sub_functional_types_df.loc[[omr_cell_id], 'photostim'] = True
+                    sub_functional_types_df.loc[[omr_cell_id], 'resp_cell_id'] = f'stim_{stim_site_idx}'
+                    sub_functional_types_df.loc[[omr_cell_id], 'stim_frames'] = pd.Series([stim_frames],
+                        index=sub_functional_types_df.index[[omr_cell_id]])
+                    sub_functional_types_df.loc[[omr_cell_id], 'stim_events'] = pd.Series([stim_events],
+                        index=sub_functional_types_df.index[[omr_cell_id]])
+
+            print(f'matching omr_photostim_cell_id_lst: {omr_photostim_cell_id_lst}')
+            print(f'bad indices: {bad_indices}')
+
+            if plot_stim_sites: # plot matching OMR and Stim cells from each dataset
                 try:
                     plt.figure(figsize=(6, 6))
                     plt.imshow(stim_photostimFish.rescaled_ref, cmap='gray',
@@ -322,14 +432,13 @@ def build_functional_types_df_for_ensembles(omr_fishvolume,
 
     functional_types_df = pd.concat(df_lst).reset_index(drop=True)
     try:
-        stim_key_order = [item for sublist in stim_key_order for item in sublist]
-        if len(remove_stim_num) > 0:
-            for r in remove_stim_num:
-                stim_key_order.remove(r)
-        final_functional_types_df = photostim_data_pipeline.add_resp_cell_ids_to_df(functional_types_df,
-                                                                                specific_stim_key_order=stim_key_order)
-    except:
-        final_functional_types_df = functional_types_df
+        _final_functional_types_df = photostim_data_pipeline.reorder_and_assign_resp_ids(functional_types_df)
+    except Exception as e:
+        print(e)
+        _final_functional_types_df = functional_types_df
+    # clear anywhere that there is not any stim neur id matches (can't get photostim response data)
+    final_functional_types_df = _final_functional_types_df[_final_functional_types_df['stim_neur_id'] != "None"]
+    final_functional_types_df = final_functional_types_df.reset_index(drop=True)
 
     return final_functional_types_df
 
@@ -381,7 +490,6 @@ def update_regions_in_df_post_alignment(df, master_folder_path):
 
     df["region"] = updated_regions
     return df
-
 
 def gather_ensemble_activity_subsets(stim_fishvolume, master_stim_sites_df, master_stim_ensemble_df, evoked_window=6):
     # 1 - gather all the stimmed traces that is in the master stim sites

@@ -10,8 +10,16 @@
       <change beforePath="$USER_HOME$/Analysis/2023_CaImAn_SfNworkshop/caiman_central/workshops/sfn_2023/mesmerize/cnmfe.ipynb" beforeDir="false" afterPath="$USER_HOME$/Analysis/2023_CaImAn_SfNworkshop/caiman_central/workshops/sfn_2023/mesmerize/cnmfe.ipynb" afterDir="false" />
       <change beforePath="$USER_HOME$/Analysis/2023_CaImAn_SfNworkshop/caiman_central/workshops/sfn_2023/mesmerize/mcorr_cnmf.ipynb" beforeDir="false" afterPath="$USER_HOME$/Analysis/2023_CaImAn_SfNworkshop/caiman_central/workshops/sfn_2023/mesmerize/mcorr_cnmf.ipynb" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/bruker_images.py" beforeDir="false" afterPath="$PROJECT_DIR$/bruker_images.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/fishy.py" beforeDir="false" afterPath="$PROJECT_DIR$/fishy.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/photostim_data_pipeline.py" beforeDir="false" afterPath="$PROJECT_DIR$/photostim_data_pipeline.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/photostim_ensemble.py" beforeDir="false" afterPath="$PROJECT_DIR$/photostim_ensemble.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/process.py" beforeDir="false" afterPath="$PROJECT_DIR$/process.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/stimuli.py" beforeDir="false" afterPath="$PROJECT_DIR$/stimuli.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tailtracking.py" beforeDir="false" afterPath="$PROJECT_DIR$/tailtracking.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/utilities/barcoding.py" beforeDir="false" afterPath="$PROJECT_DIR$/utilities/barcoding.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/utilities/coordutils.py" beforeDir="false" afterPath="$PROJECT_DIR$/utilities/coordutils.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/utilities/roiutils.py" beforeDir="false" afterPath="$PROJECT_DIR$/utilities/roiutils.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -233,6 +241,7 @@
       <workItem from="1756143103422" duration="145154000" />
       <workItem from="1758202636152" duration="21179000" />
       <workItem from="1760558893271" duration="11835000" />
+      <workItem from="1765739621692" duration="78670000" />
     </task>
     <task id="LOCAL-00001" summary="changes to bruker organization for PV 5.8">
       <option name="closed" value="true" />

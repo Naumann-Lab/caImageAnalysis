@@ -5,6 +5,13 @@ from datetime import datetime
 
 
 def pandastim_to_df(pstimpath, minimode=False, addvelocity=True):
+    '''
+    Puts the original text file with pandastim information into a dataframe
+    :param pstimpath:
+    :param minimode:
+    :param addvelocity:
+    :return:
+    '''
     with open(pstimpath) as file:
         contents = file.read()
 
@@ -33,29 +40,82 @@ def pandastim_to_df(pstimpath, minimode=False, addvelocity=True):
         return mini_stim_vel
     else:
         return stimulus_df
-    
-def add_repetitions_to_stimulus_df(stimulus_df):
-    stimulus_df['rep'] = 0
-    # get the number of reps for each stim, choose number of reps based on the minimum value
-    all_reps = []
-    for each_stim in stimulus_df.stim_name.unique():
-        all_reps.append(len(stimulus_df[stimulus_df.stim_name == each_stim]))
-    no_repetitions = min(all_reps)
 
-    # set the rep value into a new column in the stimulus df
-    n_stims = stimulus_df.stim_name.nunique()
-    for i in range(no_repetitions):
-        stimulus_df.iloc[(n_stims*i):(n_stims*i+n_stims)]['rep'] = i
 
-    # do not want incomplete reps, so drop the ones that are more than the minimum
-    last_rep = int(stimulus_df.rep.iloc[-1])
-    if len(stimulus_df[stimulus_df['rep'] == last_rep]) < n_stims:
-        drop_rows = stimulus_df[stimulus_df['rep'] == last_rep].index
-        stimulus_df.drop(drop_rows, axis=0, inplace = True)
+def add_repetitions_to_stimulus_df(stimulus_df, keep_all_reps = True):
+    '''
 
-    return stimulus_df
+    :param stimulus_df: pstim dataframe
+    :param keep_all_reps: if you want to keep all the reps no matter what, else you will only put down reps for complete rounds
+    :return: dataframe with a new column 'rep'
+    '''
+    stimulus_df = stimulus_df.copy()
 
-def csv_to_df(csvpath, minimode=False, addvelocity=True):
+    if keep_all_reps:
+        # repetition index per stimulus (order-safe)
+        stimulus_df['rep'] = stimulus_df.groupby('stim_name').cumcount()
+    else:
+        # default rep = -1 (invalid / incomplete)
+        stimulus_df['rep'] = -1
+
+        # temporary rep index per stimulus (order-safe)
+        tmp_rep = stimulus_df.groupby('stim_name').cumcount()
+
+        stimulus_df['_tmp_rep'] = tmp_rep
+
+        n_stims = stimulus_df['stim_name'].nunique()
+
+        # find which rep indices are complete
+        rep_counts = stimulus_df.groupby('_tmp_rep')['stim_name'].nunique()
+        valid_reps = rep_counts[rep_counts == n_stims].index
+
+        # assign rep only for complete reps
+        stimulus_df.loc[
+            stimulus_df['_tmp_rep'].isin(valid_reps),
+            'rep'
+        ] = stimulus_df.loc[
+            stimulus_df['_tmp_rep'].isin(valid_reps),
+            '_tmp_rep'
+        ]
+
+        # clean up
+        stimulus_df.drop(columns='_tmp_rep', inplace=True)
+
+    return stimulus_df.reset_index(drop=True)
+
+def get_common_reps(fishy, frames_motion_on):
+    """
+    Returns indices of reps that are valid for ALL stimuli. Complete reps for all the stim in the experiment
+    """
+    o_t = fishy.neur_resps_each_stim_rep
+    n_reps = o_t.shape[1]
+    n_stim = len(fishy.stim_order)
+
+    length_subset = np.diff(fishy.offsets)[0]
+    before_stim = -fishy.offsets[0]
+
+    valid_reps = []
+
+    for k in range(n_reps):
+        rep_ok = True
+
+        for j in range(n_stim):
+            win0 = length_subset*j + before_stim
+            win1 = win0 + frames_motion_on
+
+            # check ANY neuron — NaNs pattern is same across neurons
+            test_trace = o_t[0, k, win0:win1]
+
+            if np.all(np.isnan(test_trace)):
+                rep_ok = False
+                break
+
+        if rep_ok:
+            valid_reps.append(k)
+
+    return np.array(valid_reps, dtype=int)
+
+def csv_to_df(csvpath, minimode=False, addvelocity=False):
     stimulus_df = pd.read_csv(csvpath)
     stimulus_df.drop(columns=['Unnamed: 0'], inplace=True)
 
@@ -63,16 +123,17 @@ def csv_to_df(csvpath, minimode=False, addvelocity=True):
     datetime_full = [datetime.strptime(string, '%H:%M:%S.%f') for string in strings]
     datetime_times = [dt.time() for dt in datetime_full]
     stimulus_df['time'] = datetime_times # convert times to actual datetime objects
-    
-    mini_stim = stimulus_df[["stim_name", "time"]]
+
+    potential_cols = ['stim_name', 'time', 'frame', 'rep'] # adjust to get these columns if they are there
+    keep_cols = [s for s in potential_cols if s in stimulus_df.columns]
+    mini_stim = stimulus_df[keep_cols]
     mini_stim.stim_name = pd.Series(mini_stim.stim_name, dtype="category")
 
-    mini_stim_vel = stimulus_df[["stim_name", "velocity", "time"]]
-    mini_stim_vel.stim_name = pd.Series(mini_stim.stim_name, dtype="category")
-    
     if minimode:
         return mini_stim
     elif addvelocity:
+        mini_stim_vel = stimulus_df[["stim_name", "velocity", "time"]]
+        mini_stim_vel.stim_name = pd.Series(mini_stim.stim_name, dtype="category")
         return mini_stim_vel
     else:
         return stimulus_df
@@ -214,21 +275,22 @@ def stimulus_start_frames_for_plots(frames_motion_on = 7, length_of_total_frame_
     return stim_start_frames
 
 def flexible_stim_shader(frames, stimmies, frames_motion_on, fs = 14, subplot = None, label = True,
-                         ylim = 3, label_offset_x = -6, alpha = 0.3):
+                         ylabel_pos = None, label_offset_x = -6, alpha = 0.3):
     import constants
     import matplotlib.pyplot as plt
 
-    y_top = ylim
+
     if subplot == None:
         ax_n = plt
         y_top = round(max(plt.gca().get_ylim()))
-        x_top = round(max(plt.gca().get_xlim()))
     else:
         ax_n = subplot
         y_top = round(max(ax_n.get_ylim()))
-        x_top = round(max(ax_n.get_xlim()))
 
-    ylabel_pos = y_top + y_top * 0.05
+    if ylabel_pos == None:
+        ylabel_pos = y_top + 0.02
+    else:
+        ylabel_pos = ylabel_pos
 
     for s, stimmy in zip(frames, stimmies):
         if label:

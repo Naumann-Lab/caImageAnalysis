@@ -286,7 +286,7 @@ class MultiPlaneCellSelector:
 
         # Show each plane
         for i, ax in enumerate(axes):
-            ax.imshow(self.masks[i], cmap="gray")
+            ax.imshow(self.masks[i], cmap="gray", vmax = np.percentile(self.masks[i], 99))
             ax.set_title(f"Plane {i}")
             ax.axis("off")
 
@@ -300,6 +300,7 @@ class MultiPlaneCellSelector:
         print("Click on cells. Press Enter to finish.")
 
         def onclick(event):
+            print("CLICK EVENT FIRED")
             if event.inaxes is None:  # clicked outside axes
                 return
 
@@ -316,15 +317,15 @@ class MultiPlaneCellSelector:
                     plt.close(fig)
 
         cid = fig.canvas.mpl_connect("button_press_event", onclick)
-        plt.show(block=True)
+        plt.show()
 
         # After closing interactive window, switch backend back to inline
-        try:
-            import IPython
-            ipython = IPython.get_ipython()
-            if ipython is not None:
-                ipython.run_line_magic("matplotlib", "inline")
-        except Exception as e:
-            print("Could not reset backend:", e)
+        # try:
+        #     import IPython
+        #     ipython = IPython.get_ipython()
+        #     if ipython is not None:
+        #         ipython.run_line_magic("matplotlib", "inline")
+        # except Exception as e:
+        #     print("Could not reset backend:", e)
 
         return self.selected_cells

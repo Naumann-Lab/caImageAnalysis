@@ -20,6 +20,65 @@ def closest_coordinates(target_x, target_y, coordinates):
             
     return closest_coord, closest_cell_id
 
+def closest_coordinates_1to1(source_coords,
+                            target_coords,
+                            xy_offset=(0.0, 0.0),
+                            max_distance=None):
+    """
+    Perform unbiased 1-to-1 matching between two sets of coordinates
+    by minimizing total Euclidean distance (Hungarian algorithm).
+
+    Parameters
+    ----------
+    source_coords : array-like, shape (N, 2)
+        Reference coordinates (e.g. OMR cells)
+    target_coords : array-like, shape (M, 2)
+        Coordinates to be shifted and matched (e.g. stim cells)
+    xy_offset : tuple (dx, dy)
+        Offset applied to target_coords BEFORE matching.
+        Convention:
+            target_aligned = target_coords + (dx, dy)
+        If dx = -4, target is shifted left by 4 pixels.
+    max_distance : float or None
+        Optional distance cutoff (pixels). Matches beyond this are discarded.
+
+    Returns
+    -------
+    matches : dict
+        source_index -> target_index
+    distances : dict
+        source_index -> distance after offset correction
+    aligned_target_coords : ndarray, shape (M, 2)
+        Offset-corrected target coordinates
+    """
+    from scipy.spatial.distance import cdist
+    from scipy.optimize import linear_sum_assignment
+
+    source_coords = np.asarray(source_coords, dtype=float)
+    target_coords = np.asarray(target_coords, dtype=float)
+
+    dx, dy = xy_offset
+    aligned_target_coords = target_coords + np.array([dx, dy])
+
+    if source_coords.size == 0 or target_coords.size == 0:
+        return {}, {}, aligned_target_coords
+
+    # Distance matrix using offset-corrected stim coords
+    D = cdist(source_coords, aligned_target_coords)
+
+    src_idx, tgt_idx = linear_sum_assignment(D)
+
+    matches = {}
+    distances = {}
+
+    for s, t in zip(src_idx, tgt_idx):
+        d = D[s, t]
+        if max_distance is None or d <= max_distance:
+            matches[s] = t
+            distances[s] = d
+
+    return matches, distances, aligned_target_coords
+
 def match_cell_ids(cell_arr1, stats_dict1, cell_arr2, stats_dict2,
                    distance_threshold_um=10, overlap_threshold=0.01,
                    um_to_px = 0.6, xy_offset=(0, 0)):
@@ -193,3 +252,129 @@ def determine_sideness_of_cell(cell_coordinates, x_midline):
     if cell_coordinates[0] >= x_midline:
         side = 'R'
     return side
+
+
+
+def match_omr_to_stim_coords(
+    omr_indices,
+    omr_coords,
+    stim_indices,
+    stim_coords,
+    stimmed_indices=None,
+    xy_offset=(0, 0),
+    max_distance=np.inf,
+    tile_size=100
+):
+    """
+    Match OMR cells to stim cells (coordinates) with optional bias toward stimmed cells.
+
+    Parameters
+    ----------
+    omr_indices : list/array
+        Original indices of OMR cells.
+    omr_coords : Nx2 array
+        OMR cell coordinates.
+    stim_indices : list/array
+        Original indices of stim cells.
+    stim_coords : Mx2 array
+        Stim cell coordinates.
+    stimmed_indices : list/array, optional
+        Indices of stimmed cells to prioritize.
+    xy_offset : tuple
+        Optional XY offset to apply to stim coordinates.
+    max_distance : float
+        Maximum allowed distance for matching.
+    tile_size : int
+        Tile size in pixels for local matching.
+
+    Returns
+    -------
+    omr_to_stim_matches_dict : dict
+        Dictionary mapping OMR indices → stim indices (original IDs).
+    aligned_stim_coords : np.ndarray
+        Transformed stim coordinates after optional offset.
+    """
+
+    from scipy.spatial import cKDTree
+
+    stim_coords = np.array(stim_coords) + np.array(xy_offset)
+    omr_coords = np.array(omr_coords)
+    stimmed_indices = stimmed_indices if stimmed_indices is not None else []
+
+    # ---------------- Stage 1: priority matching for stimmed cells ----------------
+    stim_matches = []
+    claimed_omr_ids = set()
+
+    if len(stimmed_indices) > 0:
+        stimmed_coords = stim_coords[stimmed_indices]
+        for i, stim in zip(stimmed_indices, stimmed_coords):
+            # determine tile
+            x0 = max(0, int(stim[0] // tile_size) * tile_size)
+            y0 = max(0, int(stim[1] // tile_size) * tile_size)
+            x1, y1 = x0 + tile_size, y0 + tile_size
+
+            in_tile = [j for j, c in enumerate(omr_coords)
+                       if x0 <= c[0] < x1 and y0 <= c[1] < y1]
+
+            if len(in_tile) > 0:
+                tile_coords = np.array([omr_coords[j] for j in in_tile])
+                distances = np.linalg.norm(tile_coords - stim, axis=1)
+                min_idx = np.argmin(distances)
+                min_dist = distances[min_idx]
+                if min_dist <= max_distance:
+                    idx = in_tile[min_idx]
+                else:
+                    # fallback to global nearest neighbor
+                    distances_global = np.linalg.norm(omr_coords - stim, axis=1)
+                    idx = np.argmin(distances_global)
+            else:
+                # fallback to global nearest neighbor
+                distances_global = np.linalg.norm(omr_coords - stim, axis=1)
+                idx = np.argmin(distances_global)
+
+            stim_matches.append((omr_indices[idx], stim_indices[i]))
+            claimed_omr_ids.add(omr_indices[idx])
+
+    # ---------------- Optional: compute offset from stim matches ----------------
+    if stim_matches:
+        matched_omr_coords = np.array([omr_coords[omr_indices.tolist().index(omr_idx)] for omr_idx, _ in stim_matches])
+        matched_stim_coords = np.array([stim_coords[stim_indices.tolist().index(stim_idx)] for _, stim_idx in stim_matches])
+        offset = np.mean(matched_omr_coords - matched_stim_coords, axis=0)
+        aligned_stim_coords = stim_coords + offset
+    else:
+        aligned_stim_coords = stim_coords
+
+    # ---------------- Stage 2: global one-to-one matching ----------------
+    remaining_omr_indices = [i for i in range(len(omr_coords)) if omr_indices[i] not in claimed_omr_ids]
+    remaining_coords = np.array([omr_coords[i] for i in remaining_omr_indices])
+    tree = cKDTree(remaining_coords)
+
+    claimed_stim_indices = set(stimmed_indices)  # already assigned in Stage 1
+    global_matches = {}
+
+    for stim_idx, stim_coord in zip(stim_indices, aligned_stim_coords):
+        if stim_idx in claimed_stim_indices:
+            continue  # skip stim cells already matched
+        if len(remaining_coords) == 0:
+            break
+        dist, idx = tree.query(stim_coord)
+        if dist > max_distance:
+            continue
+        omr_idx = omr_indices[remaining_omr_indices[idx]]
+        if omr_idx in claimed_omr_ids:
+            continue
+
+        global_matches[omr_idx] = stim_idx
+        claimed_omr_ids.add(omr_idx)
+        claimed_stim_indices.add(stim_idx)
+
+        # remove matched OMR cell
+        remaining_coords = np.delete(remaining_coords, idx, axis=0)
+        remaining_omr_indices.pop(idx)
+        tree = cKDTree(remaining_coords) if len(remaining_coords) > 0 else None
+
+    # ---------------- Combine mappings ----------------
+    omr_to_stim_matches_dict = {omr_idx: stim_idx for omr_idx, stim_idx in stim_matches}
+    omr_to_stim_matches_dict.update(global_matches)
+
+    return omr_to_stim_matches_dict, aligned_stim_coords
