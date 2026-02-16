@@ -11,6 +11,7 @@ import shutil
 import pandas as pd
 import numpy as np
 from tifffile import imread, imwrite
+import tifffile
 from datetime import datetime as dt, timedelta
 import xml.etree.ElementTree as ET
 import glob
@@ -102,6 +103,7 @@ def bruker_img_organization(folder_path, testkey = 'Cycle', safe=False, single_p
     # collect frame times from files
     frametimes_df = get_frametimes(info_xml_path, voltage_path = None)
 
+
     if single_plane == True:
 
         # collect only the tif files that you need (not in References)
@@ -110,16 +112,29 @@ def bruker_img_organization(folder_path, testkey = 'Cycle', safe=False, single_p
 
         # fls = glob.glob(os.path.join(folder_path,'*.tif'))  #  change tif to the extension you need
         fls.sort()  # make sure your files are sorted alphanumerically
-        m = cm.load_movie_chain(fls)
+
         save_fld = Path(new_output).joinpath(f"single_plane")
         if not os.path.exists(save_fld):
             os.mkdir(save_fld)
+        save_path = os.path.join(save_fld, 'img_stack.tif')
+
+        with tifffile.TiffWriter(save_path, bigtiff=True, imagej=True) as output:
+            for tiffany in fls:
+                with tifffile.TiffFile(tiffany) as tiff:
+                    for page in tiff.pages:
+                        output.write(page.asarray().astype("uint16"),
+                                    contiguous=True)
+
+        
+        ##### ARCHIVED #####
         # m.save(os.path.join(save_fld,'img_stack.tif'), bigtiff=True)
         # m is a Timeseries object
-        arr = np.asarray(m, dtype=np.uint16)
+        # arr = np.asarray(m, dtype=np.uint16)
 
-        save_path = os.path.join(save_fld, 'img_stack.tif')
-        imwrite(save_path, arr, bigtiff=True)
+        # save_path = os.path.join(save_fld, 'img_stack.tif')
+        # # imwrite(save_path, arr, bigtiff=True)
+        ########################
+
 
         save_path = Path(save_fld).joinpath(
             "frametimes.h5"

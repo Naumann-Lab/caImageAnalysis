@@ -1,6 +1,7 @@
 import os
 import shutil
 import numpy as np
+import tifffile
 
 
 def run_image_rotation(base_fish, angle=0, crop=0.075):
@@ -10,16 +11,23 @@ def run_image_rotation(base_fish, angle=0, crop=0.075):
     :param crop: percentage of image cropped on the fly back side (which is the left side with how it saves)
     :return:
     """
+    from scipy.ndimage import rotate  #wtf man
 
-    from scipy.ndimage import rotate
-    from tifffile import imread, imwrite
+    with tifffile.TiffWriter(base_fish.folder_path.joinpath("img_rotated.tif"), bigtiff=True, imagej=True) as output:
+        with tifffile.TiffFile(base_fish.data_paths["image"]) as tiff:
+            for page in tiff.pages:
+                apage = page.asarray().astype("uint16")
+                if crop != 0:
+                    apage = apage[:, int(apage.shape[1]*crop):]
+                rot = scipy.ndimage.rotate(apage, reshape=False, angle=angle).astype(apage.dtype)
+                output.write(rot, contiguous=True)
 
-    image = imread(base_fish.data_paths["image"])
-
-    image = image[:, :, int(image.shape[2] * crop) :]
-
-    rotated_image = [rotate(img, reshape=False, angle=angle).astype(img.dtype) for img in image]
-    imwrite(base_fish.folder_path.joinpath("img_rotated.tif"), rotated_image, bigtiff=True)
+    ##########ARCHIVED:
+    # from tifffile import imread, imwrite
+    # image = imread(base_fish.data_paths["image"])
+    # image = image[:, :, int(image.shape[2] * crop) :]
+    # rotated_image = [rotate(img, reshape=False, angle=angle).astype(img.dtype) for img in image]
+    # imwrite(base_fish.folder_path.joinpath("img_rotated.tif"), rotated_image, bigtiff=True)
 
 def run_image_rotation_90deg(base_fish, crop=0.0):
     """
@@ -34,24 +42,31 @@ def run_image_rotation_90deg(base_fish, crop=0.0):
         Optional fraction to crop from the left side (same behavior as your original).
     """
 
-    import numpy as np
-    from tifffile import imread, imwrite
+    with tifffile.TiffWriter(base_fish.folder_path.joinpath("img_rotated.tif"), bigtiff=True, imagej=True) as output:
+        with tifffile.TiffFile(base_fish.data_paths["original_image"]) as tiff:
+            for page in tiff.pages:
+                apage = page.asarray().astype("uint16")
+                if crop != 0:
+                    apage = apage[:, int(apage.shape[1]*crop):]
+                rot = np.rot90(apage, k=1)
+                output.write(rot.astype(apage.dtype), contiguous=True)
+                
 
     # load full movie: shape (T, Y, X)
-    image = imread(base_fish.data_paths["image"])
+    # image = imread(base_fish.data_paths["image"])
 
-    # optional crop on X dimension *before* rotation
-    if crop > 0:
-        crop_px = int(image.shape[2] * crop)
-        image = image[:, :, crop_px:]
+    # # optional crop on X dimension *before* rotation
+    # if crop > 0:
+    #     crop_px = int(image.shape[2] * crop)
+    #     image = image[:, :, crop_px:]
 
-    # rotate all frames by 90 degrees CCW
-    # axes=(1,2) means rotate in the spatial dimensions only
-    rotated = np.rot90(image, k=1, axes=(1, 2))
+    # # rotate all frames by 90 degrees CCW
+    # # axes=(1,2) means rotate in the spatial dimensions only
+    # rotated = np.rot90(image, k=1, axes=(1, 2))
 
-    # write to disk
-    out_path = base_fish.folder_path.joinpath("img_rotated.tif")
-    imwrite(out_path, rotated.astype(image.dtype), bigtiff=True)
+    # # write to disk
+    # out_path = base_fish.folder_path.joinpath("img_rotated.tif")
+    # imwrite(out_path, rotated.astype(image.dtype), bigtiff=True)
 
 
 def run_movement_correction(
@@ -59,7 +74,8 @@ def run_movement_correction(
     caiman_ops=None,
     keep_mmaps=False,
     force=False,
-    cropped = False
+    cropped = False,
+    num_cores=14
 ):
     import caiman as cm
     from tifffile import imsave
@@ -89,7 +105,7 @@ def run_movement_correction(
             "downsample_ratio": 0.2,
         }
     c, dview, n_processes = cm.cluster.setup_cluster(
-        backend="local", n_processes=14, single_thread=False
+        backend="local", n_processes=num_cores, single_thread=False
     )
     mc = cm.motion_correction.MotionCorrect(
         [original_image_path.as_posix()],
