@@ -667,6 +667,7 @@ class VizStimFish(TailTrackedFish):
         used_offsets=(-10, 14),
         baseline_offset=-4, # adding a baseline number of frames 
         r_type="median",  # response type - can be median, mean, peak of the stimulus response, default is median
+        rep_mode="common",
         *args,
         **kwargs,
     ):
@@ -694,6 +695,14 @@ class VizStimFish(TailTrackedFish):
         self.stim_fxn_args = stim_fxn_args
         self.add_stims(stim_key, stim_fxn, legacy)
 
+        self.rep_mode = rep_mode
+        if self.rep_mode == 'common':
+            self.stimulus_df = self.stimulus_df[self.stimulus_df.rep <= (self.stimulus_df.groupby('stim_name').count().rep.min())].reset_index(drop=True)
+            print(self.stimulus_df.rep.unique())
+        else:
+            print('keeping all stimulus reps')
+            print(self.stimulus_df.rep.unique())
+
         self.r_type = r_type
 
         # set up inversions
@@ -714,6 +723,8 @@ class VizStimFish(TailTrackedFish):
         self.offsets = used_offsets
         self.baseline_offset = baseline_offset
         # self.diff_image = self.make_difference_image()
+
+
 
     def add_stims(self, stim_key, stim_fxn, legacy):
         with os.scandir(self.folder_path) as entries:
@@ -1372,6 +1383,12 @@ class WorkingFish(VizStimFish):
 
     def neuron_each_stim_rep_arrays(self, stim_order, traces = 'normf'):
         '''
+        ARGS:
+            stim_order: 
+            traces
+
+
+
         output -- array of shape: # of neurons, each repetition, and each stim (in the order of the stim_order) 
                 array of activity (length of offsets * num of stims) 
         '''
