@@ -1,5 +1,8 @@
 import numpy as np
 import math
+from pathlib import Path
+import os
+import pandas as pd
 
 # utility functions for working with coordinates
 
@@ -246,12 +249,62 @@ def rotate_transform_coors(coordinates, angle_degrees, translation=(0, 0)):
 
     return translated_coordinates.tolist()
 
+# automating sidedness for cells across the FOV
+
+def return_midline_coords_per_plane_dict(stimpath):
+    '''
+    Gather midline coordinates for each plane, stored in dictionary
+    stimpath = folder to the photostim dataset
+
+    Returns:
+    midline_dict = dictionary with plane str as keys, items are the midline coordinates for that plane
+
+    '''
+    midline_dict = {}
+    with os.scandir(stimpath.joinpath('output_folders')) as entries:
+        for entry in entries:
+            midline_npy = Path(entry.path).joinpath('rois\midline.npy')
+            plane = Path(entry.path).name
+
+            midline = np.load(midline_npy)
+            x = midline[:, 0]
+            y = midline[:, 1]
+            m, b = np.polyfit(y, x, 1)
+            y_full = np.arange(0, 512)
+            x_fit = m * y_full + b
+            x_fit_int = np.rint(x_fit).astype(int)
+            midline_coords = np.column_stack((x_fit_int, y_full))
+
+            midline_dict[plane] = midline_coords
+
+    return midline_dict
+
+# for one cell
 def determine_sideness_of_cell(cell_coordinates, x_midline):
     if cell_coordinates[0] < x_midline: # cell on left hemisphere
         side = 'L'
     if cell_coordinates[0] >= x_midline:
         side = 'R'
     return side
+
+# for an array
+def cell_side_of_midline(midline_coords, cell_coord):
+    """
+    midline_coords: list of (x, y) tuples or Nx2 numpy array
+    cell_coord: (x, y) tuple for the cell position
+    """
+    x_mid = midline_coords[:, 0]
+    y_mid = midline_coords[:, 1]
+
+    # Find the closest midline y to the cell y
+    idx = np.argmin(np.abs(y_mid - cell_coord[1]))
+    x_at_same_y = x_mid[idx]
+
+    # Compare x positions
+    if cell_coord[0] < x_at_same_y:
+        return "L"
+    if cell_coord[0] >= x_at_same_y:
+        return "R"
 
 
 

@@ -101,7 +101,8 @@ def barcode_with_ideal_trace(vizstimfish, barcode_dict = constants.eva_typesL, n
             
     return type_dict, corr_dict, binary_codes_dict
 
-def barcode_binary_score(vizstimfish, one_neuron_arr, stims = None, stim_start_frames = None, base_length = 4, frames_motion_on = None, 
+def barcode_binary_score(vizstimfish, one_neuron_arr,
+                         stims = None, stim_start_frames = None, base_length = 4, frames_motion_on = None,
                          std_thresh = 1.8, num_responding_trials = 3, evoked_resp = 'median'):
     '''
     Create a binary code for each neuron
@@ -141,8 +142,10 @@ def barcode_binary_score(vizstimfish, one_neuron_arr, stims = None, stim_start_f
 
     return binary_code
 
-def barcode_binary_score_df_f(vizstimfish, one_neuron_arr, stims = None, stim_start_frames = None, frames_motion_on = None, 
-                         std_thresh = 1.8, num_responding_trials = 3, evoked_resp = 'mean'):
+def barcode_binary_score_df_f(vizstimfish, one_neuron_arr, stims = None,
+                              stim_start_frames = None,
+                              base_length = None, frames_motion_on = None,
+                                std_thresh = 1.8, num_responding_trials = 3, evoked_resp = 'mean'):
     '''
     Create a binary code for each neuron, using df/f instead of just raw fluorescence
     vizstimfish -- a VizStimFish class object
@@ -160,12 +163,14 @@ def barcode_binary_score_df_f(vizstimfish, one_neuron_arr, stims = None, stim_st
         stims = vizstimfish.stim_order
     if stim_start_frames is None:
         stim_start_frames = vizstimfish.stim_start_frames
+    if base_length is None:
+        base_length = int(vizstimfish.img_hz) * 4 # 4 sec of baseline
 
     bool_dict_per_neuron = {key: 0 for key in stims}
     for e, l in enumerate(stim_start_frames):
         key = stims[e]
-        base_arr = np.nanmean(one_neuron_arr[:, l+vizstimfish.offsets[0]:l - 1], axis = 1)
-        base_std = np.nanstd(one_neuron_arr[:, l+vizstimfish.offsets[0]:l - 1], axis = 1)
+        base_arr = np.nanmean(one_neuron_arr[:, l-base_length:l - 1], axis = 1)
+        base_std = np.nanstd(one_neuron_arr[:, l-base_length:l - 1], axis = 1)
         df_f_neuron_arr = np.array([(arr - base_arr[i]) / base_arr[i] for i, arr in enumerate(one_neuron_arr)])
         if evoked_resp == 'median':
             evoked_arr = np.nanmedian(df_f_neuron_arr[:, l:(l+ frames_motion_on)], axis =1 )
@@ -189,7 +194,7 @@ def find_forward_responders(vizstimfish, stim_order = ['forward', 'backward'],
     stim_order needs to include forward and backward!
     '''
     frw_back_stim_resps = vizstimfish.neuron_each_stim_rep_arrays(stim_order)
-    stim_start_frames = stimuli.stimulus_start_frames_for_plots(frames_motion_on = frames_motion_on, 
+    stim_start_frames = stimuli.stimulus_start_frames_for_plots(baseline_offset = -vizstimfish.offsets[0],
                                                             length_of_total_frame_arr = np.diff(vizstimfish.offsets)[0],
                                                             number_of_stims_in_set = len(stim_order))
 
@@ -335,6 +340,173 @@ def make_Pt_R_and_L_side_df_opposite_tuned(volume_barcoding_df):
                                                  ascending=[True, False,])
     return sorted_R_choose_df, sorted_L_choose_df
 
+
+## BARCODING FOR GCAMP7F CYTO DATA ##
+def analyze_vis_stim_peaks(stim_df,
+                            trace_array,
+                            imaging_hz,
+                            stim_col='stim_name',
+                            stim_duration_s=10,
+                            peak_threshold=0.2,
+                            baseline_s=10,
+                            pad_s=0.1,
+                            response_percent = 0.66 # percent of trials that the neuron needs to be responsive to
+                                ):
+    """
+    Peak-based visual response analysis with baseline comparison.
+    Similar to the motor score responses for gcamp7f data.
+    Peak based analysis is better for this caiman output
+
+    A trial is counted as responsive if:
+        #peaks during stimulus > #peaks during baseline
+
+    Inputs:
+    - stim_df: dataframe with stimulus presentation info for whole trace (fishy.stimulus_df)
+    - trace_array: (n_neurons, n_frames)
+    - imaging_hz: imaging frame rate (Hz)
+    - stim_col: name of the column with stimulus names
+    - stim_duration_s: duration that motion is presented (fishy.seconds motion is on)
+    - peak_threshold: peak threshold for spikes, want fairly low to be generous
+    - baseline_s: duration for baseline (right before stimulus is on)
+    - pad_s: seconds to pad after stimulus starts for the stimulus window (can keep low since gcamp7f)
+    - true_response: the percent of trials that the neuron needs to be responsive to to be considered 'responsive to that stimulus'
+
+    Returns:
+        dataframe with each neurons responses to all the stimuli
+    """
+    from scipy.signal import find_peaks
+
+    n_neurons, _ = trace_array.shape
+
+    stim_on = stim_df['frame'].values
+    stim_ids = stim_df[stim_col].values
+
+    stim_len = int(stim_duration_s * imaging_hz)
+    baseline_len = int(baseline_s * imaging_hz)
+    pad = int(pad_s * imaging_hz)
+
+    # --- detect peaks ---
+    peaks = []
+    for neuron in trace_array:
+        pks, _ = find_peaks(neuron, height=peak_threshold)
+        peaks.append(pks)
+
+    unique_stims = np.unique(stim_ids)
+    records = []
+
+    for n in range(n_neurons):
+
+        neuron_peaks = peaks[n]
+
+        for stim in unique_stims:
+
+            stim_trials = np.where(stim_ids == stim)[0]
+
+            responsive_trials = 0
+
+            for t in stim_trials:
+
+                onset = stim_on[t]
+
+                # --- baseline window (before stim) ---
+                base_start = onset - baseline_len
+                base_end = onset
+
+                # --- stimulus window ---
+                stim_start = onset - pad
+                stim_end = onset + stim_len + pad
+
+                baseline_peaks = np.sum(
+                    (neuron_peaks >= base_start) & (neuron_peaks < base_end)
+                )
+
+                stim_peaks = np.sum(
+                    (neuron_peaks >= stim_start) & (neuron_peaks <= stim_end)
+                )
+
+                # --- key condition ---
+                if stim_peaks > baseline_peaks:
+                    responsive_trials += 1
+
+            response_rate = responsive_trials / len(stim_trials)
+
+            records.append({
+                'neuron_id': n,
+                'stimulus': stim,
+                'response_rate': response_rate
+            })
+
+    summary_df = pd.DataFrame(records)
+
+    # --- binary responsiveness (for barcode) ---
+    summary_df['responsive'] = summary_df['response_rate'] >= response_percent  # tune this
+
+    return summary_df
+
+def assign_barcodes_from_peaks(vizmotion_peak_df,
+                            barcode_dict,
+                            barcode_stims
+                           ):
+    """
+    Assign  barcode labels using exact matching only, from binary classifications.
+
+    Inputs:
+    - vizmotion_peak_df: dataframe with ['neuron_id', 'stimulus', 'responsive'] -- from previous function
+    - barcode_dict: dict of barcode_name -> list of booleans
+    - barcode_stims: ordered list of stimuli (must match barcode order)
+
+    Returns:
+    - barcode_df: dataframe with neuron_id, barcode_vector, barcode_label
+    """
+
+    # --- Step 1: neuron x stimulus matrix ---
+    barcode_df = vizmotion_peak_df.pivot(
+        index='neuron_id',
+        columns='stimulus',
+        values='responsive'
+    ).fillna(False)
+
+    # --- Step 2: enforce correct order ---
+    barcode_df = barcode_df.reindex(columns=barcode_stims, fill_value=False)
+
+    # --- Step 3: convert barcode dict to tuples for exact matching ---
+    barcode_map = {tuple(v): k for k, v in barcode_dict.items()}
+
+    # --- Step 4: create barcode vector per neuron ---
+    barcode_df['barcode_vector'] = barcode_df.apply(
+        lambda row: tuple(row[stim] for stim in barcode_stims),
+        axis=1)
+
+    # --- Step 5: exact match lookup ---
+    barcode_df['barcode_label'] = barcode_df['barcode_vector'].map(barcode_map)
+
+    # --- assign unclassified if no match ---
+    barcode_df['barcode_label'] = barcode_df['barcode_label'].fillna('unclassified')
+
+    # --- clean output ---
+    barcode_df = barcode_df.reset_index()
+    barcode_df.columns.name = 'index'
+
+    return barcode_df
+
+def check_barcode_from_peaks_df(barcode_df, all_rois, x_midline):
+    '''
+    Check the barcodes from the barcode df found from peaks
+    Need to know sidedness and make sure its correct for all barcodes
+    :return: updated barcode_df
+    '''
+    # add rois and sidedness to the barcode df to figure out if the barcodes are true
+    barcode_df['roi'] = all_rois
+    for n, roi in enumerate(barcode_df.roi.values):
+        barcode_type = barcode_df.iloc[n].barcode_label
+        bool_val = True # default bool is True
+        if 'oMl' in barcode_type:
+            bool_val = check_oMl_location(roi, x_midline, barcode_type)
+        if 'Mm' in barcode_type:
+            bool_val = check_barcoded_neur_location(roi, x_midline, barcode_type)
+        if bool_val == False:
+            barcode_df.loc[n, 'barcode_label'] = 'unclassified'
+    return barcode_df
 
 # finding forward responders in nMLF for stim experiments
 

@@ -113,6 +113,8 @@ class BaseFish:
                 elif entry.name.endswith("xml"):
                     if 'MarkPoints' in entry.name:
                         self.data_paths["ps_xml"] = Path(entry.path)
+                    elif ("Voltage" in entry.name) and ('MarkPoints' not in entry.name):
+                        self.data_paths["voltage_xml"] = Path(entry.path)
                     elif "Voltage" not in entry.name and 'MarkPoints' not in entry.name:
                         self.data_paths["info_xml"] = Path(entry.path)
                         self.um_per_px = bruker_images.get_micronstopixels_scale(self.data_paths['info_xml'])
@@ -194,7 +196,7 @@ class BaseFish:
             self.f_cells = np.load(self.data_paths["caiman"].joinpath("raw.npy"))
         else:
             self.f_cells = np.load(self.data_paths["caiman"].joinpath("C.npy"))
-        self.df_f_cells = np.load(self.data_paths["caiman"].joinpath("F_dff.npy"))
+        self.dff_cells = np.load(self.data_paths["caiman"].joinpath("F_dff.npy"), allow_pickle=True)
         self.rescaled_img()
 
     def is_cell(self, edge_margin = 20):
@@ -202,7 +204,7 @@ class BaseFish:
         For all types of output:
         0 - Always remove cells that are within 20 pixels of the border (for standard 512 x 512 FOV)
         For caiman output:
-        1 - Clean up the self.f_cells and self.df_f_cells according to self.iscell 
+        1 - Clean up the self.f_cells and self.dff_cells according to self.iscell
         2 - clean up cells that didn't change fluorscence throughout the trial at all
         3 - remove cells with any nan location values
         4 - if caiman data, then make sure the cells are within the brain region
@@ -240,8 +242,8 @@ class BaseFish:
 
         self.f_cells = self.f_cells[iscell_index]
         self.stats = self.stats[iscell_index]
-        if hasattr(self, 'df_f_cells'):
-            self.df_f_cells = self.df_f_cells[iscell_index]
+        # if hasattr(self, 'dff_cells'):
+        #     self.dff_cells = self.dff_cells[iscell_index]
 
         if 'caiman' in self.data_paths.keys(): # this does not overwrite the original caiman output
             # 1 - is part of is cell index
@@ -262,8 +264,8 @@ class BaseFish:
 
             self.f_cells = self.f_cells[iscell_index]
             self.stats = self.stats[iscell_index]
-            if hasattr(self, 'df_f_cells'):
-                self.df_f_cells = self.df_f_cells[iscell_index]
+            # if hasattr(self, 'dff_cells'):
+            #     self.dff_cells = self.dff_cells[iscell_index]
 
             # 4 - with caiman data, make sure that these cells are within the brain region
             try:
@@ -274,7 +276,7 @@ class BaseFish:
             iscell_index_2 = np.intersect1d(np.array(iscell_index), iscell_inbrain_index)
             self.f_cells = self.f_cells[iscell_index_2]
             self.stats = self.stats[iscell_index_2]
-            self.df_f_cells = self.df_f_cells[iscell_index_2] 
+            # self.dff_cells = self.dff_cells[iscell_index_2]
             print('completed iscell check')
 
     def return_cell_rois(self, cells):
@@ -435,9 +437,10 @@ class BaseFish:
 
     def load_saved_rois(self):
         self.roi_dict = {}
-        with os.scandir(self.folder_path.joinpath("rois")) as entries:
-            for entry in entries:
-                self.roi_dict[Path(entry.path).stem] = entry.path
+        if self.folder_path.joinpath("rois").exists():
+            with os.scandir(self.folder_path.joinpath("rois")) as entries:
+                for entry in entries:
+                    self.roi_dict[Path(entry.path).stem] = entry.path
 
     def return_cells_by_saved_roi(self, roi_name, overwrite=False):
         try:
@@ -609,6 +612,7 @@ class TailTrackedFish(BaseFish):
 
         self.add_tail_paths(tail_key)
         self.tail_df = pd.read_hdf(self.data_paths["tail"])
+        self.tail_hz = 1 / np.mean(np.diff((self.tail_df[:100].t.values)))
         self.add_bout_analysis()
 
         if 'frame' not in self.tail_df.columns:
@@ -636,7 +640,7 @@ class TailTrackedFish(BaseFish):
         try:
             with os.scandir(self.folder_path) as entries:
                 for entry in entries:
-                    if 'tail_analysis' in entry.name:
+                    if ('tail_analysis' in entry.name) or ('tail_bout_df.h5' in entry.name):
                         self.bout_analysis_df = pd.read_hdf(Path(entry.path))
         except KeyError:
             print("failed to find bout analysis data")
@@ -666,7 +670,8 @@ class VizStimFish(TailTrackedFish):
         seconds_motion_is_on = 5,
         used_offsets=(-10, 14),
         baseline_offset=-4, # adding a baseline number of frames 
-        r_type="median",  # response type - can be median, mean, peak of the stimulus response, default is median
+        r_type="median",# response type - can be median, mean, peak of the stimulus response, default is median
+        rep_mode = 'common',  # if you want all equal number of stim reps
         *args,
         **kwargs,
     ):
@@ -693,8 +698,20 @@ class VizStimFish(TailTrackedFish):
                 self.is_cell()
         self.stim_fxn_args = stim_fxn_args
         self.add_stims(stim_key, stim_fxn, legacy)
+        if 'rep' not in self.stimulus_df.columns:
+            self.stimulus_df = stimuli.add_repetitions_to_stimulus_df(self.stimulus_df) # add unique rep numbers to the stimulus df
+            print(self.stimulus_df.rep.unique())
+
+        self.rep_mode = rep_mode
+        if self.rep_mode == 'common':
+            self.stimulus_df = self.stimulus_df[self.stimulus_df.rep <= (self.stimulus_df.groupby('stim_name').count().rep.min())].reset_index(drop=True)
+            print(self.stimulus_df.rep.unique())
+        else:
+            print('keeping all stimulus reps')
+            print(self.stimulus_df.rep.unique())
 
         self.r_type = r_type
+        self.seconds_motion_is_on = seconds_motion_is_on
 
         # set up inversions
         if self.invert:
@@ -708,7 +725,7 @@ class VizStimFish(TailTrackedFish):
 
         # set up offsets
         if stim_offset == None:
-            self.stim_offset = int(seconds_motion_is_on * self.img_hz)
+            self.stim_offset = int(self.seconds_motion_is_on * self.img_hz)
         else:
             self.stim_offset = stim_offset
         self.offsets = used_offsets
@@ -922,43 +939,54 @@ class PhotostimFish(TailTrackedFish):
         else: # protecting the automated gui experiments to keep running with photostim fish
             self.baseline_frames = 0
 
-        # find out if this plane was stimulated or not...
+        # 2 - get basic photostim experiment info for any plane
+        self.ps_event_duration, self.ps_event_ms_from_start = photostim_utils.collect_stimulation_times(self)
+        self.ps_event_duration_frames = int(np.ceil(self.ps_event_duration / 1000 * self.img_hz))
+        self.ps_event_start = arrutils.filter_list(lst=np.unique(self.badframes_arr),
+                                                       interval=self.ps_event_duration_frames)
 
-        # 2 - gather and make the stim sites dataframe for different outputs #
-        if ('stim_sites' not in self.data_paths.keys()) & (stimmed_plane == True): # need to create a stim sites df from scratch (works with MP files, voltage recording)
-            self.ps_event_duration, _ = photostim_utils.collect_stimulation_times(self)
-            self.ps_event_duration_frames = int(np.ceil(self.ps_event_duration/1000 * self.img_hz))
-            self.ps_event_start = arrutils.filter_list(lst = np.unique(self.badframes_arr), interval = self.ps_event_duration_frames)
-            self.stim_sites_df = photostim_utils.identify_stim_sites(self, rotate, stimulation_type = stim_type_keyword)
-        if ('stim_sites' in self.data_paths.keys()) & (stimmed_plane == True): # need to upload current stim sites df (works with new automated output, normal outputs)
-            self.stim_sites_df = pd.read_hdf(self.data_paths['stim_sites'], key="stim")
-            if 'stim_duration_ms' in self.stim_sites_df.columns: # if special output type
-                self.ps_event_duration = self.stim_sites_df.stim_duration_ms.iloc[0] # assuming all the same
-                self.ps_event_start = self.stim_sites_df.stim_frames.values # already put these into the dataframe
-                if 'x_stim' not in self.stim_sites_df.columns:
-                    self.stim_sites_df = self.stim_sites_df.rename(columns={'x': 'x_stim', 'y': 'y_stim'})
-        # can be done for all planes
-        self.ps_event_duration, _ = photostim_utils.collect_stimulation_times(self)
-        self.ps_event_duration_frames = int(np.ceil(self.ps_event_duration/1000 * self.img_hz))
-        self.ps_event_start = arrutils.filter_list(lst = np.unique(self.badframes_arr), interval = self.ps_event_duration_frames)
-
-        # if 'caiman' in self.data_paths.keys(): # not working for the automated gui yet
-        #     photostim_utils.create_new_ps_events_array(self) # making a new ps_events start array since trimmed frames from caiman processing
-        #     self.ps_event_start = np.load(Path(self.folder_path).joinpath('ps_frames.npy'))
-        #     self.ps_event_duration = 100 # arbitrary setting duration to 100 ms
-        #     self.ps_event_duration_frames = 1 # thus frames is 1
-        
+        ## IF WE HAVE A STIMMED PLANE - get matching cell ids, stim sites df ##
         if stimmed_plane:
-            # 3 - id the stim sites and save the raw traces #
-            self.ps_event_duration_frames = int(np.ceil(self.ps_event_duration/1000 * self.img_hz))
+            # 3 - gather and make the stim sites dataframe for different outputs #
+            if ('stim_sites' not in self.data_paths.keys()): # need to create a stim sites df from scratch (works with MP files, voltage recording)
+                self.ps_event_duration, _ = photostim_utils.collect_stimulation_times(self)
+                self.ps_event_duration_frames = int(np.ceil(self.ps_event_duration/1000 * self.img_hz))
+                self.ps_event_start = arrutils.filter_list(lst = np.unique(self.badframes_arr), interval = self.ps_event_duration_frames)
+                self.stim_sites_df = photostim_utils.identify_stim_sites(self, rotate, stimulation_type = stim_type_keyword)
+            if ('stim_sites' in self.data_paths.keys()): # need to upload current stim sites df (works with new automated output, normal outputs)
+                self.stim_sites_df = pd.read_hdf(self.data_paths['stim_sites'], key="stim")
+                if 'stim_duration_ms' in self.stim_sites_df.columns: # if special output type
+                    self.ps_event_duration = self.stim_sites_df.stim_duration_ms.iloc[0] # assuming all the same
+                    self.ps_event_start = self.stim_sites_df.stim_frames.values # already put these into the dataframe
+                    if 'x_stim' not in self.stim_sites_df.columns:
+                        self.stim_sites_df = self.stim_sites_df.rename(columns={'x': 'x_stim', 'y': 'y_stim'})
+                # only single cell photostimulation, add in the stim frames and stim events for later analysis, with a Markpoints file
+                if (len(self.stim_sites_df) == 1) & ('ps_xml' in self.data_paths.keys()):
+                    self.stim_sites_df['stim_frames'] = [self.ps_event_start]
+                    self.stim_sites_df['stim_events'] = [np.arange(len(self.ps_event_start))]
+                if ('ps_log' in self.data_paths.keys()):
+                    self.ps_event_start = arrutils.filter_list(lst=np.unique(self.badframes_arr),
+                                                               interval=self.ps_event_duration_frames)
+
+            # 4 - id the stim sites and save the raw traces #
             self.raw_traces, self.points = photostim_utils.collect_raw_traces(self)
-            # 4 - id the stimulated cells based on distance & max response #
+            self.check_if_stim_site_within_brain() # make sure the stim site is within the brain
+            # OLD - id the stimulated cells based on distance & max response #
             # self.stimmed_cell_coords, self.stimmed_cell_id_array, self.stimmed_cells_matched_stim_ids_dict = self.identify_stim_cells(within_radius_um = identify_stim_cell_within_radius_um,
             #                                                                                                                           frame_window = [self.photostim_frame_window[0],
             #                                                                                                                                           self.evoked_num_frames])
+            # id the stimulated cells based on only location  #
             self.stimmed_cell_coords, self.stimmed_cell_id_array, self.stimmed_cells_matched_stim_ids_dict = self.identify_stim_cells_purely_location(overlap=match_with_overlap)
-            # 5 - build the photostim correlation dataframe #
-            # self.build_ps_corrdf(frames_pre_post = photostim_window)
+
+        # # 5 - match photostim times with tail data
+        # if 'tail' in self.data_paths.keys():
+        #     self.add_stim_events_to_tail_df()
+
+    # if 'caiman' in self.data_paths.keys(): # not working for the automated gui yet
+    #     photostim_utils.create_new_ps_events_array(self) # making a new ps_events start array since trimmed frames from caiman processing
+    #     self.ps_event_start = np.load(Path(self.folder_path).joinpath('ps_frames.npy'))
+    #     self.ps_event_duration = 100 # arbitrary setting duration to 100 ms
+    #     self.ps_event_duration_frames = 1 # thus frames is 1
 
     def add_parameter_df(self):
         stim_parameters_csv_path = self.folder_path.parents[1].joinpath('stim_parameters.csv')
@@ -966,6 +994,26 @@ class PhotostimFish(TailTrackedFish):
             self.stim_params_df = pd.read_csv(stim_parameters_csv_path)
         else:
             pass
+
+    def check_if_stim_site_within_brain(self):
+        '''
+        identifies if stim sites are within the brain region
+        important for control stim sites outside of the brain
+        :return: self.stim_inds_within_brain - the good inds of the stim sites df that are within the brain
+        '''
+        import matplotlib.path as mpltPath
+
+        self.load_saved_rois()
+        if 'brain' in self.roi_dict.keys():
+            brain_roi = np.load(self.roi_dict['brain'])
+            brain_path = mpltPath.Path(brain_roi)
+            all_inds = np.arange(len(self.stim_sites_df))
+            all_rois = [(x, y) for x, y in zip(self.stim_sites_df.x_stim.values, self.stim_sites_df.y_stim.values)]
+            pts_in_brain = brain_path.contains_points(all_rois)
+            inds_in_brain = all_inds[pts_in_brain]
+            self.stim_inds_within_brain = inds_in_brain
+        else:
+            print('no brain roi to check stim sites')
 
     def identify_stim_cells(self, within_radius_um = 10, frame_window = [-8, 6]):
         '''
@@ -1077,18 +1125,21 @@ class PhotostimFish(TailTrackedFish):
         elif overlap == True:
             # first collect the xpix and ypix of the stimulation site based on the spiral size
             stim_sites_stat_dict = {}
+            stim_sites_ind_list = []
             for p in range(len(self.stim_sites_df)):
-                radius_um = self.stim_sites_df.iloc[p].sp_size/2
-                if radius_um < 1:
-                    radius_um = 2.5 # default size of 5 umn diameter
-                radius_px = radius_um/self.um_per_px
-                x_pix, y_pix = roiutils.points_within_circle(self.stim_sites_df.iloc[p].x_stim,
-                                                            self.stim_sites_df.iloc[p].y_stim, radius_px)
-                stim_cell_id = int(self.stim_sites_df.iloc[p].cell_ids)
-                stim_sites_stat_dict[stim_cell_id] = {'xpix': x_pix, 'ypix': y_pix}
+                if p in self.stim_inds_within_brain:
+                    stim_sites_ind_list.append(self.stim_sites_df.cell_ids.iloc[p])
+                    radius_um = self.stim_sites_df.iloc[p].sp_size/2
+                    if radius_um < 1:
+                        radius_um = 2.5 # default size of 5 umn diameter
+                    radius_px = radius_um/self.um_per_px
+                    x_pix, y_pix = roiutils.points_within_circle(self.stim_sites_df.iloc[p].x_stim,
+                                                                self.stim_sites_df.iloc[p].y_stim, radius_px)
+                    stim_cell_id = int(self.stim_sites_df.iloc[p].cell_ids)
+                    stim_sites_stat_dict[stim_cell_id] = {'xpix': x_pix, 'ypix': y_pix}
 
             # matching cell ids based on spiral size overlap and doing 1 to 1 matching
-            closest_cell_id_dict = coordutils.match_cell_ids(cell_arr1 = np.unique(self.stim_sites_df.cell_ids.values),
+            closest_cell_id_dict = coordutils.match_cell_ids(cell_arr1 = np.array(stim_sites_ind_list),
                                                                 stats_dict1 = stim_sites_stat_dict,
                                                                 cell_arr2 = np.arange(len(self.f_cells)),
                                                                 stats_dict2 = self.stats,
@@ -1101,225 +1152,241 @@ class PhotostimFish(TailTrackedFish):
 
         return closest_coord_list, closest_cell_id_array, closest_cell_id_dict
 
-    def build_ps_corrdf(self, photostimulated_cell_arr = None, len_decay_frames = 10, ps_offset = 0, select_cells = None, frames_pre_post = [-3, 8], 
-                        trace_type = 'raw', evoked_response_type = 'mean'):
+    def find_precise_photostim_times(self):
         '''
-        building a photostim correlation dataframe with perfect photostim responders and evoked response from stimulation event
-        len_decay_frames: 
-        select_cells: 
-        ps_offset: the offset after the photostim event (aka bad frame) that the response should start
-        frames_pre_post: the frames before and after each photostim event to grab for calculations
+        getting precise photostimulation datetimes from the voltage output
+        the 'else' part will not work for the automated gui, i need to make that times txt file separately for that output
+        this will break if that is the case
+        :return:datetime array of the precise photostim times
         '''
-        if select_cells is None:
-            cell_traces = self.f_cells
-            normcell_traces = self.normcells
-        else: 
-            cell_traces = self.f_cells[select_cells]
-            normcell_traces = self.normcells[select_cells]
+        from datetime import timedelta, date
+        from datetime import datetime as dt
 
-        if trace_type == 'raw':
-            traces_array = cell_traces
-        elif trace_type == 'norm':
-            traces_array = normcell_traces
-        elif trace_type == 'df/f' :
-            traces_array = self.df_f_cells
+        txt_file_path = Path(self.folder_path.parents[1]).joinpath("precise_photostim_times.txt")
+        if txt_file_path.exists():
+            photostim_dt_array = pd.to_datetime(pd.read_csv(txt_file_path, header=None)[0]).values
+        elif (not txt_file_path.exists()) & ('ps_log' in self.data_paths.keys()):
+            return print('get precise photostim times for automated gui output')
         else:
-            traces_array = cell_traces
+            root = bruker_images.read_xml_to_root(self.data_paths['voltage_xml'])
+            start_time = [start.text for start in root.iter('DateTime')][0]
+            start_dt = pd.to_datetime(start_time)
 
-        perfect_photostim_response = np.zeros(traces_array[0].shape)
-        decay_lst = np.linspace(1, 0, len_decay_frames)
+            info_data = bruker_images.read_xml_to_str(self.data_paths["info_xml"])
+            for i in info_data.split("\n"):
+                if ("relativeTime" in i) and ('VoltageRecording' not in i):
+                    relative_time = float([i.split("relativeTime=")[1].split('"')[1]][0])
+                    if relative_time == 0:
+                        absolute_time_from_start = float([i.split("absoluteTime=")[1].split('"')[1]][0])
 
-        for i in self.ps_event_start:
-            i = i + ps_offset
-            perfect_photostim_response[i:(i + len_decay_frames)] = decay_lst
-        
-        if photostimulated_cell_arr is None:
-            photostimulated_cell_arr = self.raw_traces[0] # hardcoded for the first cell
-        # photostimulated_cell_arr = self.f_cells[self.stimmed_cell_ids[0]] # hardcoded for the first cell, source extraction
+            real_start_dt = (dt.combine(date.today(), start_dt.tz_localize(None).time())
+                             + timedelta(seconds=absolute_time_from_start))
 
-        self.ps_corrdf = pd.DataFrame(columns = ['traces', 'correlation', 'z_corr'])
-        # correlation with the stimulated cell raw traces
-        for b, c in enumerate(traces_array):
-            cell_arr = c[self.baseline_frames:]
-            z_cell_arr = arrutils.zscoring(cell_arr)
-            stim_arr = arrutils.pretty(photostimulated_cell_arr)[self.baseline_frames:]
-            z_stim_arr = arrutils.zscoring(stim_arr)
-            corr = np.corrcoef(cell_arr, stim_arr)[0, 1]
-            z_corr = np.corrcoef(z_cell_arr, z_stim_arr)[0, 1]
-            self.ps_corrdf.loc[b, 'correlation'] = corr
-            self.ps_corrdf.loc[b, 'z_corr'] = z_corr
-            self.ps_corrdf.loc[b, 'traces'] = c
+            event_dts = real_start_dt + pd.to_timedelta(self.ps_event_ms_from_start, unit="ms")
+            event_dts_notimezone = event_dts.tz_localize(None)
+            pd.Series(event_dts_notimezone).to_csv(txt_file_path, index=False, header=False)
+            photostim_dt_array = event_dts_notimezone.values
 
-        ps_trial_subset = arrutils.subsection_arrays(self.ps_event_start, frames_pre_post)
-        self.ps_corrdf['evoked_response'] = photostimulation.calculate_evoked_response(arr_cell_traces = traces_array, arr_subset = ps_trial_subset, 
-                                                                                       ps_offset = ps_offset,frame_window = frames_pre_post, 
-                                                                                       r_type = evoked_response_type)
-        
-        return self.ps_corrdf
-    
-    def make_connectivity_map_evoked_activity(self, stimulation_site_coord_lst, responding_cell_lst, arrows = True, annotate_txt = True, cbar_limit = None, 
-                              frames_pre_post = [-3, 8], stimulation_site_clr = 'green', dot_size = 80, savepath = None):
+        return photostim_dt_array
+
+    def add_stim_events_to_tail_df(self, force = True):
         '''
-        Make a connectivity map based on average evoked response with arrows from one stimulation site to list of cells
+        Add in precise photostimulation events to the tail df
+        :return: prints when done
         '''
-        import matplotlib.pyplot as plt
-        import matplotlib
 
-        if not hasattr(self, 'ps_corrdf'):
-            print('building ps_corrdf')
-            self.build_ps_corrdf(frames_pre_post = frames_pre_post)
-        
-        _rois = self.return_cell_rois(responding_cell_lst)
-        _clr_list = [self.ps_corrdf.evoked_response[b] for b in responding_cell_lst]
-        if cbar_limit == None:
-            set_max = max(_clr_list)
-        else:
-            set_max = cbar_limit
-        set_min = -set_max
+        if force:
+            tail_df_ts = self.tail_df.t_dt.values
+            arr_sec = np.array([t.hour * 3600 + t.minute * 60 + t.second + t.microsecond / 1e6 for t in tail_df_ts])
 
-        plt.figure(figsize=(10, 10))
-        plt.imshow(self.rescaled_ref*1.3, cmap="gray",alpha=1, vmax=np.percentile(self.rescaled_ref, 99.9),)
-        xvals = [r[0] for r in _rois]
-        yvals = [r[1] for r in _rois]
-        clrs = plotutils.clip_and_map_colors(_clr_list, vmin = set_min, vmax = set_max, cmap_name='coolwarm')
-        plt.scatter(xvals, yvals, s = dot_size, color = clrs, cmap = 'coolwarm', edgecolor = 'white', vmin = set_min, vmax = set_max, zorder = 2)
+            photostim_dts_arr = self.find_precise_photostim_times()
+            photostim_dts = [pd.to_datetime(a).time() for a in photostim_dts_arr]
+            photostim_sec = [t.hour * 3600 + t.minute * 60 + t.second + t.microsecond / 1e6 for t in photostim_dts]
 
-        # annotate text
-        if annotate_txt:
-            for d in range(len(responding_cell_lst)):
-                plt.annotate(str(d+1), (xvals[d], yvals[d]), textcoords="offset points", xytext=(10, -10), color = 'white', fontsize=18)
-        
-        for s in stimulation_site_coord_lst:
-            plt.scatter(s[0], s[1], s = dot_size, color = stimulation_site_clr, edgecolor = 'white', marker = 'o', zorder=3)
-        # draw arrows
-        if arrows:
-            for k in range(len(responding_cell_lst)):
-                end = (xvals[k], yvals[k])
-                for d in stimulation_site_coord_lst:
-                    plt.annotate('', xy=(end[0]-2, end[1] - 1 ), xytext=(d[0], d[1]), 
-                                arrowprops=dict(arrowstyle = '-|>', linewidth=2, facecolor=clrs[k], edgecolor = clrs[k]), zorder=1)
+            matching_tail_df_inds = np.array([np.argmin(np.abs(arr_sec - t)) for t in photostim_sec])
 
-        cbar = plt.colorbar(matplotlib.cm.ScalarMappable(cmap='coolwarm'))
-        cbar.set_label(label= 'Average Evoked Response', rotation = 270, labelpad=15)
-        cbar.mappable.set_clim(vmin = set_min, vmax = set_max)
-        plt.axis('off') 
+            # add a new column to the tail_df & save it
+            new_tail_df = self.tail_df.copy()
+            new_tail_df['stim_events'] = 'None'
+            for i, idx in enumerate(matching_tail_df_inds):
+                new_tail_df['stim_events'].iloc[idx] = i
+            new_tail_df.to_hdf(self.data_paths['tail'], key='tail')
+            self.tail_df = new_tail_df
+            return print('added stim events to tail data')
+        elif ('stim_events' in self.tail_df.columns) & (force == False):
+            return print('already added stim events to tail data')
 
-        if savepath != None:
-            plt.savefig(savepath, dpi = 300)
-
-        # plt.show()
-
-    def make_connectivity_map_z_corr(self, stimulation_site_coord_lst, responding_cell_lst, arrows = True, annotate_txt = True, cbar_limit = None, 
-                               stimulation_site_clr = 'green', dot_size = 80, savepath = None):
-        '''
-        Make a connectivity map based on average evoked response with arrows from one stimulation site to list of cells
-        '''
-        import matplotlib.pyplot as plt
-        import matplotlib
-
-        if not hasattr(self, 'ps_corrdf'):
-            print('building ps_corrdf')
-            self.build_ps_corrdf()
-        
-        _rois = self.return_cell_rois(responding_cell_lst)
-        _clr_list = [self.ps_corrdf.z_corr[b] for b in responding_cell_lst]
-        if cbar_limit == None:
-            set_max = max(_clr_list)
-        else:
-            set_max = cbar_limit
-        set_min = -set_max
-
-        plt.figure(figsize=(10, 10))
-        plt.imshow(self.rescaled_ref, cmap="gray",alpha=1, vmax=np.percentile(self.rescaled_ref, 99.9),)
-        xvals = [r[0] for r in _rois]
-        yvals = [r[1] for r in _rois]
-        clrs = plotutils.clip_and_map_colors(_clr_list, vmin = set_min, vmax = set_max, cmap_name='coolwarm')
-        plt.scatter(xvals, yvals, s = dot_size, color = clrs, cmap = 'coolwarm', edgecolor = 'white', vmin = set_min, vmax = set_max, zorder = 2)
-
-        # annotate text
-        if annotate_txt:
-            for d in range(len(responding_cell_lst)):
-                plt.annotate(str(d+1), (xvals[d], yvals[d]), textcoords="offset points", xytext=(10, -10), color = 'white', fontsize=18)
-        
-        for s in stimulation_site_coord_lst:
-            plt.scatter(s[0], s[1], s = dot_size, color = stimulation_site_clr, edgecolor = 'white', marker = 'o', zorder=3)
-        # draw arrows
-        if arrows:
-            for k in range(len(responding_cell_lst)):
-                end = (xvals[k], yvals[k])
-                for d in stimulation_site_coord_lst:
-                    plt.annotate('', xy=(end[0]-2, end[1] - 1 ), xytext=(d[0], d[1]), 
-                                arrowprops=dict(arrowstyle = '-|>', linewidth=2, facecolor=clrs[k], edgecolor = clrs[k]), zorder=1)
-
-        cbar = plt.colorbar(matplotlib.cm.ScalarMappable(cmap='coolwarm'))
-        cbar.set_label(label= 'Z-scored Correlation', rotation = 270, labelpad=15)
-        cbar.mappable.set_clim(vmin = set_min, vmax = set_max)
-        plt.axis('off') 
-
-        if savepath != None:
-            plt.savefig(savepath, dpi = 300)
-
-        plt.show()
-
-    def gather_roi_avg_evoked_responses(photostim_fishvolume, roi_to_map, frame_window = [-4, 7], ylim = [-1, 1], traces = 'norm'):
-        '''
-        Gather the average evoked responses for a specific ROI across all barcodes
-        This will return each full, right and left ROI population activity
-        photostim_fishvolume: the photostim fish volume object
-        roi_to_map: the ROI to map responses
-        frame_window: the frames before and after the photostim event to grab for calculations
-        traces: the type of traces to use for the calculations ('norm', 'raw', 'df/f')
-        '''
-    
-        roi_per_barcode_list = []
-        right_roi_per_barcode_list = []
-        left_roi_per_barcode_list = []
-
-        all_roi_traces = []
-        right_roi_traces = []
-        left_roi_traces = []
-
-        for e, v in photostim_fishvolume.volumes.items():
-            frame_subset = arrutils.subsection_arrays(v.ps_event_start, frame_window)
-            x_len = v.rescaled_ref.shape[1]
-            midline = int(x_len/2) # to find right and left
-            region_cells = v.return_cells_by_saved_roi(roi_to_map)
-            regions_cells_rois = v.return_cell_rois(region_cells)
-
-            if region_cells is not None and len(region_cells) > 0:
-                PhotostimFish.build_ps_corrdf(v, trace_type = traces, frames_pre_post = frame_window) # normalized normalized traces, this is true dF/F
-                avg_evoked_response = v.ps_corrdf.evoked_response[region_cells].values
-            
-                roi_per_barcode_list.append(avg_evoked_response)
-
-                for d, ind_roi in enumerate(regions_cells_rois):
-                    all_roi_traces.append(v.normcells[region_cells[d]][frame_subset])
-                    if ind_roi[0] > midline: # if x coord is greater than the midline x value
-                        right_roi_per_barcode_list.append(avg_evoked_response[d])
-                        right_roi_traces.append(v.normcells[region_cells[d]][frame_subset])
-                    else:
-                        left_roi_per_barcode_list.append(avg_evoked_response[d])
-                        left_roi_traces.append(v.normcells[region_cells[d]][frame_subset])
-
-        roi_per_barcode_list = [item for sublist in roi_per_barcode_list for item in sublist]
-
-        fig, (ax0, ax1, ax2) = plt.subplots(1, 3, figsize = (20, 6))
-        plotutils.make_population_avg_evoked_trace_plots(right_roi_traces, frame_window, ylim = ylim, title = f'Right_{roi_to_map}', subplot = ax0)
-        plotutils.make_population_avg_evoked_trace_plots(all_roi_traces, frame_window, title = roi_to_map, ylim = ylim,  subplot = ax1,)
-        plotutils.make_population_avg_evoked_trace_plots(left_roi_traces, frame_window, title = f'Left_{roi_to_map}', ylim = ylim, ssubplot=ax2 )
-
-        return roi_per_barcode_list, right_roi_per_barcode_list, left_roi_per_barcode_list
-
+    ### OLD FUNCTIONS ###
+    # def build_ps_corrdf(self, photostimulated_cell_arr = None, len_decay_frames = 10, ps_offset = 0, select_cells = None, frames_pre_post = [-3, 8],
+    #                     trace_type = 'raw', evoked_response_type = 'mean'):
+    #     '''
+    #     building a photostim correlation dataframe with perfect photostim responders and evoked response from stimulation event
+    #     len_decay_frames:
+    #     select_cells:
+    #     ps_offset: the offset after the photostim event (aka bad frame) that the response should start
+    #     frames_pre_post: the frames before and after each photostim event to grab for calculations
+    #     '''
+    #     if select_cells is None:
+    #         cell_traces = self.f_cells
+    #         normcell_traces = self.normcells
+    #     else:
+    #         cell_traces = self.f_cells[select_cells]
+    #         normcell_traces = self.normcells[select_cells]
+    #
+    #     if trace_type == 'raw':
+    #         traces_array = cell_traces
+    #     elif trace_type == 'norm':
+    #         traces_array = normcell_traces
+    #     elif trace_type == 'df/f' :
+    #         traces_array = self.dff_cells
+    #     else:
+    #         traces_array = cell_traces
+    #
+    #     perfect_photostim_response = np.zeros(traces_array[0].shape)
+    #     decay_lst = np.linspace(1, 0, len_decay_frames)
+    #
+    #     for i in self.ps_event_start:
+    #         i = i + ps_offset
+    #         perfect_photostim_response[i:(i + len_decay_frames)] = decay_lst
+    #
+    #     if photostimulated_cell_arr is None:
+    #         photostimulated_cell_arr = self.raw_traces[0] # hardcoded for the first cell
+    #     # photostimulated_cell_arr = self.f_cells[self.stimmed_cell_ids[0]] # hardcoded for the first cell, source extraction
+    #
+    #     self.ps_corrdf = pd.DataFrame(columns = ['traces', 'correlation', 'z_corr'])
+    #     # correlation with the stimulated cell raw traces
+    #     for b, c in enumerate(traces_array):
+    #         cell_arr = c[self.baseline_frames:]
+    #         z_cell_arr = arrutils.zscoring(cell_arr)
+    #         stim_arr = arrutils.pretty(photostimulated_cell_arr)[self.baseline_frames:]
+    #         z_stim_arr = arrutils.zscoring(stim_arr)
+    #         corr = np.corrcoef(cell_arr, stim_arr)[0, 1]
+    #         z_corr = np.corrcoef(z_cell_arr, z_stim_arr)[0, 1]
+    #         self.ps_corrdf.loc[b, 'correlation'] = corr
+    #         self.ps_corrdf.loc[b, 'z_corr'] = z_corr
+    #         self.ps_corrdf.loc[b, 'traces'] = c
+    #
+    #     ps_trial_subset = arrutils.subsection_arrays(self.ps_event_start, frames_pre_post)
+    #     self.ps_corrdf['evoked_response'] = photostimulation.calculate_evoked_response(arr_cell_traces = traces_array, arr_subset = ps_trial_subset,
+    #                                                                                    ps_offset = ps_offset,frame_window = frames_pre_post,
+    #                                                                                    r_type = evoked_response_type)
+    #
+    #     return self.ps_corrdf
+    #
+    # def make_connectivity_map_evoked_activity(self, stimulation_site_coord_lst, responding_cell_lst, arrows = True, annotate_txt = True, cbar_limit = None,
+    #                           frames_pre_post = [-3, 8], stimulation_site_clr = 'green', dot_size = 80, savepath = None):
+    #     '''
+    #     Make a connectivity map based on average evoked response with arrows from one stimulation site to list of cells
+    #     '''
+    #     import matplotlib.pyplot as plt
+    #     import matplotlib
+    #
+    #     if not hasattr(self, 'ps_corrdf'):
+    #         print('building ps_corrdf')
+    #         self.build_ps_corrdf(frames_pre_post = frames_pre_post)
+    #
+    #     _rois = self.return_cell_rois(responding_cell_lst)
+    #     _clr_list = [self.ps_corrdf.evoked_response[b] for b in responding_cell_lst]
+    #     if cbar_limit == None:
+    #         set_max = max(_clr_list)
+    #     else:
+    #         set_max = cbar_limit
+    #     set_min = -set_max
+    #
+    #     plt.figure(figsize=(10, 10))
+    #     plt.imshow(self.rescaled_ref*1.3, cmap="gray",alpha=1, vmax=np.percentile(self.rescaled_ref, 99.9),)
+    #     xvals = [r[0] for r in _rois]
+    #     yvals = [r[1] for r in _rois]
+    #     clrs = plotutils.clip_and_map_colors(_clr_list, vmin = set_min, vmax = set_max, cmap_name='coolwarm')
+    #     plt.scatter(xvals, yvals, s = dot_size, color = clrs, cmap = 'coolwarm', edgecolor = 'white', vmin = set_min, vmax = set_max, zorder = 2)
+    #
+    #     # annotate text
+    #     if annotate_txt:
+    #         for d in range(len(responding_cell_lst)):
+    #             plt.annotate(str(d+1), (xvals[d], yvals[d]), textcoords="offset points", xytext=(10, -10), color = 'white', fontsize=18)
+    #
+    #     for s in stimulation_site_coord_lst:
+    #         plt.scatter(s[0], s[1], s = dot_size, color = stimulation_site_clr, edgecolor = 'white', marker = 'o', zorder=3)
+    #     # draw arrows
+    #     if arrows:
+    #         for k in range(len(responding_cell_lst)):
+    #             end = (xvals[k], yvals[k])
+    #             for d in stimulation_site_coord_lst:
+    #                 plt.annotate('', xy=(end[0]-2, end[1] - 1 ), xytext=(d[0], d[1]),
+    #                             arrowprops=dict(arrowstyle = '-|>', linewidth=2, facecolor=clrs[k], edgecolor = clrs[k]), zorder=1)
+    #
+    #     cbar = plt.colorbar(matplotlib.cm.ScalarMappable(cmap='coolwarm'))
+    #     cbar.set_label(label= 'Average Evoked Response', rotation = 270, labelpad=15)
+    #     cbar.mappable.set_clim(vmin = set_min, vmax = set_max)
+    #     plt.axis('off')
+    #
+    #     if savepath != None:
+    #         plt.savefig(savepath, dpi = 300)
+    #
+    #     # plt.show()
+    #
+    # def make_connectivity_map_z_corr(self, stimulation_site_coord_lst, responding_cell_lst, arrows = True, annotate_txt = True, cbar_limit = None,
+    #                            stimulation_site_clr = 'green', dot_size = 80, savepath = None):
+    #     '''
+    #     Make a connectivity map based on average evoked response with arrows from one stimulation site to list of cells
+    #     '''
+    #     import matplotlib.pyplot as plt
+    #     import matplotlib
+    #
+    #     if not hasattr(self, 'ps_corrdf'):
+    #         print('building ps_corrdf')
+    #         self.build_ps_corrdf()
+    #
+    #     _rois = self.return_cell_rois(responding_cell_lst)
+    #     _clr_list = [self.ps_corrdf.z_corr[b] for b in responding_cell_lst]
+    #     if cbar_limit == None:
+    #         set_max = max(_clr_list)
+    #     else:
+    #         set_max = cbar_limit
+    #     set_min = -set_max
+    #
+    #     plt.figure(figsize=(10, 10))
+    #     plt.imshow(self.rescaled_ref, cmap="gray",alpha=1, vmax=np.percentile(self.rescaled_ref, 99.9),)
+    #     xvals = [r[0] for r in _rois]
+    #     yvals = [r[1] for r in _rois]
+    #     clrs = plotutils.clip_and_map_colors(_clr_list, vmin = set_min, vmax = set_max, cmap_name='coolwarm')
+    #     plt.scatter(xvals, yvals, s = dot_size, color = clrs, cmap = 'coolwarm', edgecolor = 'white', vmin = set_min, vmax = set_max, zorder = 2)
+    #
+    #     # annotate text
+    #     if annotate_txt:
+    #         for d in range(len(responding_cell_lst)):
+    #             plt.annotate(str(d+1), (xvals[d], yvals[d]), textcoords="offset points", xytext=(10, -10), color = 'white', fontsize=18)
+    #
+    #     for s in stimulation_site_coord_lst:
+    #         plt.scatter(s[0], s[1], s = dot_size, color = stimulation_site_clr, edgecolor = 'white', marker = 'o', zorder=3)
+    #     # draw arrows
+    #     if arrows:
+    #         for k in range(len(responding_cell_lst)):
+    #             end = (xvals[k], yvals[k])
+    #             for d in stimulation_site_coord_lst:
+    #                 plt.annotate('', xy=(end[0]-2, end[1] - 1 ), xytext=(d[0], d[1]),
+    #                             arrowprops=dict(arrowstyle = '-|>', linewidth=2, facecolor=clrs[k], edgecolor = clrs[k]), zorder=1)
+    #
+    #     cbar = plt.colorbar(matplotlib.cm.ScalarMappable(cmap='coolwarm'))
+    #     cbar.set_label(label= 'Z-scored Correlation', rotation = 270, labelpad=15)
+    #     cbar.mappable.set_clim(vmin = set_min, vmax = set_max)
+    #     plt.axis('off')
+    #
+    #     if savepath != None:
+    #         plt.savefig(savepath, dpi = 300)
+    #
+    #     plt.show()
+    #
+    #
 
 class WorkingFish(VizStimFish):
     def __init__(self, corr_threshold=0.65, 
                  bool_data_type = 'normf', 
                  stim_order = None, 
-                 seconds_motion_is_on = 5, 
-                 ref_image=None, *args, **kwargs):
+                 ref_image=None,
+                 *args, **kwargs):
         super().__init__(*args, **kwargs)
         
-        self.seconds_motion_is_on = seconds_motion_is_on
         if "move_corrected_image" not in self.data_paths:
             print('no movement corrected image')
         self.corr_threshold = corr_threshold
@@ -1340,9 +1407,9 @@ class WorkingFish(VizStimFish):
         self.stim_order = stim_order # order to stimuli for average trace plots
         if self.stim_order is None:
             self.stim_order = self.stimulus_df.stim_name.unique()
-        stimuli.add_reps_to_stimulus_df(self.stimulus_df)
+
         # self.neuron_each_stim_rep_arrays(stim_order)
-        self.stim_start_frames = stimuli.stimulus_start_frames_for_plots(frames_motion_on = int(self.img_hz*seconds_motion_is_on), # 5 sec motion is on 
+        self.stim_start_frames = stimuli.stimulus_start_frames_for_plots(baseline_offset = -self.offsets[0],
                                                                          length_of_total_frame_arr = np.diff(self.offsets)[0], 
                                                                          number_of_stims_in_set = len(self.stim_order))
 
@@ -1351,6 +1418,8 @@ class WorkingFish(VizStimFish):
         self.zdiff_stim_dict, self.zdiff_err_dict, self.zdiff_neuron_dict = self.build_stimdicts(self.zdiff_cells)
         self.normf_stim_dict, self.normf_err_dict, self.normf_neuron_dict = self.build_stimdicts(self.normcells)
         self.f_stim_dict, self.f_err_dict, self.f_neuron_dict = self.build_stimdicts(self.f_cells)
+        # if hasattr(self, 'dff_cells'):
+        #     self.dff_stim_dict, self.dff_err_dict, self.dff_neuron_dict = self.build_stimdicts(self.dff_cells)
 
         if self.bool_data_type == 'zdiff':
             self.analysis_stim_dict = self.zdiff_stim_dict
@@ -1361,6 +1430,9 @@ class WorkingFish(VizStimFish):
         elif self.bool_data_type == 'f':
             self.analysis_stim_dict = self.f_stim_dict
             self.analysis_neuron_dict = self.f_neuron_dict
+        elif self.bool_data_type == 'df/f':
+            self.analysis_stim_dict = self.dff_stim_dict
+            self.analysis_neuron_dict = self.dff_neuron_dict
 
         self.build_stimdicts_extended_zdiff()
         self.build_stimdicts_extended_normf()
@@ -1370,22 +1442,25 @@ class WorkingFish(VizStimFish):
         self.build_booldf_baseline()
         # self.build_booldf_cluster()
 
-    def neuron_each_stim_rep_arrays(self, stim_order, traces = 'normf'):
+    def neuron_each_stim_rep_arrays(self, stim_order, trace_type = None):
         '''
         output -- array of shape: # of neurons, each repetition, and each stim (in the order of the stim_order) 
                 array of activity (length of offsets * num of stims) 
         '''
-        if traces == 'normf':
+        if trace_type is None:
+            trace_type = self.bool_data_type
+        if trace_type == 'normf':
             traces = self.normcells
-        elif traces == 'zdiff':
+        elif trace_type == 'zdiff':
             traces = self.zdiff_cells
-        elif traces == 'raw':
+        elif trace_type == 'raw':
             traces = self.f_cells
-        elif traces == 'df/f':
-            traces = self.df_f_cells
+        elif trace_type == 'df/f':
+            traces = self.dff_cells
 
-        self.stimulus_df = stimuli.add_repetitions_to_stimulus_df(self.stimulus_df)
-        self.stimulus_df = self.stimulus_df[self.stimulus_df.rep != -1]
+        if 'rep' not in self.stimulus_df.columns:
+            self.stimulus_df = stimuli.add_repetitions_to_stimulus_df(self.stimulus_df)
+            self.stimulus_df = self.stimulus_df[self.stimulus_df.rep != -1]
 
         # set up the array
         n_neurons = len(traces)
@@ -1660,6 +1735,17 @@ class WorkingFish(VizStimFish):
         self.normf_cluster_booldf = pd.DataFrame(bool_dict)
 
     def build_dsi_analysis_df(self, roi_name = None, cutoff_val = 0.25, stim_list = None):
+        '''
+        building a dsi, color, peak motion response dataframe
+        dsi is calculated from 4 cardinal directions
+        responses to motion are from the analysis_neuron_dict which will be the mean/median/max of the neuron to each stimulus
+        that type of response is set by the r_type keyword
+        color is calculated from a weighted mean of the responses to the stim_list
+        :param roi_name: if you want to get only the dsi from a specific region of interest
+        :param cutoff_val: if the neuron does not pass this threshold in its response value for any of the stimuli in stimlist, becomes gray
+        :param stim_list: a list of stimulus names that you want to use to get the color combinations from
+        :return: dataframe
+        '''
 
         if stim_list is None:
             monoc_stims = list(constants.monocular_dict.keys())
@@ -1680,24 +1766,23 @@ class WorkingFish(VizStimFish):
                                                                                 'color',
                                                                                 'location', 'degree_response'])
 
+        dsi_per_neuron = angles.calc_dsi_cardinaldirs(self, base_sec = 4, motion_on_sec = self.seconds_motion_is_on,
+                                                      dsi_threshold = cutoff_val, use_df_f = False)
         for r, neuron in enumerate(select_neurs):
             one_neuron_resps = df[neuron][monoc_stims]
             mean_resps_dict = dict(zip(monoc_stims, one_neuron_resps))
             degree_responses = [np.clip(mean_resps_dict[i], a_min=0, a_max=999) for i in monoc_stims]
             neuron_peak = angles.weighted_mean_angle(degree_ids, degree_responses)
             
-            try:
-                dsi = angles.calc_dsi(mean_resps_dict)
-            except:
-                dsi = np.nan
+            dsi = dsi_per_neuron[r]
             
-            try:
-                if np.nanmax(one_neuron_resps) <= cutoff_val: # make grey if at least one stimulus clears the cutoff
+            if dsi == 0: # make non selective neurons gray
+                color = [0.5, 0.5, 0.5, 0.15]
+            else:
+                if np.nanmax(one_neuron_resps) <= cutoff_val: # make grey if not responsive enough (below cut off)
                     color = [0.5, 0.5, 0.5, 0.15]
                 else:
-                    color = angles.continuous_clr_array(dsi, neuron_peak, continuous_colors)
-            except:
-                color = [0.5, 0.5, 0.5, 0.15]
+                    color = angles.continuous_clr_array(dsi, neuron_peak, continuous_colors) # otherwise get the color
 
             # add info to the analysis df
             self.dsi_df.iloc[r]['neuron_id'] = neuron
@@ -1765,7 +1850,6 @@ class WorkingFish(VizStimFish):
 
         # if not hasattr(self, "corrdf"):
         self.build_booldf_corr() # create correlation (not interested in the booldf) dataframes
-        # self.find_general_motion_resp_neurons(frames_motion_on = 5, r_val = thresh)
 
         data = self.corrdf
 
@@ -1877,8 +1961,7 @@ class WorkingFish(VizStimFish):
         return xpos, ypos, colors, neurons
 
     def make_computed_image_data_by_loc(
-        self, xmin=0, xmax=99999, ymin=0, ymax=9999, *args, **kwargs
-    ):
+        self, xmin=0, xmax=99999, ymin=0, ymax=9999, *args, **kwargs):
         xpos, ypos, colors, neurons = self.make_computed_image_data(*args, **kwargs)
         loc_cells = self.return_cells_by_location(
             xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax
@@ -2018,31 +2101,32 @@ class WorkingFish(VizStimFish):
         return o_t_base, o_t_base_std, o_t_on_avg, o_t_on_max, o_t_diff_mean
 
     def find_general_motion_resp_neurons(self,
-                                        frames_motion_on=7,
-                                        r_val=0.65,
-                                        base_frames=0,
-                                         rep_mode="all"):
+                                        frames_motion_on=7, # length in imaging frames for motion on window
+                                        base_frames=0, # number of baseline frames from self.offsets[0] to compute baseline window
+                                        rep_mode=None, # number of stimulus reps to include for analysis
+                                         trace_type = None):  # the type of trace that you want to find these neurons with
 
         '''
         Allows for multiple number of reps per stimulus
         Identifying motion responsive neurons based on:
         1. correlation during stim-on
         2. peak > baseline + 1.8 * std
-        3. response in >= 80% of available trials (per stim)
+        3. response in >= 60% of available trials (per stim)
 
         o_t shape:
         [# neurons, # reps (can include missing), # stim * frames]
         '''
 
         if not hasattr(self, "neur_resps_each_stim_rep"):
-            self.neur_resps_each_stim_rep = self.neuron_each_stim_rep_arrays(self.stim_order)
+            self.neur_resps_each_stim_rep = self.neuron_each_stim_rep_arrays(self.stim_order, trace_type)
 
         o_t = self.neur_resps_each_stim_rep
 
         n_neurons = o_t.shape[0]
-        n_reps_total = o_t.shape[1]
         n_stim = len(self.stim_order)
 
+        if rep_mode is None:
+            rep_mode = self.rep_mode
         if rep_mode == "common":
             rep_idx = stimuli.get_common_reps(self, frames_motion_on)
         else:
@@ -2060,86 +2144,57 @@ class WorkingFish(VizStimFish):
                 rep_mode=rep_mode
             )
 
-        resp_dict = BCDict()
-        bool_dict = BCDict()
-        corr_dict = BCDict()
-        self.motion_responsive_neurons = []
+        resp_dict = BCDict() # boolean, neuron responses to each stimuli
+        corr_dict = BCDict() # correlation values with a linear regresssion over the stim on window
+        self.motion_responsive_neurons = [] # list of neurons if anything is true
 
+        # basic stim template where the activity increases over the duration of the motion on window
         stim_template = np.linspace(0, 1, frames_motion_on)
 
         for i in range(n_neurons):
-
             resp_dict[i] = BCDict()
             corr_dict[i] = BCDict()
-            bool_dict[i] = BCDict()
-
             for j in range(n_stim):
-
                 corr_lst = []
                 resp_lst = []
-
                 for k in rep_idx:
-
                     # --- grab this rep's stim-on window ---
                     trace = o_t[i, k]
                     if np.all(np.isnan(trace)):
                         continue  # missing rep entirely
-
                     win0 = length_subset * j + before_stim
                     win1 = win0 + frames_motion_on
                     cell_arr = trace[win0:win1]
-
                     if np.all(np.isnan(cell_arr)):
                         continue  # stim missing for this rep
-
                     # -------- 1. correlation ----------
                     if np.nanstd(cell_arr) == 0:
                         corr_val = np.nan
                     else:
                         corr_val = np.corrcoef(stim_template, cell_arr)[0, 1]
-
                     corr_lst.append(corr_val)
-
                     # -------- 2. peak vs baseline ----------
                     if np.isnan(o_t_base[i, j, k]) or np.isnan(o_t_base_std[i, j, k]):
                         continue
-
                     if o_t_on_max[i, j, k] >= (o_t_base[i, j, k] + 1.8 * o_t_base_std[i, j, k]):
                         resp_lst.append(True)
                     else:
                         resp_lst.append(False)
-
-                # ---- per-stim valid rep count ----
-                n_valid_reps = len(resp_lst)
-
-                if n_valid_reps == 0:
-                    corr_dict[i][j] = np.nan
-                    bool_dict[i][j] = False
-                    resp_dict[i][j] = False
-                    continue
-
                 # -------- summary stats ----------
                 mean_corr = np.nanmean(corr_lst)
-                corr_dict[i][j] = mean_corr
-
-                bool_dict[i][j] = mean_corr >= r_val
-
+                corr_dict[i][j] = mean_corr # the correlations with the stim_template
                 # >= 60% of *available* trials
+                n_valid_reps = len(resp_lst) # tells us the number of reps of stimuli for this neuron, could change
                 if sum(resp_lst) >= int(np.ceil(n_valid_reps * 0.60)):
                     resp_dict[i][j] = True
                 else:
                     resp_dict[i][j] = False
-
             # neuron-level call: responsive to ANY stim
             if any(resp_dict[i].values()):
                 self.motion_responsive_neurons.append(i)
-
-        self.booldf = pd.DataFrame(bool_dict)
         self.corrdf = pd.DataFrame(corr_dict)
 
-        return self.corrdf, self.booldf, self.motion_responsive_neurons
-
-
+        return self.corrdf, self.motion_responsive_neurons
 
     def run_barcoding(self, stim_order, choice_barcode_dict, n_reps = 4, sec_motion_on = 8, response_threshold = 1.8,
                       baseline_frames = 4, response_type = 'median', trace_type = 'norm'):
@@ -2193,7 +2248,11 @@ class WorkingFish(VizStimFish):
         self.barcoding_df['supp_opposite_dir'] = [False] * len(self.barcoding_df)
         self.barcoding_df['side'] = ['R'] * len(self.barcoding_df)
 
-        pt_neurons = self.return_cells_by_saved_roi('Pt')
+        try:
+            pt_neurons = self.return_cells_by_saved_roi('Pt')
+        except:
+            pt_neurons = []
+            print('no Pt on this plane')
         for m, n in enumerate(self.barcoding_df.neur_ids.values):
             # 1 - if pt neurons
             if n in pt_neurons:
@@ -2227,6 +2286,114 @@ class WorkingFish(VizStimFish):
             self.barcoding_df['side'].iloc[m] = _side
         
         return self.barcoding_df
+
+    def find_bout_reducing_neurons(self, stim_order= constants.bouting_stims,
+                                   sec_motion_on=5, std_thresh=1.8,
+                                   baseline_frames = None, n_reps=None,
+                                   response_type = 'mean',):
+        '''
+        finding the bout reducing neurons for an opposite barcoded group to stimulate, only from visual motion tuning
+        basically just the neurons only responsive to backward
+        right now hardcoded to use local df/f for determining responsitivity
+
+        :param stim_order: the stimulus order to follow for gathering responses
+        :param sec_motion_on: how long the motion is on for in seconds to determine how many frames to use for barcoding
+        :param std_thresh: the threshold to determine if responsive or not
+        :param n_reps: number of stimulus reps that the neuron has to pass the threshold for
+        :param response_type: 'mean' or 'median' or 'max' for determining if responsive or not
+        :return: a list of the neuron indices that are bout reducing
+        '''
+
+        from utilities import barcoding
+
+        frames_motion_on = int(self.img_hz * sec_motion_on)
+        if n_reps == None:
+            n_reps = self.stimulus_df.rep.nunique()
+        if baseline_frames == None:
+            baseline_frames  = -self.offsets[0]
+
+        inducing_idx = [stim_order.index(s) for s in constants.bout_inducing_stims if s in stim_order]
+        reducing_idx = [stim_order.index(s) for s in constants.bout_reducing_stims if s in stim_order]
+        backward_idx = stim_order.index('backward') if 'backward' in stim_order else None
+
+        new_stim_resp_each_cell_arr = WorkingFish.neuron_each_stim_rep_arrays(self, stim_order)
+        new_stim_start_frames = stimuli.stimulus_start_frames_for_plots(baseline_offset=-self.offsets[0],
+                                                                        length_of_total_frame_arr=np.diff(self.offsets)[
+                                                                            0],
+                                                                        number_of_stims_in_set=len(stim_order))
+        bout_reducing_neurons = []
+        for n, neuron_arr in enumerate(new_stim_resp_each_cell_arr):
+            neuron_binary_code = barcoding.barcode_binary_score_df_f(self,
+                                                                     neuron_arr,
+                                                                     stims=stim_order,
+                                                                     stim_start_frames=new_stim_start_frames,
+                                                                     frames_motion_on=frames_motion_on,
+                                                                     base_length=baseline_frames,
+                                                                     std_thresh=std_thresh,
+                                                                     num_responding_trials=int(n_reps * 0.8),
+                                                                     evoked_resp=response_type)
+            neuron_binary_code = np.array(neuron_binary_code)
+            # 1 - not responsive to any bout inducing stimuli
+            no_bout_inducing = not neuron_binary_code[inducing_idx].any()
+
+            # 2 - responsive to wholefield backward motion
+            has_backward = neuron_binary_code[backward_idx] if backward_idx is not None else False
+
+            # 3 - responsive to any of the bout reducing stimuli?
+            has_bout_reducing = neuron_binary_code[reducing_idx].any()
+
+            keep_neuron = no_bout_inducing and has_backward
+            if keep_neuron:
+                bout_reducing_neurons.append(n)
+
+        return bout_reducing_neurons
+
+    def add_bout_reducing_barcodes_to_barcoding_df(self, bout_reducing_neurons):
+        '''
+        add the bout reducing neurons to the barcoding df, so that i can have all the information together for experiments
+        :param bout_reducing_neurons: the neuron ids of the bout reducing neurons from the function before
+        :return: the same barcoding df with these new 'barcoded' neurons added
+        note - the barcode_corr column is now a magnitude of response for the backward responses
+        '''
+
+        add_df = pd.DataFrame(columns=self.barcoding_df.columns,
+                              index=range(len(bout_reducing_neurons)))
+        add_df['plane'] = self.folder_path.name
+        add_df['neur_ids'] = bout_reducing_neurons
+        add_df['neur_coords'] = self.return_cell_rois(bout_reducing_neurons)
+        add_df['barcoding'] = 'bout_reducing'
+        add_df['back_resp'] = True
+        add_df['forw_resp'] = False
+        pt_neurons = self.return_cells_by_saved_roi('Pt')
+        for m, n in enumerate(add_df.neur_ids.values):
+            # if a Pt neuron
+            if n in pt_neurons:
+                add_df.at[m, 'Pt'] = True
+
+            # gathering intensity of backward response for later sorting, choosing the most responsive neurons
+            # this is being put into the df at 'barcode_corr'
+            backward_array = np.array(self.extended_responses_normf['backward'][n])
+            avg_intensity = []
+            for each_rep in backward_array:
+                base_mean = np.nanmean(each_rep[:-self.offsets[0]])
+                # right now hardcoded for just 5 sec, should be find to finding the magnitude of response
+                evoked_mean = np.nanmean(
+                    each_rep[-self.offsets[0]: -self.offsets[0] + int(self.img_hz * 5)])
+                intensity = evoked_mean - base_mean
+                avg_intensity.append(intensity)
+            add_df.at[m, 'barcode_corr'] = np.nanmean(avg_intensity)
+
+            # add in the sidedness
+
+            if add_df.iloc[m]['neur_coords'][0] > self.return_x_midline():
+                side = 'R'
+            else:
+                side = 'L'
+            add_df.at[m, 'side'] = side
+
+        self.barcoding_df = pd.concat([self.barcoding_df, add_df]).reset_index(drop=True)
+        self.barcoding_df = self.barcoding_df.drop_duplicates(subset=['neur_ids'], keep='first')
+
 
 ## THIS DOES NOT WORK WELL BUT KEEPING FOR FUTURE ITERATIONS ##
 class WorkingFish_Tail(WorkingFish, TailTrackedFish):

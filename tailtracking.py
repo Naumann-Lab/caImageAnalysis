@@ -157,10 +157,92 @@ def normalize_tail_sum(tail_sum_values):
     return norm_tail_sum_values_filled
 
 
+def find_bends_oscillations_amp(trace, t, smooth_window=3, amp_thresh_frac=0.01):
+    """
+    Compute tail bends, oscillations, and upward zero-crossing times from a tail trace.
+
+    Parameters
+    ----------
+    trace : 1D array
+        Tail angle trace.
+    t : 1D array
+        Time vector, same length as trace.
+    smooth_window : int
+        Window for arrutils.pretty smoothing.
+    amp_thresh_frac : float
+        Fraction of max amplitude below which we ignore crossings.
+
+    Returns
+    -------
+    bend_idx : np.ndarray
+        Indices of tail bends (sign changes) in the original trace.
+    n_bends : int
+        Number of tail bends (half-cycles).
+    n_oscillations : float
+        Number of full oscillations (bends / 2).
+    t_cross : np.ndarray
+        Times of upward zero crossings (start of each oscillation).
+    """
+
+    # Smooth and center
+    smooth = arrutils.pretty(trace, smooth_window)
+    centered = smooth - np.mean(smooth)
+
+    max_amp = np.max(np.abs(centered))  # max amplitude
+
+    # Threshold small noise
+    amp_thresh = amp_thresh_frac * max_amp
+    valid = np.abs(centered) > amp_thresh
+    centered_valid = centered[valid]
+    t_valid = t[valid]
+
+    # Compute sign and handle zeros
+    sig = np.sign(centered_valid)
+    sig[sig == 0] = np.nan
+    sig = sig[~np.isnan(sig)]
+    t_valid = t_valid[~np.isnan(sig)]  # align time vector
+
+    # Find bends (all sign changes)
+    diff_sig = np.diff(sig)
+    bend_idx_valid = np.where(diff_sig != 0)[0]  # all bends
+    n_bends = len(bend_idx_valid)
+    n_oscillations = n_bends / 2
+
+    # Map bend indices back to original trace
+    valid_idx = np.where(valid)[0]
+    bend_idx = valid_idx[bend_idx_valid + 1]  # +1 because diff points after change
+
+    # Upward zero crossings (-1 -> +1) for cycle times
+    upcross_idx = np.where(diff_sig == 2)[0]  # -1 -> +1
+    if len(upcross_idx) > 0:
+        x0 = centered_valid[upcross_idx]
+        x1 = centered_valid[upcross_idx + 1]
+        t0 = t_valid[upcross_idx]
+        t1 = t_valid[upcross_idx + 1]
+        frac = -x0 / (x1 - x0)
+        t_cross = t0 + frac * (t1 - t0)
+    else:
+        t_cross = np.array([])
+
+    return bend_idx, n_bends, n_oscillations, t_cross, max_amp
+
+
+def max_tailbeat_freq(trace, t, smooth_window=3, amp_thresh_frac=0.01):
+    """
+    Returns the maximum tailbeat frequency (Hz) from a trace using find_bends_and_oscillations.
+    """
+    _, _, n_oscillations, t_cross, _ = find_bends_oscillations_amp(trace, t, smooth_window, amp_thresh_frac)
+    if len(t_cross) < 2:
+        return np.nan
+    periods = np.diff(t_cross)
+    freqs = 1 / periods
+    return np.max(freqs)
+
+## CREATING THE BOUT ANALYSIS DATAFRAME/INFO
 def analyze_tail(tail_df, stimulus_df, img_hz, stimulus_df_frame_col = 'frame',
                  stimulus_s = 5, strength_boundary = 0.25, min_on_s = 0.1, cont_cutoff_s = 0.05):
     """
-    # from cleo - danionella paper
+    # originally from cleo - danionella paper, adjusted by me for my purposes
     works in conjunction with the stimulus df (with visual motion cues)
     capture tail events happened in the current inputs.
         stimulus_df: the dataframe contain all the stimulus and their onset frames
@@ -240,6 +322,9 @@ def analyze_tail(tail_df, stimulus_df, img_hz, stimulus_df_frame_col = 'frame',
     tail_angle_negmin = np.full(len(cont_tuples), np.nan)
     tail_duration_s = np.full(len(cont_tuples), np.nan)
     tail_frequency_s = np.full(len(cont_tuples), np.nan)
+    max_tail_frequency_s = np.full(len(cont_tuples), np.nan)
+    num_oscillations = np.full(len(cont_tuples), np.nan)
+    max_tail_amp = np.full(len(cont_tuples), np.nan)
     tail_stimuli = ['spontaneous'] *len(cont_tuples)
     tail_stimuli_rep = [-1] * len(cont_tuples) # default rep for spontaneous is -1
     for i in range(len(cont_tuples)):
@@ -250,12 +335,18 @@ def analyze_tail(tail_df, stimulus_df, img_hz, stimulus_df_frame_col = 'frame',
         tail_angle_neg[i] = np.nanmean(neg[cont_tuples[i][0]:cont_tuples[i][1]])
         tail_angle_negmin[i] = np.min(neg[cont_tuples[i][0]:cont_tuples[i][1]])
         tail_duration_s[i] = np.divide((cont_tuples[i][1] - cont_tuples[i][0]), tail_hz)
-        tail_of_interest = list(tail_df.iloc[cont_tuples[i][0]:cont_tuples[i][1]].tail_sum)
-        mean_line = np.mean(tail_of_interest)
-        crossing = np.subtract(arrutils.pretty(tail_of_interest, 3), mean_line)
-        crossing = np.sign(crossing)
-        crossing = np.count_nonzero(np.diff(crossing))
-        tail_frequency_s[i] = np.divide(crossing / 2, tail_duration_s[i])
+
+        tail_of_interest = tail_df.iloc[cont_tuples[i][0]:cont_tuples[i][1]].tail_sum.values
+        tail_of_interest_time = tail_df.iloc[cont_tuples[i][0]:cont_tuples[i][1]].t.values
+        bend_idx, n_bends, n_osc, t_cross, max_amp = find_bends_oscillations_amp(tail_of_interest,
+                                                                                 tail_of_interest_time,
+                                                                                 smooth_window=3,
+                                                                                 amp_thresh_frac=0.01)
+        max_tbf = max_tailbeat_freq(tail_of_interest, tail_of_interest_time, smooth_window=3, amp_thresh_frac=0.01)
+        tail_frequency_s[i] = np.divide(n_osc, tail_duration_s[i])
+        max_tail_frequency_s[i] = max_tbf
+        num_oscillations[i] = n_osc
+        max_tail_amp[i] = max_amp
         if not stimulus_df.empty:
             if stimulus_df_frame_col == 'frame': # comparing IMAGING frames with the stimulus
                 if cont_tuples_imageframe[i][0] > stimulus_df.iloc[0][stimulus_df_frame_col] :
@@ -272,17 +363,172 @@ def analyze_tail(tail_df, stimulus_df, img_hz, stimulus_df_frame_col = 'frame',
 
     tail_bout_df = pd.DataFrame(
         {'cont_tuples_tailindex': cont_tuples, 'cont_tuples_imageframe': cont_tuples_imageframe,
-         'tail_strength': tail_strength, 'tail_angle': tail_angle, 'tail_angle_pos': tail_angle_pos,
-         'tail_angle_posmax': tail_angle_posmax, 'tail_angle_neg': tail_angle_neg, 'tail_angle_negmin': tail_angle_negmin,
-         'tail_duration_s': tail_duration_s, 'tail_frequency_s': tail_frequency_s,'tail_stimuli': tail_stimuli, 'tail_stimuli_rep': tail_stimuli_rep})
+         'tail_strength': tail_strength, 'tail_angle': tail_angle,
+         'tail_duration_s': tail_duration_s, 'tail_frequency_s': tail_frequency_s,
+         'max_tail_frequency_s': max_tail_frequency_s,
+         'max_tail_amp': max_tail_amp, 'num_oscillations': num_oscillations,
+         'tail_angle_pos': tail_angle_pos, 'tail_angle_posmax': tail_angle_posmax,
+         'tail_angle_neg': tail_angle_neg, 'tail_angle_negmin': tail_angle_negmin,
+         'tail_stimuli': tail_stimuli, 'tail_stimuli_rep': tail_stimuli_rep})
 
     return tail_df, tail_bout_df
+
+## FINDING MOTOR NEURONS
+
+def analyze_tail_neuron_relationship(tail_bout_df,
+                                    trace_array,
+                                    imaging_hz,
+                                    tail_window_s=0.5,
+                                    response_threshold=0.05,
+                                    predict_threshold=0.2,
+                                    timescale='during'  # 'during', 'start', 'stop'
+                                    ):
+    """
+    Analyze relationship between tail bouts and neuron activity.
+
+    Inputs:
+    - tail_bout_df: dataframe with 'cont_tuples_imageframe'
+    - trace_array: (n_neurons, n_frames)
+    - imaging_hz: imaging frame rate (Hz)
+    - tail_window_s: time window (seconds)
+    - response_threshold: low threshold for detecting responses, keep this conservative
+    - predict_threshold: high threshold for prediction, keep this relatively low
+    - timescale: 'during', 'start', or 'stop'
+
+    Returns:
+    - result_df: per-neuron response & prediction metrics, with a combined score
+
+    Notes:
+    # response_rate = sensitivity (does it respond to movement?)
+    # predict_rate  = specificity (is it selective for movement?)
+
+    # High response, low predict = movement-correlated but not specific
+    # Low response, high predict = strong candidate for motor-related
+    # High both (best case) = strong motor-related neuron
+    """
+    from scipy.signal import find_peaks
+    from scipy.stats import pearsonr, zscore
+
+    n_neurons, n_frames = trace_array.shape
+
+    # --- normalize bout duration ---
+    tail_bout_df = tail_bout_df.copy()
+    tail_bout_df['tail_duration_norm'] = zscore(tail_bout_df['tail_duration_s'])
+
+    # --- extract bout timing ---
+    tail_on = np.array([tu[0] for tu in tail_bout_df['cont_tuples_imageframe']])
+    tail_off = np.array([tu[1] for tu in tail_bout_df['cont_tuples_imageframe']])
+
+    # --- convert window to frames ---
+    window_frames = int(tail_window_s * imaging_hz)
+
+    # --- peak detection ---
+    def get_peaks(trace, height):
+        peaks = []
+        for neuron in trace:
+            pks, _ = find_peaks(neuron, height=height)
+            peaks.append(pks)
+        return peaks
+
+    peaks_lo = get_peaks(trace_array, response_threshold)
+    peaks_hi = get_peaks(trace_array, predict_threshold)
+
+    # --- outputs ---
+    response_rates = []
+    predict_rates = []
+
+    for n in range(n_neurons):
+
+        neuron_peaks_lo = peaks_lo[n]
+        neuron_peaks_hi = peaks_hi[n]
+
+        # 1. RESPONSE (tail ➜ neuron)
+        responsive_bouts = 0
+        for b in range(len(tail_on)):
+            if timescale == 'during':
+                start = tail_on[b] - window_frames
+                end = tail_off[b] + window_frames
+            elif timescale == 'start':
+                start = tail_on[b] - window_frames
+                end = tail_on[b] + window_frames
+            elif timescale == 'stop':
+                start = tail_off[b] - window_frames
+                end = tail_off[b] + window_frames
+
+            if np.any((neuron_peaks_lo >= start) & (neuron_peaks_lo <= end)):
+                responsive_bouts += 1
+
+        response_rate = responsive_bouts / len(tail_on)
+        response_rates.append(response_rate)
+
+        # 2. PREDICTION (neuron ➜ tail)
+        if len(neuron_peaks_hi) == 0:
+            predict_rates.append(np.nan)
+            continue
+
+        successful_peaks = 0
+
+        for peak in neuron_peaks_hi:
+            is_near_bout = False
+
+            for b in range(len(tail_on)):
+                if timescale == 'during':
+                    start = tail_on[b] - window_frames
+                    end = tail_off[b] + window_frames
+                elif timescale == 'start':
+                    start = tail_on[b] - window_frames
+                    end = tail_on[b] + window_frames
+                elif timescale == 'stop':
+                    start = tail_off[b] - window_frames
+                    end = tail_off[b] + window_frames
+
+                if start <= peak <= end:
+                    is_near_bout = True
+                    break
+
+            if is_near_bout:
+                successful_peaks += 1
+
+        predict_rate = successful_peaks / len(neuron_peaks_hi)
+        predict_rates.append(predict_rate)
+
+    motor_scores = [get_motor_score(r,p ) for r, p in zip(response_rates, predict_rates)]
+    # --- compile results ---
+    result_df = pd.DataFrame({
+        'neuron_id': np.arange(n_neurons),
+        'response_rate': response_rates, # “Does the neuron respond to tail bouts?”
+        'predict_rate': predict_rates, # “Does neuron activity indicate tail movement?”
+        'motor_score': motor_scores # combine the predict and response for a single score
+    })
+
+    return result_df
+
+
+def get_motor_score(response, predict):
+    '''
+    Get motor score for neurons from their response to tail, and prediction of tail (above function)
+    the highest score = the highest for response and prediction, best motor neuron candidate
+    :param response: rates of responding to tail (motor correlated)
+    :param predict: rates of predicting the tail (specific to motor movement)
+    :return: list of motor scores
+    '''
+    if (response + predict) == 0:
+        return 0
+    return 2 * (response * predict) / (response + predict)
+
+            # examples of the motor score
+            # | response | predict | score |
+            # | -------- | ------- | ----- |
+            # | 0.9      | 0.9     | high  |
+            # | 0.9      | 0.1     | low   |
+            # | 0.1      | 0.9     | low   |
 
 
 ### PLOTTING TAIL DATA ###
 
 def make_bout_plots(tail_analysis_dataframe, stimuli_groups=None, stimuli_color_dict=None,
-                    length_of_stim_rep_s = 6, norm_to_spont = True, plot_both = True):
+                    length_of_stim_rep_s = 6, norm_to_spont = True, plot_both = True,
+                    variables_to_plot = ['tail_angle', 'tail_frequency_s', 'tail_duration_s', 'max_tail_amp', 'bouts_per_s']):
     if stimuli_color_dict == None:
         stimuli_color_dict = {**constants.monocular_dict, **constants.combined_binocular_dict,
                               **constants.shearing_stims_dict, **{'spontaneous': [0.5, 0.5, 0.5]}}
@@ -336,12 +582,9 @@ def make_bout_plots(tail_analysis_dataframe, stimuli_groups=None, stimuli_color_
         all_stim_df_lst.append(grouped_stim_df)
     bouts_per_s_df = pd.concat(all_stim_df_lst).reset_index(drop=True)
 
-    # metrics to plot
-    metrics = ['tail_angle', 'tail_frequency_s', 'tail_duration_s', 'tail_strength', 'bouts_per_s']
-
     # ORDERED BY STIMULI ORDER/GROUPS
-    fig1, axes1 = plt.subplots(nrows=len(metrics), ncols=1, figsize=(12, 15), sharex=True)
-    for ax, metric in zip(axes1, metrics):
+    fig1, axes1 = plt.subplots(nrows=len(variables_to_plot), ncols=1, figsize=(12, 15), sharex=True)
+    for ax, metric in zip(axes1, variables_to_plot):
         start = 0
         for group in stimuli_groups:
             width = len(group)
@@ -376,8 +619,8 @@ def make_bout_plots(tail_analysis_dataframe, stimuli_groups=None, stimuli_color_
 
     # ORDERED BY MAXIMUM VALUE TO MINIMUM, REGARDLESS OF STIM
     if plot_both:
-        fig2, axes2 = plt.subplots(nrows=len(metrics), ncols=1, figsize=(12, 16))
-        for ax, metric in zip(axes2, metrics):
+        fig2, axes2 = plt.subplots(nrows=len(variables_to_plot), ncols=1, figsize=(12, 16))
+        for ax, metric in zip(axes2, variables_to_plot):
             if metric != 'bout_count':
                 order = final_df.groupby('tail_stimuli')[metric].median().sort_values(ascending=False).index
             else:

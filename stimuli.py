@@ -50,6 +50,7 @@ def add_repetitions_to_stimulus_df(stimulus_df, keep_all_reps = True):
     :return: dataframe with a new column 'rep'
     '''
     stimulus_df = stimulus_df.copy()
+    stimulus_df['rep'] = 0
 
     if keep_all_reps:
         # repetition index per stimulus (order-safe)
@@ -258,21 +259,21 @@ def stim_shader(some_fish_class):
                     begin, midpt, color=constants.monocular_dict["forward"], alpha=0.4
                 )
 
-def stimulus_start_frames_for_plots(frames_motion_on = 7, length_of_total_frame_arr = 21, number_of_stims_in_set = 8):
+def stimulus_start_frames_for_plots(baseline_offset = 7, length_of_total_frame_arr = 21, number_of_stims_in_set = 8):
     '''
-    frames_motion_on -- the first frame that motion starts in the series of frames you want to shade
-    length_of_total_frame_arr -- the total number of frames that is taken from the neural trace before and after the stimulus is on (typically diff between offsets, i.e. 21)
+    baseline_offset -- the relative frames before the stimulus starts (-fishy.offset[0])
+    length_of_total_frame_arr -- the total number of frames that is taken from the neural trace before and after the stimulus is on
+    (typically diff between offsets, i.e. 21)
     number_of_stims_in_set -- the number of stimuli in the experiment (8 for the 8 barcoded stimuli)
 
     returns a list of the starting frames for each stimulus in the set, this is what starts the shading in the plots
     '''
-    stim_start_frames = []
-    start_value = frames_motion_on
-    for _ in range(number_of_stims_in_set):
-        stim_start_frames.append(start_value)
-        start_value += length_of_total_frame_arr
 
-    return stim_start_frames
+    list = np.linspace(0, length_of_total_frame_arr*(number_of_stims_in_set-1),
+                       number_of_stims_in_set) + baseline_offset
+    list = [int(i) for i in list]
+
+    return list
 
 def flexible_stim_shader(frames, stimmies, frames_motion_on, fs = 14, subplot = None, label = True,
                          ylabel_pos = None, label_offset_x = -6, alpha = 0.3):
@@ -384,6 +385,136 @@ def flexible_stim_shader(frames, stimmies, frames_motion_on, fs = 14, subplot = 
                     begin, midpt, color=constants.monocular_dict["forward"], alpha=alpha
                 )
 
+
+def flexible_stim_bar(
+        frames,
+        stimmies,
+        frames_motion_on,
+        fs=14,
+        subplot=None,
+        label=True,
+        ylabel_pos=None,
+        label_offset_x=-6,
+        alpha=0.8,
+        bar_height_frac=0.05,
+        bar_offset_frac=0.02,
+    ):
+        """
+        Draw stimulus indicators as a thin bar along the top of the axis
+        using matplotlib Rectangle patches (data coordinates).
+        """
+
+        import constants
+        import matplotlib.pyplot as plt
+        from matplotlib.patches import Rectangle
+
+        # ---- axis handling ----
+        if subplot is None:
+            ax = plt.gca()
+        else:
+            ax = subplot
+
+        y_min, y_max = ax.get_ylim()
+        y_range = y_max - y_min
+
+        bar_height = bar_height_frac * y_range
+        bar_bottom = y_max + bar_offset_frac * y_range
+
+        if ylabel_pos is None:
+            ylabel_pos = y_max + 0.01 * y_range
+
+        # ---- helper to draw a bar segment ----
+        def draw_bar(x0, x1, color, hatch=None):
+            rect = Rectangle(
+                (x0, bar_bottom),
+                x1 - x0,
+                bar_height,
+                facecolor=color,
+                edgecolor='none',
+                alpha=alpha,
+                hatch=hatch,
+                clip_on=False
+            )
+            ax.add_patch(rect)
+
+        # ---- main loop ----
+        for s, stimmy in zip(frames, stimmies):
+
+            begin = s
+            end = s + frames_motion_on
+            midpt = begin + (end - begin) // 2
+
+            # ---- label ----
+            if label:
+                ax.text(
+                    s + label_offset_x,
+                    ylabel_pos,
+                    constants.stim_title_dict.get(stimmy, stimmy),
+                    fontsize=fs,
+                    ha='left',
+                    va='bottom'
+                )
+
+            # ---- monocular stimuli ----
+            if stimmy in constants.monocular_dict:
+
+                draw_bar(begin, end, constants.monocular_dict[stimmy])
+
+            # ---- binocular stimuli ----
+            elif stimmy in constants.baseBinocs:
+
+                if stimmy == "lateral_left":
+                    draw_bar(begin, midpt, constants.monocular_dict["left"])
+                    draw_bar(midpt, end, "gray", hatch=r"\\\\")
+
+                elif stimmy == "medial_left":
+                    draw_bar(begin, midpt, "gray", hatch=r"\\\\")
+                    draw_bar(midpt, end, constants.monocular_dict["left"])
+
+                elif stimmy == "lateral_right":
+                    draw_bar(begin, midpt, "gray", hatch=r"\\\\")
+                    draw_bar(midpt, end, constants.monocular_dict["right"])
+
+                elif stimmy == "medial_right":
+                    draw_bar(begin, midpt, constants.monocular_dict["right"])
+                    draw_bar(midpt, end, "gray", hatch=r"\\\\")
+
+                elif stimmy == "converging":
+                    draw_bar(begin, midpt, constants.monocular_dict["right"])
+                    draw_bar(midpt, end, constants.monocular_dict["left"])
+
+                elif stimmy == "diverging":
+                    draw_bar(begin, midpt, constants.monocular_dict["left"])
+                    draw_bar(midpt, end, constants.monocular_dict["right"])
+
+            # ---- mixed forward/backward stimuli ----
+            else:
+
+                if stimmy == "x_forward":
+                    draw_bar(begin, midpt, "gray", hatch=r"\\\\")
+                    draw_bar(midpt, end, constants.monocular_dict["forward"])
+
+                elif stimmy == "forward_x":
+                    draw_bar(begin, midpt, constants.monocular_dict["forward"])
+                    draw_bar(midpt, end, "gray", hatch=r"\\\\")
+
+                elif stimmy == "x_backward":
+                    draw_bar(begin, midpt, "gray", hatch=r"\\\\")
+                    draw_bar(midpt, end, constants.monocular_dict["backward"])
+
+                elif stimmy == "backward_x":
+                    draw_bar(begin, midpt, constants.monocular_dict["backward"])
+                    draw_bar(midpt, end, "gray", hatch=r"\\\\")
+
+                elif stimmy == "backward_forward":
+                    draw_bar(begin, midpt, constants.monocular_dict["backward"])
+                    draw_bar(midpt, end, constants.monocular_dict["forward"])
+
+                elif stimmy == "forward_backward":
+                    draw_bar(begin, midpt, constants.monocular_dict["forward"])
+                    draw_bar(midpt, end, constants.monocular_dict["backward"])
+
+
 def numToStim(dict):
     reverse_dict = {value: key for key, value in dict.items()}
     return reverse_dict
@@ -415,19 +546,32 @@ def combine_binocular_stims_for_tail_df(df, column_name = 'tail_angle'):
 
     return df_copy
 
-def add_reps_to_stimulus_df(stim_df):
-    stim_df['rep'] = 0
-    # get the number of reps for each stim, choose number of reps based on the minimum value
-    all_reps = []
-    for each_stim in stim_df.stim_name.unique():
-        all_reps.append(len(stim_df[stim_df.stim_name == each_stim]))
-    no_repetitions = min(all_reps)
+def combine_shearing_stims_for_tail_df(df, column_name = 'tail_angle'):
+    '''
+    Combine all the binocular stimuli together
+    Requires flipping all the left tail angles
+    '''
+    df_copy = df.copy()
 
-    # set the rep value into a new column in the stimulus df
-    n_stims = stim_df.stim_name.nunique()
-    for i in range(no_repetitions):
-        stim_df.iloc[(n_stims*i):(n_stims*i+n_stims)]['rep'] = i
-    return stim_df
+    # Define rename mapping
+    stim_map = {
+        'forward_x': 'forward_x',
+        'x_forward': 'forward_x',
+        'backward_x': 'x_backward',
+        'x_backward': 'x_backward',
+        'forward_backward': 'forward_backward',
+        'backward_forward':'forward_backward'
+    }
+
+    # Flip sign for the counter-clockwise versions
+    flip_stimuli = {'x_forward', 'backward_x', 'backward_forward'}
+    if column_name is not None: # only if you need to flip the sign of the data
+        df_copy.loc[df_copy['tail_stimuli'].isin(flip_stimuli), column_name] *= -1
+
+    # Apply renaming for all cases
+    df_copy['tail_stimuli'] = df_copy['tail_stimuli'].replace(stim_map)
+
+    return df_copy
 
 
 def kaitlyn_pandastim_to_df(

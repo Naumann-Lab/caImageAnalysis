@@ -119,7 +119,8 @@ eight_directions_ordered = ['forward',
                             'backward_right',
                             'backward',
                             'backward_left',
-                            'left']
+                            'left',
+                            'forward_left']
 
 deg_dict_expanded = {
     "right": 90,
@@ -234,6 +235,10 @@ eva_types_all = {
     "oMl_R": [False, True, False, False, False, True, False, True, True, True],
     "S_R": [False, False, False, False, False, True, False, False, True, True],
 }
+
+
+bout_inducing_stims = ['forward', 'forward_x', 'x_forward', 'forward_right', 'forward_left','right', 'medial_right', 'left', 'medial_left', 'converging']
+bout_reducing_stims = ['backward', 'backward_right', 'backward_left', 'x_backward', 'backward_x', 'lateral_right', 'lateral_left', 'diverging']
 
 
 # visual motion cues used for photostimulation experiments, matching colors

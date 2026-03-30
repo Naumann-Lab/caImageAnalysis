@@ -85,7 +85,6 @@ def make_red_channel_image_masks(reference_stack_path, otsu_thresh_factor = 1.1,
 
     return plt.show()
 
-
 def cells_per_mask(cell_dicts, mask, min_frac=0.2):
     """
     Identify which cells are overlapping with the red channel/rschrmine masks

@@ -7,12 +7,13 @@ import numpy as np
 from tifffile import imread, imwrite
 from scipy.signal import find_peaks 
 from datetime import datetime as dt
+from datetime import date, timedelta
 
 # local imports
 import sys
 sys.path.append(r'C:\Users\Kaitlyn\PyCharmProjects\imaging\caImageAnalysis')
 from bruker_images import get_micronstopixels_scale2, get_zstep_vals, get_pixelsperline
-from bruker_images import read_xml_to_str
+from bruker_images import read_xml_to_str, read_xml_to_root
 import fishy 
 import process
 from utilities import arrutils, pathutils
@@ -38,10 +39,15 @@ def find_no_baseline_frames(somefishclass):
 
     elif no_planes >= 2 and 'ps_xml' in somefishclass.data_paths.keys(): # if this is a volume, but there is the MarkPoints xml file
         ps_xml_name = Path(somefishclass.data_paths['ps_xml']).name
-        somefishclass.baseline_frames = int(ps_xml_name.split('Cycle')[1].split('_')[0]) # baseline frames number is given in the cycle name for the volume
+        # baseline frames number is given in the cycle name for the volume if there was a zseries before the markpoints file was collected
+        file_count = int(ps_xml_name.split('Cycle')[1].split('_')[0])
+        if file_count <= 1:
+            somefishclass.baseline_frames = 0
+        else:
+            somefishclass.baseline_frames = file_count
     
-    elif no_planes >= 2 and 'ps_log' in somefishclass.data_paths.keys(): # if this is a volume, with the automated gui
-        somefishclass.baseline_frames, _, _ = utils_for_save_badframes_arr(somefishclass)
+    # elif no_planes >= 2 and 'ps_log' in somefishclass.data_paths.keys(): # if this is a volume, with the automated gui
+    #     somefishclass.baseline_frames, _, _ = utils_for_save_badframes_arr(somefishclass)
 
     else:
         somefishclass.baseline_frames = 0 
@@ -50,6 +56,7 @@ def find_no_baseline_frames(somefishclass):
 
 def collect_stimulation_times(somefishclass):
     '''
+    MS FROM START
     Calculating the stimulation times from either the voltage recording output (channel input 2)
     if not voltage recording, then can finid this based on the mark point xml file (not as exact)
     Returns the specific times in ms for each stimulation based on the start of the T-series
@@ -62,10 +69,6 @@ def collect_stimulation_times(somefishclass):
         for i in data.split("\n"):
             if "InitialDelay" in i:
                 initial_delay_ms = 0 # initial delay is not a part of the photostimulation
-                # try:
-                #     initial_delay_ms = int([i][0].split("InitialDelay=")[1].split('"')[1].split('.')[1]) # weird format in the xml file for this value, should not be a decimal
-                # except:
-                #     initial_delay_ms = int([i][0].split("InitialDelay=")[1].split('"')[1])*10 # should be times 10 for ms
                 interpointdelay_ms = int(float([i][0].split("InterPointDelay=")[1].split('"')[1]))
                 duration_ms = float([i][0].split("Duration=")[1].split('"')[1])
             elif "Repetitions" in i:
@@ -97,14 +100,14 @@ def collect_stimulation_times(somefishclass):
         volt_csv = pd.read_csv(somefishclass.data_paths["voltage_signal"])
         monaco_signal = np.array(volt_csv[' monaco'])
         time = np.array(volt_csv['Time(ms)'])
+        volt_csv_fps = np.mean(np.diff(time))  # sampling rate (ms per sample)
+        min_peak_distance = int(full_duration_per_stim / volt_csv_fps)
 
         peaks, _ = find_peaks(monaco_signal, height = 0.10) # find peaks in voltage trace that are above 0.10 volts
-        peak_starts = [peaks[i] for i in range(len(peaks)) if i == 0 or peaks[i] - peaks[i-1] > int(full_duration_per_stim)] # find only the start of each peak, each rep
+        peak_starts = [peaks[i] for i in range(len(peaks)) if i == 0 or peaks[i] - peaks[i-1] > int(min_peak_distance)] # find only the start of each peak, each rep
         
         # grabbing the start of each TRIAL, so have to take into account the repetition number
-        # trial_starts = peak_starts[::no_repetitions]
         trial_starts = peak_starts
-
         stim_times = [time[i] for i in trial_starts] # convert the peak start indices to the time in ms
     
     else: # if no voltage recording, then calculate from mark points xml file
@@ -114,6 +117,113 @@ def collect_stimulation_times(somefishclass):
             stim_times = []
 
     return full_duration_per_stim, stim_times
+
+def find_photostim_duration_ms(folder_path):
+    '''
+    MS FROM START
+    finds the length of the stimulation from either a MarkPoints file or an output file
+
+    '''
+
+    # collect the file paths
+    with os.scandir(folder_path) as files:
+        for file in files:
+            if (file.name.endswith("xml")) & ("MarkPoints" in file.name):
+                markpoints_filepath = Path(file.path)
+                outputlog_filepath = None
+            if ('output.txt' in file.name) & ('pstim' not in file.name):
+                outputlog_filepath = Path(file.path)
+                markpoints_filepath = None
+    print(markpoints_filepath)
+    print(outputlog_filepath)
+
+    # collecting stimulation timing based on ms in the xml file
+    if markpoints_filepath != None:
+        data = read_xml_to_str(markpoints_filepath)
+        for i in data.split("\n"):
+            if "InitialDelay" in i:
+                initial_delay_ms = 0  # initial delay is not a part of the photostimulation
+                interpointdelay_ms = int(float([i][0].split("InterPointDelay=")[1].split('"')[1]))
+                duration_ms = float([i][0].split("Duration=")[1].split('"')[1])
+            elif "Repetitions" in i:
+                no_repetitions = int([i][0].split("Repetitions=")[1].split('"')[1])
+            elif "Iterations" in i:
+                no_iterations = int([i][0].split("Iterations=")[1].split('"')[1])
+                iteration_delay_ms = int(float([i][0].split("IterationDelay=")[1].split('"')[1]))
+        full_duration_per_stim = initial_delay_ms + (no_repetitions * duration_ms) + (
+                    (no_repetitions - 1) * interpointdelay_ms)
+
+    if outputlog_filepath != None:
+        with open(outputlog_filepath) as file:
+            contents = file.read()
+        lines = contents.split("\n")
+        stim_lines = [l for l in lines if 'Stim event' in l]
+
+        # full duration of a stimulation event from the output file, assuming all parameters are the same for each site
+        cmd = stim_lines[0].split('-MarkAllPoints')[1]
+        duration_ms = int(cmd.split('Monaco 1035')[0].split(' ')[-2])
+        no_repetitions = cmd.count('Monaco 1035')
+        try:
+            interpointdelay_ms = int(cmd.split('True')[2].split(' ')[3])  # if there are mulitple reps
+        except:
+            interpointdelay_ms = 0  # since there is no repetitions
+        spiral_size = float(cmd.split('True')[2].split(' ')[1])
+        full_duration_per_stim = (no_repetitions * duration_ms) + ((no_repetitions - 1) * interpointdelay_ms)
+
+    return full_duration_per_stim
+
+def find_precise_photostim_times(voltage_csv_path, voltage_xml_path, info_xml_path):
+    '''
+    DATETIME TIMES
+    this function is also in the photostim fishy class structure, just moved it out into the script in case have to use alone
+    this can be used without a fishy class structure
+    :param voltage_csv_path: teh voltage csv file path
+    :param voltage_xml_path: the voltage xml file path
+    :param info_xml_path: the basic imaging info path
+    :return: an array of the photostimulation times (in datetime format)
+    '''
+    # saving path for the photostim datetimes in the same folder
+    txt_file_path = Path(voltage_csv_path.parents[0]).joinpath('precise_photostim_times.txt')
+
+    try: # might be in the same folder
+        stim_duration_ms = find_photostim_duration_ms(voltage_csv_path.parents[0])
+    except: # might have to go one folder up
+        stim_duration_ms = find_photostim_duration_ms(voltage_csv_path.parents[1])
+
+    root = read_xml_to_root(voltage_xml_path)
+    start_time = [start.text for start in root.iter('DateTime')][0]
+    start_dt = pd.to_datetime(start_time)
+
+    info_data = read_xml_to_str(info_xml_path)
+    for i in info_data.split("\n"):
+        if ("relativeTime" in i) and ('VoltageRecording' not in i):
+            relative_time = float([i.split("relativeTime=")[1].split('"')[1]][0])
+            if relative_time == 0:
+                absolute_time_from_start = float([i.split("absoluteTime=")[1].split('"')[1]][0])
+
+    real_start_dt = (dt.combine(date.today(), start_dt.tz_localize(None).time())
+                     + timedelta(seconds=absolute_time_from_start))
+
+    volt_csv = pd.read_csv(voltage_csv_path)
+    monaco_signal = np.array(volt_csv[' monaco'])
+    time = np.array(volt_csv['Time(ms)'])
+    volt_csv_fps = np.mean(np.diff(time)) # sampling rate (ms per sample)
+    min_peak_distance = int(stim_duration_ms / volt_csv_fps)
+
+    peaks, _ = find_peaks(monaco_signal, height=0.10)  # find peaks in voltage trace that are above 0.10 volts
+    peak_starts = [peaks[i] for i in range(len(peaks)) if i == 0 or peaks[i] - peaks[i - 1] > int(
+        min_peak_distance)]  # find only the start of each peak, each rep
+
+    # grabbing the start of each TRIAL, so have to take into account the repetition number
+    trial_starts = peak_starts
+    ps_event_ms_from_start = [time[i] for i in trial_starts]
+
+    event_dts = real_start_dt + pd.to_timedelta(ps_event_ms_from_start, unit="ms")
+    event_dts_notimezone = event_dts.tz_localize(None)
+    pd.Series(event_dts_notimezone).to_csv(txt_file_path, index=False, header=False)
+    photostim_dt_array = event_dts_notimezone.values
+
+    return photostim_dt_array
 
 def identify_number_planes_in_expt(somefishclass):
     '''
@@ -152,7 +262,7 @@ def identify_stimmed_planes(omr_tseries_folder_path, clst_label):
     return stimmed_planes
 
 # identifying the ps events, making bad frames arrays
-def save_badframes_arr(somefishclass, automated_gui = False):
+def save_badframes_arr(somefishclass, automated_gui = False, force = True):
     '''
     Calculate the bad frames array based on the photostimulation events
     somefishclass = the fishy class that you are working with
@@ -161,7 +271,6 @@ def save_badframes_arr(somefishclass, automated_gui = False):
     Returns the bad frames array (and is saved)
     '''
     somefishclass.process_filestructure(somefishclass.midnight_noon_keyword) # update file structure
-    no_planes = identify_number_planes_in_expt(somefishclass)
 
     if automated_gui == False:
         somefishclass.baseline_frames = find_no_baseline_frames(somefishclass)
@@ -174,22 +283,15 @@ def save_badframes_arr(somefishclass, automated_gui = False):
     stim_times_secs = [x/1000 for x in stim_times] # needs to be in seconds for comparing with the relative times in the xml file
 
     # using the information xml file to calculate the frames and times for each stimulation
-    if no_planes > 1: # if volume stimulation
-        plane_num = int(somefishclass.folder_path.name.split('_')[1])
-    else:
-        plane_num = 0
     frametimes = []
     info_data = read_xml_to_str(somefishclass.data_paths["info_xml"])
     for i in info_data.split("\n"):
-        if "relativeTime" in i:
+        if ("relativeTime" in i) & ('VoltageRecording' not in i):
             relative_time = [i.split("relativeTime=")[1].split('"')[1]][0]
             frametimes.append(float(relative_time))
     
     # find where photostimulation events first start in the list of frametimes (relative times to the start of the T-series)
-    if somefishclass.baseline_frames == 0:
-        index = 1
-        stim_ind = [index for index, value in enumerate(frametimes) if value < 0.01][index]
-    elif ("voltage_signal" not in somefishclass.data_paths.keys()) & (automated_gui == True):
+    if ("voltage_signal" not in somefishclass.data_paths.keys()) & (automated_gui == True):
         # use the output file to find the time that corresponds to a frame
         with open(somefishclass.data_paths['ps_log']) as file:
             contents = file.read()
@@ -208,28 +310,78 @@ def save_badframes_arr(somefishclass, automated_gui = False):
     else:
         stim_ind = 0
 
-    # only get the relative frametimes that happen during the stimulation
-    stimulation_frametimes = frametimes[stim_ind:]
-    for p in range(no_planes):
-        if p == plane_num:
-            plane_frametimes = stimulation_frametimes[p::no_planes]
-            time_matches = [min(plane_frametimes, key=lambda y: abs(x - y)) for x in stim_times_secs] # list of frametimes values that match with the stim_times
-            print(f'time matches are {time_matches}')
-            frames = [plane_frametimes.index(x) for x in time_matches] # list of frames that match with the stim_times
-            frames = [f - 1 if f > 0 else f for f in frames] # subtract 1 from the frame number to account for a slight mismatch in frames?? need to check this
-            print(f'matching frames are {frames}')
+    frametimes_dt = somefishclass.frametimes_df.time.values
+    frametimes_sec = np.array([t.hour * 3600 + t.minute * 60 + t.second + t.microsecond / 1e6 for t in frametimes_dt])
 
-    ps_events = [somefishclass.baseline_frames + f for f in frames]
+    photostim_dts_arr = find_precise_photostim_times(somefishclass.data_paths['voltage_signal'],
+                                                     somefishclass.data_paths['voltage_xml'],
+                                                     somefishclass.data_paths['info_xml'])
+    photostim_dts = [pd.to_datetime(a).time() for a in photostim_dts_arr]
+    photostim_sec = [t.hour * 3600 + t.minute * 60 + t.second + t.microsecond / 1e6 for t in photostim_dts]
+
+    matching_frametimes_inds = np.array([np.argmin(np.abs(frametimes_sec - t)) for t in photostim_sec])
+
+    ps_events = [somefishclass.baseline_frames + f for f in matching_frametimes_inds]
     ps_events = np.unique(ps_events)
     somefishclass.badframes_arr = np.array(ps_events)
 
     # saving the bad frames array
-    save_path = Path(somefishclass.folder_path).joinpath('bad_frames.npy')
-    np.save(save_path, somefishclass.badframes_arr)  # save badframes
-    print('saved bad frames array')
+    if force:
+        save_path = Path(somefishclass.folder_path).joinpath('bad_frames.npy')
+        np.save(save_path, somefishclass.badframes_arr)  # save badframes
+        print('saved bad frames array')
    
     return somefishclass.badframes_arr
 
+
+def refine_exact_badframes(img, bad_frames_approx, search_range=10, black_pct=5, save_path = None):
+    """
+    Found that I need to do this for the faster imaging datasets - timing is not everything
+    Refine approximate bad frame indices by finding frames with anomalously
+    low max pixel values within a local search window only.
+
+    Parameters
+    ----------
+    img               : np.ndarray (T, H, W) — full movie
+    bad_frames_approx : list of int — approximate bad frame indices
+    search_range      : int — frames to search either side of each estimate
+    black_pct         : float — percentile threshold within the local window;
+                        frames below this are flagged as bad
+
+    Returns
+    -------
+    confirmed_bad : list of int — refined bad frame indices (deduplicated, sorted)
+    """
+    confirmed_bad = set()
+
+    for bf in bad_frames_approx:
+        lo = max(0, bf - search_range)
+        hi = min(len(img), bf + search_range)
+
+        window_maxes = np.array([img[t].max() for t in range(lo, hi)])
+
+        # threshold is local to this window only
+        local_threshold = np.percentile(window_maxes, black_pct)
+
+        bad_in_window = np.where(window_maxes < local_threshold)[0] + lo
+
+        if len(bad_in_window) == 0:
+            print(f"  approx frame {bf}: no bad frame found in window — check manually")
+        else:
+            for b in bad_in_window:
+                confirmed_bad.add(int(b))
+            print(f"  approx frame {bf} → confirmed bad: {list(bad_in_window)}, "
+                  f"local threshold: {local_threshold:.1f}")
+
+    confirmed_bad = sorted(confirmed_bad)
+    if len(confirmed_bad) != len(bad_frames_approx):
+        return print('not matching number of bad frames')
+
+    print(f"\nTotal confirmed bad frames: {len(confirmed_bad)}")
+    if save_path != None:
+        np.save(save_path, confirmed_bad)  # save badframes
+
+    return confirmed_bad
 
 def concatenate_bad_frames_arr(dict_of_sequence_paths,
                                concatenated_dataset_path,
@@ -260,6 +412,8 @@ def concatenate_bad_frames_arr(dict_of_sequence_paths,
                        i == 0 or peaks[i] - peaks[i - 1] > int(duration_of_stimulation)]
         add_seconds = [time[i] / 1000 for i in peak_starts]  # convert into seconds
 
+        # get the times from the voltage xml path, add in the absolute times from the info xml
+
         # load in the master frametimes to get the starting time of this whole stack
         master_frametimes_df = pd.read_hdf(
             Path(pathutils.pathcrawler(each_sequence_path, inset=set(), inlist=[], mykey='master_frametimes')[0]))
@@ -273,10 +427,13 @@ def concatenate_bad_frames_arr(dict_of_sequence_paths,
         stimulation_times = np.array([a for a in stimulation_times if a <= end_img_dt])
 
         # save the photostimulation datetimes in the respective folders
-        np.save(Path(each_sequence_path).joinpath('phtostimulation_datetimes.npy'), stimulation_times)
+        np.save(Path(each_sequence_path).joinpath('photostimulation_datetimes.npy'), stimulation_times)
 
         all_stimulation_times.append(stimulation_times)
     all_stimulation_times = np.concatenate(all_stimulation_times)
+
+    save_path = Path(concatenated_dataset_path).joinpath('all_photostimulation_datetimes.npy')
+    np.save(save_path, all_stimulation_times)
 
     with os.scandir(Path(concatenated_dataset_path).joinpath('output_folders')) as planes:
         for each_plane in planes:
@@ -405,6 +562,15 @@ def run_suite2p_PS(somebasefish, input_tau = 1.5, custom_parameter_dict = None, 
     run_s2p(ops=ps_s2p_ops, db=db)
 
 def run_caiman_cnmf_PS(base_fish, custom_parameter_dict = None, match_suite2p = True, keep_mmaps = False):
+    '''
+    Running caiman cnmf on a photostimulation dataset
+    Manually removing the 'bad frames', interpolate with the frame right before, just copy
+    :param base_fish:
+    :param custom_parameter_dict:
+    :param match_suite2p:
+    :param keep_mmaps:
+    :return:
+    '''
     manually_remove_bad_frames(base_fish)
     base_fish.process_filestructure(base_fish.midnight_noon_keyword) # update file structure
     process.caiman_cnmf(base_fish, custom_parameter_dict, match_suite2p, keep_mmaps)

@@ -1,7 +1,7 @@
 import os
 import shutil
 import numpy as np
-
+from pathlib import Path
 
 def run_image_rotation(base_fish, angle=0, crop=0.075):
     """
@@ -52,7 +52,6 @@ def run_image_rotation_90deg(base_fish, crop=0.0):
     # write to disk
     out_path = base_fish.folder_path.joinpath("img_rotated.tif")
     imwrite(out_path, rotated.astype(image.dtype), bigtiff=True)
-
 
 def run_movement_correction(
     base_fish,
@@ -308,7 +307,7 @@ def run_caiman_cnmf(base_fish, custom_parameter_dict = None, match_suite2p = Tru
     #saving cnmf model
     moveto_folder = Path(base_fish.folder_path).joinpath("caiman")
     if not os.path.exists(moveto_folder):
-        os.mkdir(moveto_folder)
+            os.mkdir(moveto_folder)
     save_path = str(moveto_folder) + '\\cnmf_results.hdf5'
     cnmf_refit.estimates.Cn = correlation_image_orig # squirrel away correlation image with cnmf object
     cnmf_refit.save(save_path)
@@ -318,7 +317,8 @@ def run_caiman_cnmf(base_fish, custom_parameter_dict = None, match_suite2p = Tru
     print(f'shape of raw traces {cnmf_refit.estimates.C.shape}')
     np.save(Path(moveto_folder).joinpath('raw.npy'), cnmf_refit.estimates.C + cnmf_refit.estimates.YrA) # raw traces
     np.save(Path(moveto_folder).joinpath('C.npy'), cnmf_refit.estimates.C) # denoised calcium
-    np.save(Path(moveto_folder).joinpath('F_dff.npy'),cnmf_refit.estimates.F_dff) # df/f traces
+    df_f_traces = cnmf_refit.estimates.detrend_df_f(quantileMin=8, frames_window=250)
+    np.save(Path(moveto_folder).joinpath('F_dff.npy'), df_f_traces) # df/f traces
     np.save(Path(moveto_folder).joinpath('baseline.npy'),cnmf_refit.estimates.bl) # baseline
     
     # grabbing coordinates and centers
@@ -368,6 +368,25 @@ def gather_raw_traces_from_cnmf_output(somebasefish):
     np.save( Path(moveto_folder) ,raw_arr)
 
     return print('saved raw traces from caiman output')
+
+def gather_df_f_traces_from_cnmf_output(somebasefish):
+    '''
+    get the actual df/f traces need to calculate it with cnmf model
+    :param somebasefish: basefish object with caiman processed
+    :return: accurate df/f traces
+    '''
+    from caiman.source_extraction.cnmf.cnmf import load_CNMF
+
+    cnmf_model_path = somebasefish.folder_path.joinpath('caiman/cnmf_results.hdf5')
+    # load saved model
+    cnmf_model = load_CNMF(cnmf_model_path)
+    # compute df/f
+    cnmf_model.estimates.detrend_df_f(quantileMin=8, frames_window=250)
+    # get traces
+    dff_traces = cnmf_model.estimates.F_dff   # shape: cells × time
+    np.save(Path(cnmf_model_path.parents[0]).joinpath('F_dff.npy'), dff_traces)  # df/f traces
+
+    return print('saved df/f traces')
 
 def make_coordinates_into_dict(array_of_coors):
     

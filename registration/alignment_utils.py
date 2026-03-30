@@ -13,6 +13,7 @@ import sys
 sys.path.append(r'C:\Users\Kaitlyn\PyCharmProjects\imaging')
 from scopeslip.planeAlignment import PlaneAlignment
 
+## ALIGNMENT UTILS FOR FORWARD ALIGNMENT (FROM ZF DC PAPER)
 def test_alignment_parameters(reference_img, target_img, scale_penalities = [20, 50, 100], 
                               iteration_tuple = (5000, 5000), master_save_path = None, plot = True):
     '''
@@ -283,7 +284,6 @@ def update_extract_mask_boundaries(image_array, points_per_contour=200, merge_co
     # Step 7: Return separate contours if not merged
     return ordered_contours, binary_mask, len(ordered_contours)
 
-
 def subtract_overlapping_polygons(poly1_points, poly2_points, verbose=False):
     """
     Removes overlap between two polygons so that poly2 overrides poly1 in any overlapping region.
@@ -350,6 +350,35 @@ def subtract_overlapping_polygons(poly1_points, poly2_points, verbose=False):
 
     return new_poly1_arr, new_poly2_arr
 
+## ALIGNMENT UTILS FOR REVERSE ALIGNMENT (FOR OMR2STIM DATASETS) ##
+
+def get_random_points_on_img(test_img, num_points = 25):
+    '''
+    get some random points across an image for testing purposes
+    '''
+    ys, xs = np.nonzero(test_img)
+    idx = np.random.choice(len(xs), size=num_points, replace=False)
+    random_points = np.column_stack((xs[idx], ys[idx]))  # (x, y)
+    return random_points
+
+def get_points_from_functional_to_mapzebrain(points, functional_img_dimensions, reference_img_dimensions, embed_space, transform_path):
+    '''
+    get points from the functional original space to the mapzebrain reference space
+
+    '''
+
+    embed_func_points = embed_points_to_space(points,
+                                                functional_img_dimensions[1],
+                                                functional_img_dimensions[0],
+                                                embed_size=embed_space)
+    embed_ref_points = sitkalignment.transform_points(Path(transform_path), embed_func_points)
+    ref_points = unembed_points_from_space(embed_ref_points,
+                                           reference_img_dimensions[1],
+                                           reference_img_dimensions[0],
+                                           embed_size=embed_space)
+    return ref_points
+
+## GET POINTS POST ALIGNMENT ##
 
 def unembed_points_from_space(points, original_width, original_height, embed_size=1024):
     """
@@ -382,6 +411,53 @@ def unembed_points_from_space(points, original_width, original_height, embed_siz
     ]
 
     return unembedded_points
+
+def embed_points_to_space(points, original_width, original_height, embed_size=1024):
+    """
+    Embeds points from original coordinate space into a square embedding space.
+
+    Args:
+        points (list): List of points [(x1, y1), (x2, y2), ...]
+        original_width (int): Original width of the mask
+        original_height (int): Original height of the mask
+        embed_size (int): Size of embedding space (default 1024)
+
+    Returns:
+        list: List of embedded points [(x1, y1), (x2, y2), ...]
+    """
+    midpt = embed_size // 2
+
+    # same offsets you used during embedding
+    y_offset = original_height % 2
+    x_offset = original_width % 2
+
+    embedded_points = [
+        (
+            x + (midpt - original_width // 2) + x_offset,
+            y + (midpt - original_height // 2) + y_offset
+        )
+        for x, y in points
+    ]
+
+    return embedded_points
+
+
+## PREPROCESSING IMAGES FOR ALIGNMENT ##
+
+def get_brain_std_img(folder_path):
+    '''
+    get the brain mask over the std img - IMPORTANT FOR WHOLE BRAIN IMAGES
+    '''
+    from skimage.draw import polygon
+
+    std_img = np.load(folder_path.joinpath('std_img.npy'))
+    brain_roi = np.load(folder_path.joinpath('rois/brain.npy'))
+    brain_mask = np.zeros(std_img.shape, dtype=bool) # create a brain mask to block out the extra shapes in my functional image
+    rr, cc = polygon(brain_roi[:, 1], brain_roi[:, 0], shape=std_img.shape)  # NOTE: (row=y, col=x)
+    brain_mask[rr, cc] = True
+    std_img_brain = np.where(brain_mask, std_img, 0)
+
+    return std_img_brain
 
 def process_image_for_alignment(image):
     '''
@@ -456,6 +532,8 @@ def plotting_pre_post_alignment(reference_img, target_img, registered_target_img
     
     return plt.show()
 
+
+## RANDOM POSTPROCESSING UTILS ##
 def map_points_back(points, angle, image_shape):
     """
     Map points from rotated image back to the original image space.

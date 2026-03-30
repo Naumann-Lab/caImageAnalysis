@@ -10,15 +10,22 @@
       <change beforePath="$USER_HOME$/Analysis/2023_CaImAn_SfNworkshop/caiman_central/workshops/sfn_2023/mesmerize/cnmfe.ipynb" beforeDir="false" afterPath="$USER_HOME$/Analysis/2023_CaImAn_SfNworkshop/caiman_central/workshops/sfn_2023/mesmerize/cnmfe.ipynb" afterDir="false" />
       <change beforePath="$USER_HOME$/Analysis/2023_CaImAn_SfNworkshop/caiman_central/workshops/sfn_2023/mesmerize/mcorr_cnmf.ipynb" beforeDir="false" afterPath="$USER_HOME$/Analysis/2023_CaImAn_SfNworkshop/caiman_central/workshops/sfn_2023/mesmerize/mcorr_cnmf.ipynb" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/angles.py" beforeDir="false" afterPath="$PROJECT_DIR$/angles.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/bruker_images.py" beforeDir="false" afterPath="$PROJECT_DIR$/bruker_images.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/constants.py" beforeDir="false" afterPath="$PROJECT_DIR$/constants.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/fishy.py" beforeDir="false" afterPath="$PROJECT_DIR$/fishy.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/photostim_data_pipeline.py" beforeDir="false" afterPath="$PROJECT_DIR$/photostim_data_pipeline.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/photostim_ensemble.py" beforeDir="false" afterPath="$PROJECT_DIR$/photostim_ensemble.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/photostim_utils.py" beforeDir="false" afterPath="$PROJECT_DIR$/photostim_utils.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/process.py" beforeDir="false" afterPath="$PROJECT_DIR$/process.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/registration/alignment_utils.py" beforeDir="false" afterPath="$PROJECT_DIR$/registration/alignment_utils.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/registration/sitkalignment.py" beforeDir="false" afterPath="$PROJECT_DIR$/registration/sitkalignment.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/stimuli.py" beforeDir="false" afterPath="$PROJECT_DIR$/stimuli.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/tailtracking.py" beforeDir="false" afterPath="$PROJECT_DIR$/tailtracking.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/utilities/arrutils.py" beforeDir="false" afterPath="$PROJECT_DIR$/utilities/arrutils.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/utilities/barcoding.py" beforeDir="false" afterPath="$PROJECT_DIR$/utilities/barcoding.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/utilities/coordutils.py" beforeDir="false" afterPath="$PROJECT_DIR$/utilities/coordutils.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/utilities/plotutils.py" beforeDir="false" afterPath="$PROJECT_DIR$/utilities/plotutils.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/utilities/roiutils.py" beforeDir="false" afterPath="$PROJECT_DIR$/utilities/roiutils.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
@@ -94,23 +101,23 @@
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent">{
-  &quot;keyToString&quot;: {
-    &quot;RunOnceActivity.OpenProjectViewOnStart&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
-    &quot;WebServerToolWindowFactoryState&quot;: &quot;false&quot;,
-    &quot;git-widget-placeholder&quot;: &quot;kaitlyn&quot;,
-    &quot;ignore.virus.scanning.warn.message&quot;: &quot;true&quot;,
-    &quot;last_opened_file_path&quot;: &quot;C:/Users/Kaitlyn/PyCharmProjects/imaging/caImageAnalysis&quot;,
-    &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
-    &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
-    &quot;node.js.selected.package.tslint&quot;: &quot;(autodetect)&quot;,
-    &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
-    &quot;settings.editor.selected.configurable&quot;: &quot;settings.sync&quot;,
-    &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
+  <component name="PropertiesComponent"><![CDATA[{
+  "keyToString": {
+    "RunOnceActivity.OpenProjectViewOnStart": "true",
+    "RunOnceActivity.ShowReadmeOnStart": "true",
+    "RunOnceActivity.git.unshallow": "true",
+    "WebServerToolWindowFactoryState": "false",
+    "git-widget-placeholder": "kaitlyn",
+    "ignore.virus.scanning.warn.message": "true",
+    "last_opened_file_path": "C:/Users/Kaitlyn/PyCharmProjects/imaging/caImageAnalysis",
+    "node.js.detected.package.eslint": "true",
+    "node.js.selected.package.eslint": "(autodetect)",
+    "node.js.selected.package.tslint": "(autodetect)",
+    "nodejs_package_manager_path": "npm",
+    "settings.editor.selected.configurable": "preferences.pluginManager",
+    "vue.rearranger.settings.migration": "true"
   }
-}</component>
+}]]></component>
   <component name="RunManager">
     <configuration default="true" type="PyBehaveRunConfigurationType" factoryName="Behave">
       <module name="Analysis" />
@@ -241,7 +248,22 @@
       <workItem from="1756143103422" duration="145154000" />
       <workItem from="1758202636152" duration="21179000" />
       <workItem from="1760558893271" duration="11835000" />
-      <workItem from="1765739621692" duration="78670000" />
+      <workItem from="1765739621692" duration="176733000" />
+      <workItem from="1768319491906" duration="2746000" />
+      <workItem from="1768421615860" duration="1369000" />
+      <workItem from="1768487697846" duration="94736000" />
+      <workItem from="1770647327247" duration="7790000" />
+      <workItem from="1770817524927" duration="92378000" />
+      <workItem from="1772034334030" duration="13045000" />
+      <workItem from="1772146586651" duration="4642000" />
+      <workItem from="1772545223460" duration="765000" />
+      <workItem from="1772547015819" duration="3984000" />
+      <workItem from="1772635650066" duration="4377000" />
+      <workItem from="1772739823440" duration="870000" />
+      <workItem from="1772748658706" duration="10368000" />
+      <workItem from="1774271998229" duration="4511000" />
+      <workItem from="1774361499330" duration="2812000" />
+      <workItem from="1774382584568" duration="36239000" />
     </task>
     <task id="LOCAL-00001" summary="changes to bruker organization for PV 5.8">
       <option name="closed" value="true" />
@@ -349,11 +371,6 @@
           <url>file://$PROJECT_DIR$/registration/online_alignment.py</url>
           <line>297</line>
           <option name="timeStamp" value="4" />
-        </line-breakpoint>
-        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
-          <url>file://$PROJECT_DIR$/registration/sitkalignment.py</url>
-          <line>328</line>
-          <option name="timeStamp" value="5" />
         </line-breakpoint>
       </breakpoints>
     </breakpoint-manager>

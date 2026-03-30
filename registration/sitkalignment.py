@@ -37,7 +37,7 @@ def embed_image(image, default_size=1024):
         print("please input 2D image")
         return
 
-    while max(image.shape) >= default_size:
+    while max(image.shape) > default_size: # now only needs to be greater than
         default_size *= 2
         print(f"increasing default size to {default_size}")
 

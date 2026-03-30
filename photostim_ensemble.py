@@ -13,11 +13,11 @@ import math
 
 # local imports
 import constants, tailtracking, photostim_data_pipeline
-from utilities import coordutils, arrutils
+from utilities import coordutils, arrutils, roiutils
 from fishy import PhotostimFish
 
 
-# --- PREPROCESSING TO CREATE ENSEMBLES FOR PHOTOSTIM --- #
+# --- CREATING ENSEMBLES FOR PHOTOSTIM --- #
 
 # create nested ensembles of specific sizes
 def build_nested_ensembles(df, # the dataframe with just the photostimulateable cells
@@ -54,7 +54,8 @@ def build_nested_ensembles(df, # the dataframe with just the photostimulateable 
                     "ensemble_cells": ensemble_cells,
                     "ensemble_coords": ensemble_coords_with_plane,
                     "min_dist_px": min_pairwise_dist,
-                    "min_dist_um": min_pairwise_dist_um
+                    "min_dist_um": min_pairwise_dist_um,
+                    "side": sub["side"].iloc[0],
             })
 
     e_df = pd.DataFrame(ensembles)
@@ -226,11 +227,10 @@ def add_unique_ensemble(ensemble_df, unique_coords, list_of_images, e_name='uniq
 
 
 
-# --- ANALYZING DATA FROM ENSEMBLE STIMULATION --- #
+# --- PREPROCESSING DATA FROM ENSEMBLE STIMULATION --- #
 def build_functional_types_df_for_ensembles(omr_fishvolume,
                                             stim_fishvolume,
                                             omr_fishvolume_barcoding_df,
-                                            # match_cells_within_radius_um=10, # no longer need this with new way to match Bruker to cell
                                             regions=['Pt', 'Hb', 'nMLF'],
                                             motor_correlation=False,
                                             plot_stim_sites=True):
@@ -292,7 +292,7 @@ def build_functional_types_df_for_ensembles(omr_fishvolume,
                 sub_functional_types_df['visual_barcode'].iloc[l] = \
                 omr_plane_barcoding_df[omr_plane_barcoding_df.neur_ids == l].barcoding.values[0]
             for k in regions:
-                if k in omr_Fish.roi_dict.keys():
+                if (k in omr_Fish.roi_dict.keys()) & (k not in ['brain', 'midline']):
                     if l in omr_Fish.return_cells_by_saved_roi(k):
                         sub_functional_types_df['region'].iloc[l] = k
 
@@ -461,7 +461,7 @@ def update_regions_in_df_post_alignment(df, master_folder_path):
         plane_roi_path = os.path.join(master_folder_path, plane_folder, 'rois')
         polygons = {}
         for f in os.listdir(plane_roi_path):
-            if f.endswith(".npy"):
+            if (f.endswith(".npy")) & (f not in ['brain.npy', 'midline.npy']):
                 region_name = os.path.splitext(f)[0]
                 print(region_name)
                 polygon_coords = np.load(os.path.join(plane_roi_path, f))
@@ -672,6 +672,175 @@ def add_ensemble_responses_to_df(functional_types_df, master_stim_ensemble_df, d
 
     return functional_types_df
 
+def add_motor_corr_from_stim_dataset(stimpath, funcdf):
+
+    if Path(stimpath).joinpath('tail_correlation_df.h5').exists():
+        motor_correlation_info_df = pd.read_hdf(Path(stimpath).joinpath('tail_correlation_df.h5'))
+    else:
+        return print('no tail_correlation_df saved')
+    df = funcdf.copy()
+
+    df["stim_neur_id"] = df["stim_neur_id"].astype(float)
+    motor_correlation_info_df["neur_id"] = motor_correlation_info_df["neur_id"].astype(float)
+
+    merged = df.merge(motor_correlation_info_df,
+                        left_on=["plane", "stim_neur_id"],
+                        right_on=["plane", "neur_id"],
+                        how="left",
+                        suffixes=("", "_new"))
+
+    df["motor_corr"] = merged["statistics"]
+    df["motor_pval"] = merged["p"]
+
+    df = df.drop(columns=[c for c in df.columns if c.endswith("_new")], errors="ignore")
+
+    return df
+
+def add_sideness_to_functional_types_df(ensembledf, functypesdf, midlineinfodict):
+    '''
+    Ipsi or contra to each ensemble, add to functional types df
+    ensembledf: ensemble info dataframe (ensembles_df.h5)
+    functypesdf: typical functional types dataframe
+    midlineinfodict: dictionary of midline coordinates, keys are each plane
+    Returns:
+    an updated functypesdf with a new column ('side_to_ensemble')
+    '''
+    side_dict_lst = []
+    for cell in range(len(functypesdf)):
+        cell_coord = functypesdf.iloc[cell].neur_coords
+        cell_plane = functypesdf.iloc[cell].plane
+        cell_side = coordutils.cell_side_of_midline(midlineinfodict[cell_plane], cell_coord)
+        cell_side_dict = {}
+        for i, each_ensemble in enumerate(ensembledf.ensemble_id.values):
+            if each_ensemble not in cell_side_dict.keys():
+                cell_side_dict[each_ensemble] = []
+            try:
+                each_ensemble_side = ensembledf.iloc[i].barcoding.split('_')[1]
+                if each_ensemble_side == cell_side:
+                    cell_side_dict[each_ensemble] = 'ipsi'
+                if each_ensemble_side != cell_side:
+                    cell_side_dict[each_ensemble] = 'contra'
+            except:
+                cell_side_dict[each_ensemble] = 'no side'
+        side_dict_lst.append(cell_side_dict)
+    functypesdf['side_to_ensemble'] = side_dict_lst
+
+    return functypesdf
+
+def add_weights_to_ensemble_df(functional_types_df, master_stim_ensemble_df, saving_folder,
+                                evoked_frame_window = 8, photostim_start_frame = 14,
+                               response_type = 'stim_responses_dff_local'):
+    '''
+    Adding the trial weights to each ensemble df
+    :param functional_types_df: normal big info df
+    :param master_stim_ensemble_df: the df with all the ensemble info (adding weights to each of these)
+    :param saving_folder: where to save this updated ensemble df to
+    :param evoked_frame_window: the number of frames post photostimulation to take the peak value from
+    :param photostim_start_frame: the frame where the photostim event happens, the relative frame
+    :param response_type: the response type that the weights are derived from (has to be a column in the functional types df)
+    :return:
+    '''
+    if response_type not in functional_types_df.columns:
+        return print('choose new response type')
+
+    all_weighted_val_lists = []
+    for j, each_ensemble in enumerate(np.unique(master_stim_ensemble_df.ensemble_id.values)):
+        ensemble_cells = [f'stim_{i}' for i in master_stim_ensemble_df.ensemble_cells.iloc[j]]
+        subset_df =  functional_types_df[functional_types_df.resp_cell_id.isin(ensemble_cells)]
+        traces = np.array([d[each_ensemble][0] for d in subset_df[response_type].values]) # index into the correct ensemble traces
+        weighted_val_lst = []
+        if len(traces) > 0:
+            for each_trial in range(traces.shape[1]):
+                avg_ensemble_trace = np.nanmean(traces[:, each_trial, :], axis = 0)
+                baseline_activity_per_trial = np.nanmean(avg_ensemble_trace[:photostim_start_frame-2]) # baseline a little bit before the stim to avoid weird dips
+                peak_evoked_activity_per_trial = np.nanmax(avg_ensemble_trace[photostim_start_frame:photostim_start_frame + evoked_frame_window])
+                weighted_val = peak_evoked_activity_per_trial - baseline_activity_per_trial
+                weighted_val_lst.append(weighted_val)
+
+            min_norm = 0.01 # Set the minimum desired normalized value, this way nothing is 0 value for weighted mean
+            arr_min = min(weighted_val_lst)
+            arr_max = max(weighted_val_lst)
+            if arr_max == arr_min:
+                norm_weighted_values = np.full_like(weighted_val_lst, fill_value=min_norm)
+            else:
+                norm_weighted_values = (weighted_val_lst - arr_min) / (arr_max - arr_min)
+                norm_weighted_values = norm_weighted_values * (1 - min_norm) + min_norm # Now scale to [min_norm, 1]
+        else: # if a control ensemble
+            norm_weighted_values = [1] * len(master_stim_ensemble_df.stim_events.iloc[0])
+
+        all_weighted_val_lists.append(norm_weighted_values)
+
+    # add in the weighted values for each ensemble
+    master_stim_ensemble_df['trial_weights'] = all_weighted_val_lists
+
+    # save this as a new df
+    master_stim_ensemble_df.to_hdf(Path(saving_folder).joinpath('master_stim_ensembles_trial_weights.h5'), key = 'trial_weights')
+
+    return master_stim_ensemble_df
+
+
+def save_tail_neuron_info(stim_fishvol, regressor_type='bout_regressor'):
+    fishy = stim_fishvol[0]
+    saving_path = Path(fishy.folder_path.parents[1])
+
+    # make the bout analysis df
+    _, bout_df = tailtracking.analyze_tail(fishy.tail_df, stimulus_df=pd.DataFrame(), img_hz=fishy.img_hz,
+                                           stimulus_s=10, strength_boundary=None)
+    bout_df.to_hdf(saving_path.joinpath('tail_analysis_df.h5'), key='tail_analysis')
+
+    # bout regressor
+    bout_frames = np.zeros(shape=(len(fishy.frametimes_df)))
+    for each_bout in range(len(bout_df)):
+        frames = bout_df.iloc[each_bout].cont_tuples_imageframe
+        bout_frames[frames[0]:frames[1]] = 1
+    np.save(saving_path.joinpath('bout_regressor.npy'), np.array(bout_frames))  # save the tail regressor
+
+    # general tail regressor
+    std_tail_sum_frames = np.zeros(shape=len(fishy.frametimes_df))
+    std_tail_sum = fishy.tail_df.groupby('frame').tail_sum.std().values
+    tail_frames = fishy.tail_df.groupby('frame').tail_sum.std().index.values
+    for frame, val in zip(tail_frames, std_tail_sum):
+        std_tail_sum_frames[frame] = val
+    np.save(saving_path.joinpath('tail_regressor.npy'), std_tail_sum_frames)  # save the tail regressor
+
+    # tail correlation df (using bout regressor)
+    if regressor_type == 'bout_regressor':
+        regressor = bout_frames
+    if regressor_type == 'tail_sum_regressor':
+        regressor = std_tail_sum_frames
+    add_rows = []
+    for plane, fish in stim_fishvol.volumes.items():
+        for n, neuron_trace in enumerate(fish.normcells):
+            pearson_result = scipy.stats.pearsonr(regressor, neuron_trace)
+            row = {'plane': plane, 'neur_id': n, 'statistics': pearson_result[0], 'p': pearson_result[1]}
+            add_rows.append(row)
+    neuron_tail_df = pd.DataFrame(add_rows)
+    neuron_tail_df.to_hdf(saving_path.joinpath('tail_correlation_df.h5'),
+                          key='correlation')  # save the tail correlation values in a dataframe
+
+def save_timing_info_dict(omr_fishvol, stim_fishvol, photostim_frame_subset = [-14, 27]):
+
+  tail_hz = 1/np.mean(np.diff(stim_fishvol[0].tail_df.iloc[:100]['t']))
+  vizmotion_window_time_sec = [omr_fishvol[0].offsets[0] / omr_fishvol[0].img_hz,
+                              omr_fishvol[0].offsets[1] / omr_fishvol[0].img_hz,]
+  photostim_window_time_sec = [stim_fishvol[0].photostim_frame_window[0] / stim_fishvol[0].img_hz,
+                              stim_fishvol[0].photostim_frame_window[1] / stim_fishvol[0].img_hz]
+
+  new_imaging_frame_subset_sec = [photostim_frame_subset[0] / stim_fishvol[0].img_hz,
+                              photostim_frame_subset[1] / stim_fishvol[0].img_hz]
+
+  fps_and_offsets_dict = {'imaging_hz': stim_fishvol[0].img_hz,
+                          'tail_hz': tail_hz,
+                          'vizmotion_relative_time_sec': vizmotion_window_time_sec,
+                          'photostim_relative_time_sec': new_imaging_frame_subset_sec,
+                          'vizmotion_imaging_frame_offset': omr_fishvol[0].offsets,
+                          'photostim_imaging_frame_offset': photostim_frame_subset,
+                          'vizmotion_tail_frame_offset': [f * tail_hz for f in vizmotion_window_time_sec],
+                          'photostim_tail_frame_offset': [f * tail_hz for f in photostim_window_time_sec]}
+
+  np.save(stim_fishvol[0].folder_path.parents[1].joinpath('fps_and_offsets_dict.npy'), fps_and_offsets_dict)
+
+# --- ANALYZING DATA FROM ENSEMBLE STIMULATION ---
 
 def min_distance_from_ensemble_um(stim_spots_px, responder_px, xy_um_per_px, plane_spacing_um=7.0, use_z=True):
     """
@@ -683,18 +852,18 @@ def min_distance_from_ensemble_um(stim_spots_px, responder_px, xy_um_per_px, pla
     use_z: whether to include z-distance
     returns: closest_val: the minimum distance from the ensemble
     """
-    distances = []
     rx, ry, rp = responder_px
+    min_d = float("inf")
     for s in stim_spots_px:
         sx, sy, sp = s
         dx_um = (sx - rx) * xy_um_per_px
         dy_um = (sy - ry) * xy_um_per_px
         dz_um = (sp - rp) * plane_spacing_um if use_z else 0.0
         d = math.sqrt(dx_um*dx_um + dy_um*dy_um + dz_um*dz_um)
-        distances.append((s, d))
-    closest, closest_val = min(distances, key=lambda x: x[1])
+        if d < min_d:
+            min_d = d
 
-    return closest_val
+    return min_d
 
 # gather activated and suppressed neurons for an ensemble
 def get_ps_responders_dataframe(ensemble_id, huge_df,

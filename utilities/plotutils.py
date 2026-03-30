@@ -42,6 +42,52 @@ def quick_plotting_image_pairs(img1, img2):
 def convert_frame_to_sec(frame_lst, framerate):
     return [x / framerate for x in frame_lst]
 
+def add_time_scalebar(ax, length_secs, fps, label=None,
+                      pad_frac=0.05, lw=3):
+    """
+    Add a horizontal time scale bar to a subplot.
+
+    ax          : matplotlib axis
+    length_secs : length of scale bar in seconds
+    fps         : frames per second
+    label       : optional text (default = f'{length_secs} s')
+    pad_frac    : padding from bottom as fraction of y-range
+    """
+    length_frames = length_secs * fps
+
+    x0, x1 = ax.get_xlim()
+    y0, y1 = ax.get_ylim()
+
+    x_start = x1 - length_frames
+    y_bar = y0 + pad_frac * (y1 - y0)
+
+    ax.plot(
+        [x_start, x1],
+        [y_bar, y_bar],
+        color='k',
+        lw=lw,
+        solid_capstyle='butt'
+    )
+
+    ax.text(
+        (x_start + x1) / 2,
+        y_bar - 0.03 * (y1 - y0),
+        label if label else f'{length_secs} s',
+        ha='center',
+        va='top'
+    )
+
+def highlight_region(ax, mask, color, alpha=0.25):
+    idx = np.where(mask)[0]
+    if len(idx) == 0:
+        return
+
+    # contiguous regions
+    splits = np.split(idx, np.where(np.diff(idx) != 1)[0] + 1)
+
+    for s in splits:
+        ax.axhspan(s[0]-0.5, s[-1]+0.5, color=color, alpha=alpha, lw=0)
+
 def get_color_from_normval(value, vmin = -1, vmax = 1, cmap='coolwarm'):
     norm = plt.Normalize(vmin=vmin, vmax=vmax, clip=False)
     cmap = plt.get_cmap(cmap)

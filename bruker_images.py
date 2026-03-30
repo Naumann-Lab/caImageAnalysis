@@ -235,7 +235,9 @@ def move_xml_files(folder_path):
     folder_path = the master data folder path that contains the xml files and output folders
     '''
     voltage_path = None
-    ps_xml_path = None  
+    voltage_xml_path = None
+    ps_xml_path = None
+    info_env_path = None
 
     with os.scandir(folder_path) as entries:
         for entry in entries:
@@ -243,6 +245,8 @@ def move_xml_files(folder_path):
                 pass
             elif entry.name.endswith(".xml") and "MarkPoints" not in entry.name and "Voltage" not in entry.name:
                 info_xml_path = Path(entry.path)
+            elif entry.name.endswith(".xml") and "MarkPoints" not in entry.name and "Voltage" in entry.name:
+                voltage_xml_path= Path(entry.path)
             elif 'txt' in entry.name:
                 pstim_path = Path(entry.path)
             elif 'Voltage' in entry.name and entry.name.endswith(".csv"):
@@ -255,11 +259,15 @@ def move_xml_files(folder_path):
     with os.scandir(Path(folder_path).joinpath('output_folders')) as entries:
         for entry in entries:
             fld = Path(entry.path)
-            shutil.copy(info_xml_path, Path(fld).joinpath(Path(info_xml_path).name))
-            shutil.copy(info_env_path, Path(fld).joinpath(Path(info_env_path).name))
-            if ps_xml_path:
+            if info_xml_path is not None:
+                shutil.copy(info_xml_path, Path(fld).joinpath(Path(info_xml_path).name))
+            if info_xml_path is not None:
+                shutil.copy(info_env_path, Path(fld).joinpath(Path(info_env_path).name))
+            if voltage_xml_path is not None:
+                shutil.copy(voltage_xml_path, Path(fld).joinpath(Path(voltage_xml_path).name))
+            if ps_xml_path is not None:
                 shutil.copy(ps_xml_path, Path(fld).joinpath(Path(ps_xml_path).name))
-            if voltage_path:
+            if voltage_path is not None:
                 shutil.copy(voltage_path, Path(fld).joinpath(Path(voltage_path).name))      
     return print('done')
 

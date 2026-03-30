@@ -1,6 +1,9 @@
 import constants
 import numpy as np
 
+import photostim_data_pipeline
+from utilities import arrutils
+
 
 def add_angles(ang1, ang2):
     return (ang1 + ang2) % 360
@@ -9,6 +12,7 @@ def add_angles(ang1, ang2):
 def calc_dsi(neuron_dict):
     # use neuron dict per neuron
     """
+    Typical DSI metric
     (Rpref - Rnull) / Rpref
     looks like:
         {
@@ -40,6 +44,62 @@ def calc_dsi(neuron_dict):
     inverse_stim = constants.nulldict[max_stim]
     inverse_val = monoc_neuron[inverse_stim]
     return np.clip((max_val - inverse_val) / max_val, a_min=0, a_max=1)
+
+
+def calc_dsi_cardinaldirs(vizstimfishy, base_sec = 4, motion_on_sec = 10, dsi_threshold = 0.45, use_df_f = False):
+    '''
+    calculate the dsi for all the neurons in a vizstimfishy
+    :param vizstimfishy: class instance of a VizStimFish
+    :param base_sec: seconds of baseline to use before motion starts for calculating baseline values
+    :param motion_on_sec: seconds of motion to use in calculating response during on period
+    :param dsi_threshold: threshold for dsi calculation, if under this value than dsi == 0
+    :param use_df_f: whether to calculate df/f for each neuron, or just use the normalized trace
+    :return: list of dsi values for all the neurons in the vizstim fishy
+    '''
+
+    motion_frame_offsets = vizstimfishy.offsets
+    base_frames = int(base_sec * vizstimfishy.img_hz)
+    base_start = -motion_frame_offsets[0] - base_frames
+    motion_on_frames = int(motion_on_sec * vizstimfishy.img_hz)
+    motion_end_frames = -motion_frame_offsets[0] + motion_on_frames
+
+    # using 4 cardinal directions to calculate DSI
+    directions = ['forward', 'right', 'backward', 'left']
+    # Cardinal directions in radians
+    directions_radians = np.array([0, np.pi / 2, np.pi, 3 * np.pi / 2])
+    unit_vecs = np.column_stack((np.cos(directions_radians), np.sin(directions_radians)))
+
+    motion_resp_dict_list = photostim_data_pipeline.gather_visual_motion_responses_for_df(vizstimfishy,
+                                                                                          cell_id_array = None,
+                                                                                          motion_cues = directions,
+                                                                                          get_df_f = use_df_f,
+                                                                                          response_type = 'mean')
+    dsi_list = []
+    for neuron, motion_responses in enumerate(motion_resp_dict_list):
+        motion_responses = motion_resp_dict_list[neuron]
+        stim_scores = []
+        for d in directions:
+            resp = arrutils.pretty(motion_responses[d]['mean'])
+            base_avg = np.nanmean(resp[base_start:-motion_frame_offsets[0]])
+            on_window = resp[-motion_frame_offsets[0]:motion_end_frames]
+            on_avg = np.nanmean(on_window)
+            on_max = np.nanmax(on_window)
+            on_min = np.nanmin(on_window)
+            score = on_max - base_avg if on_avg > base_avg else on_min - base_avg
+            stim_scores.append(score)
+
+        stim_scores = np.array(stim_scores)
+        stim_scores = np.maximum(stim_scores, 0) # rectify, treats negative responses like 0
+
+        # Vector DSI calculation
+        total = stim_scores.sum()
+        if total < dsi_threshold:
+            dsi = 0
+        else:
+            dsi = np.linalg.norm(stim_scores @ unit_vecs) / total
+        dsi_list.append(dsi)
+
+    return dsi_list
 
 
 def weighted_mean_angle(degs, weights):

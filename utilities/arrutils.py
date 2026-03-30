@@ -145,6 +145,17 @@ def sort_array_by_max(arr):
     
     return sorted_arr, sorted_indices
 
+def bin1d(X, bin_size, axis=0):
+    """ mean bin over axis of data with bin bin_size """
+    if bin_size > 0:
+        size = list(X.shape)
+        Xb = X.swapaxes(0, axis)
+        size_new = Xb.shape
+        Xb = Xb[:size[axis]//bin_size*bin_size].reshape((size[axis]//bin_size, bin_size, *size_new[1:])).mean(axis=1)
+        Xb = Xb.swapaxes(axis, 0)
+        return Xb
+    else:
+        return X
 
 def fix_equal_interval(lst, tol=1e-6):
     """
