@@ -45,7 +45,7 @@ def load_and_convert_random(input_file_path, output_file_path):
     with open(input_file_path, 'r') as f:
         data = f.read()
         for item in data.split('\n'):
-            newItem = item.replace('[', '').replace(']', '')
+            newItem = item.replace('[{', '{').replace('}]', '}')
             for subitem in newItem.split('},'):
                 if (len(subitem) > 0):
                     newSubitem = '{' + subitem.replace('{', '').replace('}', '') + '}'

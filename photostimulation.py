@@ -14,7 +14,7 @@ import caiman as cm
 from PIL import Image
 import math
 from scipy.signal import find_peaks 
-
+import shutil
 from bruker_images import read_xml_to_str, read_xml_to_root
 from utilities import arrutils
 from utilities.roiutils import create_circular_mask
@@ -22,6 +22,11 @@ from utilities.coordutils import rotate_transform_coors, closest_coordinates
 
 import xmltodict
 from utilities.pstim_cpmmand_parser import parse_command
+
+
+from matplotlib.patches import Circle
+from matplotlib.collections import PatchCollection
+
 
 ARBITRARY_MERGE_PHOTOSTIM_EVENTS = 1000 #any photostim events within 1000 ms of each other will be merged together
 
@@ -35,7 +40,7 @@ def find_no_baseline_frames(somefishclass, no_planes = 0):
         with os.scandir(original_imgs) as entries:
             #won't this just return the number of frames for the last seen baseline image?
             for entry in entries:
-                if 'Cycle' in entry.name and 'tif' in entry.name:
+                if 'Cycle' in entry.name and 'tif' in entry.name and ':Zone.Identifier' not in entry.path  and not ':' in entry.name:
                     baseline_img = imread(entry.path)
                     break #we want the first tif file here in single image
 
@@ -76,7 +81,10 @@ def collect_stimulation_times(somefishclass):
                 no_iterations = int([i][0].split("Iterations=")[1].split('"')[1])
                 iteration_delay_ms = int(float([i][0].split("IterationDelay=")[1].split('"')[1]))
 
-        full_duration_per_stim = initial_delay_ms + (no_repetitions * duration_ms) + ((no_repetitions-1) * interpointdelay_ms)
+        #full_duration_per_stim = initial_delay_ms + (no_repetitions * duration_ms) + ((no_repetitions-1) * interpointdelay_ms)
+        #get rid of initial delay because it is not part of the real stimulation
+        full_duration_per_stim = (no_repetitions * duration_ms) + ((no_repetitions-1) * interpointdelay_ms)
+        
 
     #this error will be raised if there is no xml for photostim, which occurs if you used prairieLink to send photostim
     #commands
@@ -278,8 +286,16 @@ def save_badframes_arr(somefishclass, no_planes = 1):
         ##TODO: make it simpler code, combine this to just do what I am doing for volumes
         # only looking at stimulation cycle here for the right relative times
 
-        if (type(full_duration_per_stim) != float and len(full_duration_per_stim) > 1):
+        if ((type(full_duration_per_stim) != float and len(full_duration_per_stim) > 1) or True):
             num_badframe_blocks = 0
+            
+            try:
+                len(full_duration_per_stim)
+            except:
+                print("Duration",full_duration_per_stim)
+                full_duration_per_stim = [full_duration_per_stim]*len(stim_times_secs)
+                print("Durations",full_duration_per_stim)
+                
             with open(somefishclass.data_paths['info_xml']) as f:
                 xml_info_dict = xmltodict.parse(f.read())
 
@@ -331,49 +347,63 @@ def save_badframes_arr(somefishclass, no_planes = 1):
 
             #THIS CODE WILL BREAK IF YOU HAVE MULTIPLE STIMS IN ONE FRAME BUT NOT MULTIPLE FRAMES PER STIM
             #go through every stimulation and find the bad frames associated with it
+#             for time_index, stim_time in enumerate(stim_times_secs):
+
+#                 haventFoundBadFrame = True
+#                 #while scanning through the frame times, continually pop the first element off the list and check it
+#                 while(haventFoundBadFrame):
+#                     check_frame = float(frametimes_copy.pop(0))
+
+#                     #print("check frame:",check_frame, "to", check_frame + frame_period)
+#                     #print("check time:", stim_time, "to", stim_time + full_duration_per_stim[time_index])
+#                     frametimes_counter += 1
+#                     print("check frame:", check_frame, "stim_time", stim_time)
+#                     #check if frame is bad
+#                     if((stim_time < check_frame and stim_time + full_duration_per_stim[time_index] > check_frame) or (stim_time > check_frame and check_frame + frame_period > stim_time + full_duration_per_stim[time_index] ) or (stim_time > check_frame and stim_time < check_frame + frame_period)):
+#                         num_badframe_blocks += 1
+#                         badframes_arr.append(frametimes_counter)
+#                         print("frametimes counter:",frametimes_counter)
+#                         #print(check_frame, "is bad")
+#                         foundAllBadFramesInSeries = False
+#                         #move through the subsequent frames and check if they are bad
+#                         secondaryIterator = 0
+#                         while(not foundAllBadFramesInSeries):
+
+#                             #set the next frame and increment the iterator
+#                             check_frame = float(frametimes_copy[secondaryIterator])
+#                             secondaryIterator += 1
+
+#                             #check the frame
+#                             if ((stim_time < check_frame and stim_time + full_duration_per_stim[
+#                                 time_index] > check_frame) or (
+#                                     stim_time > check_frame and check_frame + frame_period > stim_time +
+#                                     full_duration_per_stim[time_index] )):
+
+#                                 #add the frame if it is bad, otherwise we have found all the bad frames in the series and
+#                                 #can keep popping frames until we find the next bad series58
+
+#                                 badframes_arr.append(frametimes_counter + secondaryIterator)
+#                                 #print(frametimes_counter + secondaryIterator, "is bad")
+
+#                             else:
+#                                 foundAllBadFramesInSeries = True
+
+#                         haventFoundBadFrame = False
+#                 print("badframes found:",num_badframe_blocks)
+            badframes_set = set()  # use a set to avoid duplicates
             for time_index, stim_time in enumerate(stim_times_secs):
+                stim_end = stim_time + full_duration_per_stim[time_index]
+                # Iterate over the list of frames 
+                for frame_index, frame_start in enumerate(frametimes):
+                    frame_end = frame_start + frame_period
+                    # Check if the frame interval overlaps with the photostimulation interval:
+                    # i.e. the later of the two start times is less than the earlier of the two end times.
+                    if max(stim_time, frame_start) < min(stim_end, frame_end):
+                        print(stim_time, frame_start, stim_end, frame_end)
+                        badframes_set.add(frame_index)
 
-                haventFoundBadFrame = True
-                #while scanning through the frame times, continually pop the first element off the list and check it
-                while(haventFoundBadFrame):
-                    check_frame = float(frametimes_copy.pop(0))
-
-                    #print("check frame:",check_frame, "to", check_frame + frame_period)
-                    #print("check time:", stim_time, "to", stim_time + full_duration_per_stim[time_index])
-                    frametimes_counter += 1
-                    print("check frame:", check_frame, "stim_time", stim_time)
-                    #check if frame is bad
-                    if((stim_time < check_frame and stim_time + full_duration_per_stim[time_index] > check_frame) or (stim_time > check_frame and check_frame + frame_period > stim_time + full_duration_per_stim[time_index] )):
-                        num_badframe_blocks += 1
-                        badframes_arr.append(frametimes_counter)
-                        print("frametimes counter:",frametimes_counter)
-                        #print(check_frame, "is bad")
-                        foundAllBadFramesInSeries = False
-                        #move through the subsequent frames and check if they are bad
-                        secondaryIterator = 0
-                        while(not foundAllBadFramesInSeries):
-
-                            #set the next frame and increment the iterator
-                            check_frame = float(frametimes_copy[secondaryIterator])
-                            secondaryIterator += 1
-
-                            #check the frame
-                            if ((stim_time < check_frame and stim_time + full_duration_per_stim[
-                                time_index] > check_frame) or (
-                                    stim_time > check_frame and check_frame + frame_period > stim_time +
-                                    full_duration_per_stim[time_index] )):
-
-                                #add the frame if it is bad, otherwise we have found all the bad frames in the series and
-                                #can keep popping frames until we find the next bad series58
-
-                                badframes_arr.append(frametimes_counter + secondaryIterator)
-                                #print(frametimes_counter + secondaryIterator, "is bad")
-
-                            else:
-                                foundAllBadFramesInSeries = True
-
-                        haventFoundBadFrame = False
-                print("badframes found:",num_badframe_blocks)
+            # Convert the set into a sorted list of bad frame indices.
+            badframes_arr = sorted(badframes_set)
 
         else:
             # calculate the duration of one ps event in frame numbers
@@ -541,11 +571,13 @@ def identify_stim_sites(somebasefish, rotate = True, planes_stimed = [1]):
         if rotate:
 
             for recordIndex, record in enumerate(photostim_record):
+                print("Here is record:")
+                print(record)
                 #coord_stim_sites = [record['x_coord']*pixels_per_line, record['y_coord']*pixels_per_line]
                 #correct_x_coords = -record['y_coord']*pixels_per_line + 512 if gotKeyError else -record['y_coord'] + 512
-                correct_x_coords = record['y_coord'] 
+                correct_x_coords = record['y_coord']
                 #correct_y_coords = record['x_coord']*pixels_per_line if gotKeyError else record['x_coord']
-                correct_y_coords = -record['x_coord'] +512
+                correct_y_coords = (-1 * np.array(record['x_coord']) +512).tolist()
 
 
                 photostim_record_copy[recordIndex]['x_coord'] = correct_x_coords#-correct_x_coords+512
@@ -554,10 +586,25 @@ def identify_stim_sites(somebasefish, rotate = True, planes_stimed = [1]):
 
         uniqueCells = []
         for recordIndex, record in enumerate(photostim_record_copy):
-            cell = [record['x_coord'], record['y_coord'], record['spiral_size']]
-            # print(cell)
-            if not cell in uniqueCells:
-                uniqueCells.append(cell)
+            if isinstance(record['x_coord'], list):
+                print(len(record['x_coord']))
+
+                #zip together all cells in the ensemble
+                all_cells = zip(record['x_coord'], record['y_coord'], [record['spiral_size']]*len(record['x_coord']))
+
+                print(all_cells)
+                for cell in all_cells:
+                    # print(cell)
+                    if not cell in uniqueCells:
+                        uniqueCells.append(cell)
+
+
+            else:
+
+                cell = [record['x_coord'], record['y_coord'], record['spiral_size']]
+                # print(cell)
+                if not cell in uniqueCells:
+                    uniqueCells.append(cell)
 
 
         X_stim_sites = []
@@ -675,6 +722,84 @@ def identify_stim_sites(somebasefish, rotate = True, planes_stimed = [1]):
 
     return somebasefish.stim_sites_df
 
+def run_suite2p_PS2(somebasefish, thepath, input_tau=1.5, spatial_scale=0, move_corr=False):
+    """
+    Run Suite2p ROI detection on an already-registered movie (.bin),
+    bypassing Suite2p's TIFF ingestion and registration.
+    """
+    import os, shutil, numpy as np
+    from pathlib import Path
+    from suite2p.default_ops import default_ops
+    # run_plane import location differs by version; try both:
+    try:
+        from suite2p.run_s2p import run_plane
+    except ImportError:
+        from suite2p.run_plane import run_plane  # fallback for older versions
+
+    # 1) Choose which image path to reference (for your bookkeeping/logs)
+    if move_corr:
+        imagepath = somebasefish.data_paths["move_corrected_image"]
+    else:
+        imagepath = somebasefish.data_paths["rotated_image"]
+
+    # Ensure bad_frames exists (not used here, but you rely on it elsewhere)
+    bad_frames_path = imagepath.parents[0] / "bad_frames.npy"
+    if not bad_frames_path.is_file():
+        save_badframes_arr(somebasefish)
+
+    # 2) Your already-registered binary (CaImAn output you created)
+    bin_path = Path(
+        thepath
+    ).resolve()
+
+    # Movie geometry & sampling
+    Ly, Lx = 512, 512
+    fs = float(somebasefish.imaging_frequency)
+
+    # 3) Fresh output root (so no stale ops get loaded)
+    save_path0 = bin_path.parent / "suite2p_from_caiman"
+    plane0 = save_path0 / "suite2p" / "plane0"
+    shutil.rmtree(plane0, ignore_errors=True)
+    plane0.mkdir(parents=True, exist_ok=True)
+
+    # 4) Build ops to skip registration and read your binary directly
+    ops = default_ops()
+    ops.update({
+        "save_path0": str(save_path0),
+        "save_folder": "suite2p",
+
+        "do_registration": 0,
+        "nonrigid": False,
+        "two_step_registration": False,
+        "reg_file": str(bin_path),       # <-- use your CaImAn .bin
+
+        "Ly": Ly, "Lx": Lx,
+        "yrange": [0, Ly],
+        "xrange": [0, Lx],
+
+        # kill temporal binning in detection
+        "tau": 0.0,                      # so round(tau*fs)=0
+        "fs": fs,
+        "bin_size": 1,
+        "badframes": None,
+
+        "roidetect": True,
+        "delete_bin": False,             # we already have reg_file
+        "spatial_scale": spatial_scale,
+    })
+
+    # Ensure internal bin-size formula resolves to 1
+    T = os.path.getsize(bin_path) // (Ly * Lx * 4)  # float32 bytes per frame
+    ops["nframes"] = int(T)
+    ops["nbinned"] = int(T)
+
+    print("save_path0 =", ops["save_path0"])
+    print("Using reg_file:", ops["reg_file"])
+    print("Frames in binary:", ops["nframes"])
+
+    # 5) Run a single plane directly (processes all 28k frames in one go)
+    ops = run_plane(ops)
+    return ops
 def run_suite2p_PS(somebasefish, input_tau = 1.5, spatial_scale = 0, move_corr = False):
     '''
     somebasefish = the data you want to have suite2p run on
@@ -723,41 +848,44 @@ def return_raw_coord_trace(cell_coord, img, s=5):
     return np.nanmean(img[:, msk], axis=1)
 
 def collect_raw_traces(somebasefish):
-    
-    stim_sites_df_path = Path(somebasefish.folder_path).joinpath("stim_sites.hdf")
+    stim_sites_df_path = Path(somebasefish.folder_path) / "stim_sites.hdf"
     if not stim_sites_df_path.exists():
         identify_stim_sites(somebasefish)
 
-    #print("loc3")
-    stim_sites_df = pd.read_hdf(stim_sites_df_path)
-    stim_sites_df.drop_duplicates(inplace=True)
+    stim_sites_df = pd.read_hdf(stim_sites_df_path).drop_duplicates().reset_index(drop=True)
     img = imread(somebasefish.data_paths["move_corrected_image"])
+    n_cells = len(stim_sites_df)
+    n_frames = img.shape[0]
 
-    print(stim_sites_df)
+    raw_traces = np.zeros((n_cells, n_frames))
+    points     = np.zeros((n_cells, 2))
+    circles    = []  # ← list of Circle patches
 
-    raw_traces = np.zeros((len(stim_sites_df), img.shape[0]))
-    points = np.zeros((len(stim_sites_df), 2))
-    print("loc4")
+    for idx, pt in stim_sites_df.iterrows():
+        x0, y0 = pt.x_stim, pt.y_stim
+        radius = pt.sp_size * 1.5  # or *3 if you really want 3× diameter
 
-    #print(stim_sites_df)
-    print(len(stim_sites_df))
-    for point in range(len(stim_sites_df)):
-        pt = stim_sites_df.iloc[point]
-        print(pt)
-        #print(pt)
+        # 1) build the mask and compute the trace
+        msk = create_circular_mask(img.shape[1:], x0, y0, radius)
+        raw_traces[idx] = np.nanmean(img[:, msk], axis=1)
 
-        msk = create_circular_mask(img.shape[1:], pt.x_stim, pt.y_stim, pt.sp_size*3)
-        msk_trace = np.nanmean(img[:, msk], axis=1)
+        # 2) record the center point
+        points[idx] = [x0, y0]
 
-        print(msk_trace)
+        # 3) create a Circle patch outlining the sampling region
+        circ = Circle((x0, y0),
+                      radius=radius,
+                      fill=False,
+                      linewidth=1.0,
+                      edgecolor='fuchsia',  # or any color you like
+                      alpha=0.8)
+        circles.append(circ)
 
-        raw_traces[point] = msk_trace
-        points[point] = [pt.x_stim, pt.y_stim]
+    # save raw traces as before
+    np.save(Path(somebasefish.folder_path) / 'raw_traces.npy', raw_traces)
 
-    print("loc5")
-    # save the raw traces   
-    np.save(Path(somebasefish.folder_path).joinpath('raw_traces.npy'), raw_traces)
-    print(raw_traces)
+    somebasefish.roi_outlines = circles
+    # return the extra circles list
     return raw_traces, points
 
 def all_stimmed_traces_array(stimulated_fishvolume):
@@ -815,7 +943,7 @@ def correlations_with_stim_sites(somebasefish, traces_array = None, corr_thresho
         if Path(somebasefish.folder_path).joinpath('raw_traces.npy').exists():
             traces_array = np.load(Path(somebasefish.folder_path).joinpath('raw_traces.npy'))
         else:
-            traces_array, points = collect_raw_traces(somebasefish)
+            traces_array, points, circles = collect_raw_traces(somebasefish)
             np.save(Path(somebasefish.folder_path).joinpath('raw_traces.npy'), traces_array)
 
     somebasefish.normcells = arrutils.norm_0to1(somebasefish.f_cells)

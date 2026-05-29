@@ -67,6 +67,7 @@ class BaseFish:
 
     def process_filestructure(self):
         print("nhello")
+        print(self.folder_path)
         self.data_paths = {}
         with os.scandir(self.folder_path) as entries:
 
@@ -118,13 +119,19 @@ class BaseFish:
                 
                 # bruker information files
                 elif entry.name.endswith("xml"):
-                    if 'MarkPoints' in entry.name:
-                        self.data_paths["ps_xml"] = Path(entry.path)
-                    elif "Voltage" not in entry.name and 'MarkPoints' not in entry.name:
+                    print(entry.name)
+                    if "Voltage" not in entry.name and 'MarkPoints' not in entry.name:
                         self.data_paths["info_xml"] = Path(entry.path)
+                    elif 'MarkPoints' in entry.name:
+                        self.data_paths["ps_xml"] = Path(entry.path)
+                    elif "Voltage" in entry.name:
+                        self.data_paths["voltage_info_xml"] = Path(entry.path)
+
+
                 elif entry.name.endswith("env"):
                     self.data_paths["info_env"] = Path(entry.path)
                 elif entry.name.endswith("csv") and 'Voltage' in entry.name:
+                    print("asdasdfasdfasdfasdf")
                     self.data_paths["voltage_signal"] = Path(entry.path)
 
                 #this will use Owen custom photostim output from Bruker2pControl in lieu of MarkPoints xml
@@ -666,8 +673,38 @@ class PhotostimFish(BaseFish):
                 self.load_suite2p()
             if 'caiman' in self.data_paths.keys():
                 self.load_caiman()
-        self.normcells = arrutils.norm_fdff(self.f_cells)
-        self.zdiffcells = [arrutils.zdiffcell(z) for z in self.f_cells]
+        try:
+            self.normcells = arrutils.norm_fdff(self.f_cells)
+            self.zdiffcells = [arrutils.zdiffcell(z) for z in self.f_cells]
+
+        except:
+            
+            current_dir = self.data_paths["info_env"].parent
+
+            # Number of directories to go up (in this case, 3 will bring us to "25 March Sweeps")
+            N = 0
+
+            # Option 1: Using a loop to go up N directories
+            target_dir = current_dir
+            for _ in range(N):
+                target_dir = target_dir.parent
+
+            # Option 2: Using the .parents attribute (note: .parents[0] is the immediate parent)
+            # Uncomment the following line to use this alternative:
+            # target_dir = current_dir.parents[N - 1]
+
+            # Append an arbitrary directory to the target directory
+            arbitrary_directory = "output_folders/single_plane/suite2p/plane0"
+            new_path = target_dir / arbitrary_directory
+            
+            
+            self.data_paths['suite2p'] = new_path 
+            self.load_suite2p()
+            #self.load_caiman()
+
+            self.normcells = arrutils.norm_fdff(self.f_cells)
+            self.zdiffcells = [arrutils.zdiffcell(z) for z in self.f_cells]
+           
 
         # 1 - find bad frames, make sure this exists first
         try:
@@ -677,6 +714,7 @@ class PhotostimFish(BaseFish):
             photostimulation.save_badframes_arr(self)
         photostimulation.find_no_baseline_frames(self, no_planes)
 
+        print("identifying stim sites")
         # 2 - id the stim sites and save the raw traces
         self.stim_sites_df = photostimulation.identify_stim_sites(self, rotate, planes_stimed = stimmed_planes)
         self.raw_traces, self.points = photostimulation.collect_raw_traces(self)

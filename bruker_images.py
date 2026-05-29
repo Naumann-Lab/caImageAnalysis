@@ -119,7 +119,7 @@ def bruker_img_organization(folder_path, testkey = 'Cycle', safe=False, single_p
         for k in volume_path_dict.keys():
             with os.scandir(folder_path) as entries:
                 for entry in entries:
-                    if f'Cycle{k}' in entry.name and 'tif' in entry.name:
+                    if f'Cycle{k}' in entry.name and 'tif' in entry.name and not ':Zone.Identifier' not in entry.path and not ':' in entry.name:
                         volume_path_dict[k] = entry.path
 
         # number of planes gotten from the first image
@@ -222,6 +222,8 @@ def move_xml_files(folder_path):
                 pstim_path = Path(entry.path)
             elif 'Voltage' in entry.name and entry.name.endswith(".csv"):
                 voltage_path = Path(entry.path)
+            elif entry.name.endswith(".xml") and "MarkPoints" not in entry.name and "Voltage" in entry.name:
+                voltage_info_xml_path = Path(entry.path)
             elif entry.name.endswith("xml") and 'MarkPoints' in entry.name:
                 ps_xml_path = Path(entry.path)
             elif entry.name.endswith("env"):
@@ -232,10 +234,13 @@ def move_xml_files(folder_path):
             fld = Path(entry.path)
             shutil.copy(info_xml_path, Path(fld).joinpath(Path(info_xml_path).name))
             shutil.copy(info_env_path, Path(fld).joinpath(Path(info_env_path).name))
+
             if ps_xml_path:
                 shutil.copy(ps_xml_path, Path(fld).joinpath(Path(ps_xml_path).name))
             if voltage_path:
                 shutil.copy(voltage_path, Path(fld).joinpath(Path(voltage_path).name))
+                shutil.copy(voltage_info_xml_path, Path(fld).joinpath(Path(voltage_info_xml_path).name))
+
             print('extra files copied to output folders')
 
 def get_micronstopixels_scale(info_xml_file_path):

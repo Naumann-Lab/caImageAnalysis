@@ -9,8 +9,9 @@ def pandastim_to_df(pstimpath, minimode=False, addvelocity=True):
 
     lines = contents.split("\n")
 
-    motionOns = [i for i in lines if "motionOn" in i.split("_&_")[-1]]
-    times = [i.split("_&_")[0] for i in motionOns]
+    motionOns = [i for i in lines if "motionOn" in i]
+    times = [i.split(" ")[0] + " " + i.split(" ")[1][:i.split(" ")[1].find('_')] for i in motionOns]
+    print(f"{len(motionOns)} motion on events!!")
     stims = [eval(i[i.find("{") :]) for i in motionOns]
     stimulus_only = [i["stimulus"] for i in stims]
 
@@ -21,17 +22,19 @@ def pandastim_to_df(pstimpath, minimode=False, addvelocity=True):
         pd.Timestamp(i).time() for i in stimulus_df.datetime.values
     ]
 
+    print(stimulus_df.head())
+
     mini_stim = stimulus_df[["stim_name", "time"]]
     mini_stim.stim_name = pd.Series(mini_stim.stim_name, dtype="category")
 
     mini_stim_vel = stimulus_df[["stim_name", "velocity", "time"]]
     mini_stim_vel.stim_name = pd.Series(mini_stim.stim_name, dtype="category")
-    if minimode:
-        return mini_stim
-    elif addvelocity:
-        return mini_stim_vel
-    else:
-        return stimulus_df
+    # if minimode:
+    #     return mini_stim
+    # elif addvelocity:
+    #     return mini_stim_vel
+    # else:
+    return stimulus_df
 
 def legacy_struct_pandastim_to_df(folderPath, stim_key, *args, **kwargs):
     import os

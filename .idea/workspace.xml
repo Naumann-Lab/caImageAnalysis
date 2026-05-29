@@ -4,13 +4,12 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="0a2cab2c-7fe4-4ebc-ad9d-622d597d9f7f" name="Changes" comment="Improved loading log files and plotting">
+    <list default="true" id="0a2cab2c-7fe4-4ebc-ad9d-622d597d9f7f" name="Changes" comment="Bug fix">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/bruker_images.py" beforeDir="false" afterPath="$PROJECT_DIR$/bruker_images.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/examples/photostim_processing_plotting_examples01.ipynb" beforeDir="false" afterPath="$PROJECT_DIR$/examples/photostim_processing_plotting_examples01.ipynb" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/fishy.py" beforeDir="false" afterPath="$PROJECT_DIR$/fishy.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/photostimulation.py" beforeDir="false" afterPath="$PROJECT_DIR$/photostimulation.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/utilities/pstim_cpmmand_parser.py" beforeDir="false" afterPath="$PROJECT_DIR$/utilities/pstim_cpmmand_parser.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/stimuli.py" beforeDir="false" afterPath="$PROJECT_DIR$/stimuli.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/utilities/txt_json.py" beforeDir="false" afterPath="$PROJECT_DIR$/utilities/txt_json.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
@@ -45,38 +44,57 @@
     &quot;accountId&quot;: &quot;5e0f2d2d-9418-49b4-9270-7e19aa842fd0&quot;
   }
 }</component>
+  <component name="HighlightingSettingsPerFile">
+    <setting file="file://$PROJECT_DIR$/bruker_images.py" root0="SKIP_INSPECTION" />
+    <setting file="file://$PROJECT_DIR$/fishy.py" root0="SKIP_INSPECTION" />
+    <setting file="file://$PROJECT_DIR$/photostimulation.py" root0="SKIP_INSPECTION" />
+    <setting file="file://$PROJECT_DIR$/process.py" root0="SKIP_INSPECTION" />
+    <setting file="file://$PROJECT_DIR$/registration/sitkalignment.py" root0="SKIP_INSPECTION" />
+    <setting file="file://$PROJECT_DIR$/utilities/pstim_cpmmand_parser.py" root0="SKIP_INSPECTION" />
+    <setting file="file://$PROJECT_DIR$/utilities/roiutils.py" root0="SKIP_INSPECTION" />
+  </component>
   <component name="MarkdownSettingsMigration">
     <option name="stateVersion" value="1" />
+  </component>
+  <component name="McpProjectServerCommands">
+    <commands />
+    <urls />
   </component>
   <component name="ProjectColorInfo">{
   &quot;associatedIndex&quot;: 8
 }</component>
   <component name="ProjectId" id="2NnO1eEBMh1Cbln2bDWH1w4m8J8" />
-  <component name="ProjectLevelVcsManager" settingsEditedManually="true" />
   <component name="ProjectViewState">
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent"><![CDATA[{
-  "keyToString": {
-    "Python.bruker_images.executor": "Run",
-    "Python.online_alignment.executor": "Run",
-    "Python.pstim_cpmmand_parser.executor": "Run",
-    "Python.txt_json.executor": "Run",
-    "RunOnceActivity.OpenProjectViewOnStart": "true",
-    "RunOnceActivity.ShowReadmeOnStart": "true",
-    "RunOnceActivity.git.unshallow": "true",
-    "WebServerToolWindowFactoryState": "false",
-    "git-widget-placeholder": "owen",
-    "last_opened_file_path": "/home/gromit/anaconda3/envs/kaiman/lib/python3.7/site-packages/caImageAnalysis",
-    "node.js.detected.package.eslint": "true",
-    "node.js.selected.package.eslint": "(autodetect)",
-    "node.js.selected.package.tslint": "(autodetect)",
-    "nodejs_package_manager_path": "npm",
-    "settings.editor.selected.configurable": "com.jetbrains.python.configuration.PyActiveSdkModuleConfigurable",
-    "vue.rearranger.settings.migration": "true"
+  <component name="PropertiesComponent">{
+  &quot;keyToString&quot;: {
+    &quot;Python.bruker_images.executor&quot;: &quot;Run&quot;,
+    &quot;Python.online_alignment.executor&quot;: &quot;Run&quot;,
+    &quot;Python.pstim_cpmmand_parser.executor&quot;: &quot;Run&quot;,
+    &quot;Python.txt_json.executor&quot;: &quot;Run&quot;,
+    &quot;RunOnceActivity.MCP Project settings loaded&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.OpenProjectViewOnStart&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.typescript.service.memoryLimit.init&quot;: &quot;true&quot;,
+    &quot;WebServerToolWindowFactoryState&quot;: &quot;false&quot;,
+    &quot;ai.playground.ignore.import.keys.banner.in.settings&quot;: &quot;true&quot;,
+    &quot;codeWithMe.voiceChat.enabledByDefault&quot;: &quot;false&quot;,
+    &quot;com.intellij.ml.llm.matterhorn.ej.ui.settings.DefaultModelSelectionForGA.v1&quot;: &quot;true&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;owen&quot;,
+    &quot;junie.onboarding.icon.badge.shown&quot;: &quot;true&quot;,
+    &quot;last_opened_file_path&quot;: &quot;/home/gromit/8-april-26-fish1-sweep2-02.log&quot;,
+    &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
+    &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
+    &quot;node.js.selected.package.tslint&quot;: &quot;(autodetect)&quot;,
+    &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
+    &quot;settings.editor.selected.configurable&quot;: &quot;com.jetbrains.python.configuration.PyActiveSdkModuleConfigurable&quot;,
+    &quot;to.speed.mode.migration.done&quot;: &quot;true&quot;,
+    &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
   }
-}]]></component>
+}</component>
   <component name="RecentsManager">
     <key name="CopyFile.RECENT_KEYS">
       <recent name="$PROJECT_DIR$/examples" />
@@ -96,7 +114,9 @@
       <option name="IS_MODULE_SDK" value="true" />
       <option name="ADD_CONTENT_ROOTS" value="true" />
       <option name="ADD_SOURCE_ROOTS" value="true" />
+      <option name="DEBUG_JUST_MY_CODE" value="true" />
       <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
+      <option name="RUN_TOOL" value="" />
       <option name="SCRIPT_NAME" value="$PROJECT_DIR$/registration/online_alignment.py" />
       <option name="PARAMETERS" value="" />
       <option name="SHOW_COMMAND_LINE" value="false" />
@@ -116,8 +136,8 @@
   <component name="SharedIndexes">
     <attachedChunks>
       <set>
-        <option value="bundled-js-predefined-d6986cc7102b-deb605915726-JavaScript-PY-243.22562.180" />
-        <option value="bundled-python-sdk-85c76a3b01b3-9a18a617cbe4-com.jetbrains.pycharm.pro.sharedIndexes.bundled-PY-243.22562.180" />
+        <option value="bundled-js-predefined-d6986cc7102b-31caf2ab9e3c-JavaScript-PY-261.23567.174" />
+        <option value="bundled-python-sdk-024ed6589d45-c2ffad84badb-com.jetbrains.pycharm.pro.sharedIndexes.bundled-PY-261.23567.174" />
       </set>
     </attachedChunks>
   </component>
@@ -154,7 +174,25 @@
       <workItem from="1724882884567" duration="9039000" />
       <workItem from="1725466887581" duration="50000" />
       <workItem from="1730833990416" duration="9259000" />
-      <workItem from="1738535456010" duration="11201000" />
+      <workItem from="1738535456010" duration="26968000" />
+      <workItem from="1742255704764" duration="13250000" />
+      <workItem from="1745194631538" duration="3511000" />
+      <workItem from="1745363336526" duration="16895000" />
+      <workItem from="1748458225746" duration="24299000" />
+      <workItem from="1749572223643" duration="12838000" />
+      <workItem from="1752533995091" duration="1744000" />
+      <workItem from="1756232408334" duration="631000" />
+      <workItem from="1756233946105" duration="14681000" />
+      <workItem from="1759367869854" duration="4000" />
+      <workItem from="1759431868059" duration="1889000" />
+      <workItem from="1761684483531" duration="10000" />
+      <workItem from="1761707504577" duration="2859000" />
+      <workItem from="1763673947699" duration="638000" />
+      <workItem from="1773964024651" duration="724000" />
+      <workItem from="1774553081422" duration="621000" />
+      <workItem from="1775590376342" duration="4396000" />
+      <workItem from="1777332950745" duration="2749000" />
+      <workItem from="1777944990827" duration="10608000" />
     </task>
     <task id="LOCAL-00001" summary="Replaced bruker's xml with my own custom xml">
       <option name="closed" value="true" />
@@ -212,7 +250,15 @@
       <option name="project" value="LOCAL" />
       <updated>1715355963432</updated>
     </task>
-    <option name="localTasksCounter" value="8" />
+    <task id="LOCAL-00008" summary="Bug fix">
+      <option name="closed" value="true" />
+      <created>1740596612148</created>
+      <option name="number" value="00008" />
+      <option name="presentableId" value="LOCAL-00008" />
+      <option name="project" value="LOCAL" />
+      <updated>1740596612148</updated>
+    </task>
+    <option name="localTasksCounter" value="9" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -248,7 +294,8 @@
     <MESSAGE value="Fixed version compatibility issue with &lt;3.10" />
     <MESSAGE value="Plotting changes" />
     <MESSAGE value="Improved loading log files and plotting" />
-    <option name="LAST_COMMIT_MESSAGE" value="Improved loading log files and plotting" />
+    <MESSAGE value="Bug fix" />
+    <option name="LAST_COMMIT_MESSAGE" value="Bug fix" />
   </component>
   <component name="XDebuggerManager">
     <breakpoint-manager>
