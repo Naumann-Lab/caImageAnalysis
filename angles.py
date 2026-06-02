@@ -1,7 +1,7 @@
 import constants
 import numpy as np
 
-import photostim_data_pipeline
+
 from utilities import arrutils
 
 
@@ -56,6 +56,7 @@ def calc_dsi_cardinaldirs(vizstimfishy, base_sec = 4, motion_on_sec = 10, dsi_th
     :param use_df_f: whether to calculate df/f for each neuron, or just use the normalized trace
     :return: list of dsi values for all the neurons in the vizstim fishy
     '''
+    import photostim_data_pipeline
 
     motion_frame_offsets = vizstimfishy.offsets
     base_frames = int(base_sec * vizstimfishy.img_hz)
@@ -136,6 +137,27 @@ def is_within_short_arc(angle, start, end):
         # Counter-clockwise arc (shorter)
         return (s - a) % 360 <= (360 - diff)
 
+
+def angle_to_color(angle):
+    anchors = {
+        0: np.array([0.0, 1.0, 0.0]),  # green
+        90: np.array([1.0, 0.0, 0.0]),  # red
+        180: np.array([0.5, 0.0, 0.5]),  # purple
+        270: np.array([0.0, 0.0, 1.0]),  # blue
+        360: np.array([0.0, 1.0, 0.0])  # wrap back to green
+    }
+
+    angles = sorted(anchors.keys())
+
+    # wrap angle into [0, 360)
+    angle = angle % 360
+
+    for a1, a2 in zip(angles[:-1], angles[1:]):
+        if a1 <= angle <= a2:
+            t = (angle - a1) / (a2 - a1)
+            return (1 - t) * anchors[a1] + t * anchors[a2]
+
+    raise ValueError("Angle out of range")
 
 def angle_to_rgba(angle, saturation, alpha):
     import colorsys

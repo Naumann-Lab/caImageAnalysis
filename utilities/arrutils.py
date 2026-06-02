@@ -67,6 +67,37 @@ def zscoring(data_array):
     conv_zscores = pretty(zscores)
     return conv_zscores
 
+def get_zdFF(full_trace, frame_arr, baseline_start = 0, baseline_end = 14, smooth = True):
+    # get zscored df/f for multiple trials
+    from scipy.stats import zscore
+
+    trials = np.array([full_trace[fr] for fr in frame_arr])
+    trials_dff = np.zeros(shape = (trials.shape))
+    for s, st in enumerate(trials):
+        base = st[baseline_start:baseline_end]
+        dff = (st-np.nanmean(base))/np.nanmean(base)
+        if smooth:
+            trials_dff[s] = pretty(dff)
+        else:
+            trials_dff[s] = dff
+    trials_z_dff = np.array([zscore(r) for r in trials_dff])
+
+    return trials_z_dff
+
+def get_dFF(full_trace, frame_arr, baseline_start = 0, baseline_end = 14, smooth = True):
+    # get local df/f for multiple trials
+    trials = np.array([full_trace[fr] for fr in frame_arr])
+    trials_dff = np.zeros(shape = (trials.shape))
+    for s, st in enumerate(trials):
+        base = st[baseline_start:baseline_end]
+        dff = (st-np.nanmean(base))/np.nanmean(base)
+        if smooth:
+            trials_dff[s] = pretty(dff)
+        else:
+            trials_dff[s] = dff
+
+    return trials_dff
+
 def arrs_to_medians(arrs, off1, off2):
     return np.nanmedian([i[off1 : off1 + off2] for i in arrs], axis=0)
 

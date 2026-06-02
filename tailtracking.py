@@ -238,6 +238,41 @@ def max_tailbeat_freq(trace, t, smooth_window=3, amp_thresh_frac=0.01):
     freqs = 1 / periods
     return np.max(freqs)
 
+
+def get_bout_frames_no_overlap(bout_start_frames, offsets, total_frames):
+    """
+    For each bout, return the frame indices for the window defined by offsets.
+    If a window would overlap with the next bout's window, fill the conflicting
+    portion with NaN (represented as -1 sentinel, replaced after indexing).
+    
+    Returns: list of arrays, each of length (offsets[1] - offsets[0]),
+             where -1 indicates a NaN position.
+    """
+    window_size = offsets[1] - offsets[0]
+    all_frame_windows = []
+    
+    for i, start in enumerate(bout_start_frames):
+        frames = np.arange(start + offsets[0], start + offsets[1])
+        
+        # Mask frames that go out of bounds
+        out_of_bounds = (frames < 0) | (frames >= total_frames)
+        
+        # Mask frames that fall on or after the NEXT bout's start
+        # (i.e., would bleed into the next bout's peri-bout window)
+        if i < len(bout_start_frames) - 1:
+            next_bout_start = bout_start_frames[i + 1]
+            # The next bout's window begins at: next_bout_start + offsets[0]
+            next_window_start = next_bout_start + offsets[0]
+            overlaps_next = frames >= next_window_start
+        else:
+            overlaps_next = np.zeros(len(frames), dtype=bool)
+        
+        invalid = out_of_bounds | overlaps_next
+        frames[invalid] = -1  # sentinel for NaN
+        all_frame_windows.append(frames)
+    
+    return all_frame_windows
+
 ## CREATING THE BOUT ANALYSIS DATAFRAME/INFO
 def analyze_tail(tail_df, stimulus_df, img_hz, stimulus_df_frame_col = 'frame',
                  stimulus_s = 5, strength_boundary = 0.25, min_on_s = 0.1, cont_cutoff_s = 0.05):

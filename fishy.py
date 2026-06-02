@@ -126,6 +126,8 @@ class BaseFish:
                     self.data_paths["ps_log"] = Path(entry.path)
                 elif 'stim_sites' in entry.name:
                     self.data_paths["stim_sites"] = Path(entry.path)
+                elif 'precise_photostim_times' in entry.name:
+                    self.data_paths["ps_datetimes"] = Path(entry.path)
 
         # moving over the original image to a separate folder
         if "image" in self.data_paths and "move_corrected_image" in self.data_paths:
@@ -196,7 +198,8 @@ class BaseFish:
             self.f_cells = np.load(self.data_paths["caiman"].joinpath("raw.npy"))
         else:
             self.f_cells = np.load(self.data_paths["caiman"].joinpath("C.npy"))
-        self.dff_cells = np.load(self.data_paths["caiman"].joinpath("F_dff.npy"), allow_pickle=True)
+        if self.data_paths["caiman"].joinpath("F_dff.npy").exists():
+            self.dff_cells = np.load(self.data_paths["caiman"].joinpath("F_dff.npy"), allow_pickle=True)
         self.rescaled_img()
 
     def is_cell(self, edge_margin = 20):
@@ -895,7 +898,7 @@ class VizStimFish(TailTrackedFish):
 
         return final_image * brightnessFactor
 
-class PhotostimFish(TailTrackedFish):
+class PhotostimFish(BaseFish):
     def __init__(
         self,
         rotate = True, 
@@ -940,7 +943,8 @@ class PhotostimFish(TailTrackedFish):
             self.baseline_frames = 0
 
         # 2 - get basic photostim experiment info for any plane
-        self.ps_event_duration, self.ps_event_ms_from_start = photostim_utils.collect_stimulation_times(self)
+        # self.ps_event_duration, self.ps_event_ms_from_start = photostim_utils.collect_stimulation_times(self)
+        self.ps_event_duration = photostim_utils.find_photostim_duration_ms(self.folder_path)
         self.ps_event_duration_frames = int(np.ceil(self.ps_event_duration / 1000 * self.img_hz))
         self.ps_event_start = arrutils.filter_list(lst=np.unique(self.badframes_arr),
                                                        interval=self.ps_event_duration_frames)
@@ -967,9 +971,13 @@ class PhotostimFish(TailTrackedFish):
                 if ('ps_log' in self.data_paths.keys()):
                     self.ps_event_start = arrutils.filter_list(lst=np.unique(self.badframes_arr),
                                                                interval=self.ps_event_duration_frames)
+            if 'cell_ids' not in self.stim_sites_df.columns:
+                self.stim_sites_df['cell_ids'] = np.arange(len(self.stim_sites_df))
+                self.stim_sites_df.to_hdf(Path(self.folder_path).joinpath("stim_sites.hdf"), key="stim")
 
             # 4 - id the stim sites and save the raw traces #
-            self.raw_traces, self.points = photostim_utils.collect_raw_traces(self)
+            if 'rotated_image' in self.data_paths.keys():
+                self.raw_traces, self.points = photostim_utils.collect_raw_traces(self)
             self.check_if_stim_site_within_brain() # make sure the stim site is within the brain
             # OLD - id the stimulated cells based on distance & max response #
             # self.stimmed_cell_coords, self.stimmed_cell_id_array, self.stimmed_cells_matched_stim_ids_dict = self.identify_stim_cells(within_radius_um = identify_stim_cell_within_radius_um,
@@ -981,12 +989,6 @@ class PhotostimFish(TailTrackedFish):
         # # 5 - match photostim times with tail data
         # if 'tail' in self.data_paths.keys():
         #     self.add_stim_events_to_tail_df()
-
-    # if 'caiman' in self.data_paths.keys(): # not working for the automated gui yet
-    #     photostim_utils.create_new_ps_events_array(self) # making a new ps_events start array since trimmed frames from caiman processing
-    #     self.ps_event_start = np.load(Path(self.folder_path).joinpath('ps_frames.npy'))
-    #     self.ps_event_duration = 100 # arbitrary setting duration to 100 ms
-    #     self.ps_event_duration_frames = 1 # thus frames is 1
 
     def add_parameter_df(self):
         stim_parameters_csv_path = self.folder_path.parents[1].joinpath('stim_parameters.csv')
@@ -1162,10 +1164,10 @@ class PhotostimFish(TailTrackedFish):
         from datetime import timedelta, date
         from datetime import datetime as dt
 
-        txt_file_path = Path(self.folder_path.parents[1]).joinpath("precise_photostim_times.txt")
-        if txt_file_path.exists():
+        if 'ps_datetimes' in self.data_paths.keys():
+            txt_file_path = self.data_paths["ps_datetimes"]
             photostim_dt_array = pd.to_datetime(pd.read_csv(txt_file_path, header=None)[0]).values
-        elif (not txt_file_path.exists()) & ('ps_log' in self.data_paths.keys()):
+        elif 'ps_log' in self.data_paths.keys():
             return print('get precise photostim times for automated gui output')
         else:
             root = bruker_images.read_xml_to_root(self.data_paths['voltage_xml'])

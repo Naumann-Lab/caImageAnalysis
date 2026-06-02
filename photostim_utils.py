@@ -29,13 +29,17 @@ def find_no_baseline_frames(somefishclass):
     no_planes = identify_number_planes_in_expt(somefishclass)
     if no_planes < 2: # if this is a single plane imaging file
         original_imgs = Path(somefishclass.folder_path).parents[1].joinpath("bruker_images")
-        with os.scandir(original_imgs) as entries:
-            for entry in entries:
-                if 'Cycle' in entry.name and 'tif' in entry.name:
-                    baseline_img = imread(entry.path)
-                    break #we want the first tif file here in single image
+        if len(os.listdir(original_imgs)) == 1:
+            somefishclass.baseline_frames = 0
+        else:
+            with os.scandir(original_imgs) as entries:
+                for entry in entries:
+                    if 'Cycle' in entry.name and 'tif' in entry.name:
+                        baseline_img = imread(entry.path)
+                        break #we want the first tif file here in single image
+            somefishclass.baseline_frames = baseline_img.shape[0]
 
-        somefishclass.baseline_frames = baseline_img.shape[0]
+        somefishclass.baseline_frames = 0 # default making it always 0 baseline
 
     elif no_planes >= 2 and 'ps_xml' in somefishclass.data_paths.keys(): # if this is a volume, but there is the MarkPoints xml file
         ps_xml_name = Path(somefishclass.data_paths['ps_xml']).name
@@ -313,13 +317,21 @@ def save_badframes_arr(somefishclass, automated_gui = False, force = True):
     frametimes_dt = somefishclass.frametimes_df.time.values
     frametimes_sec = np.array([t.hour * 3600 + t.minute * 60 + t.second + t.microsecond / 1e6 for t in frametimes_dt])
 
-    photostim_dts_arr = find_precise_photostim_times(somefishclass.data_paths['voltage_signal'],
+    if 'ps_datetimes' in somefishclass.data_paths.keys(): # if i already made my photostim datetime array
+        with open(somefishclass.data_paths['ps_datetimes'], 'r') as file:
+            lines = file.read().splitlines()
+        photostim_dts_arr = np.array(lines).astype('datetime64[ns]')
+    else:
+        photostim_dts_arr = find_precise_photostim_times(somefishclass.data_paths['voltage_signal'],
                                                      somefishclass.data_paths['voltage_xml'],
                                                      somefishclass.data_paths['info_xml'])
+
     photostim_dts = [pd.to_datetime(a).time() for a in photostim_dts_arr]
     photostim_sec = [t.hour * 3600 + t.minute * 60 + t.second + t.microsecond / 1e6 for t in photostim_dts]
 
-    matching_frametimes_inds = np.array([np.argmin(np.abs(frametimes_sec - t)) for t in photostim_sec])
+    # matching_frametimes_inds = np.array([np.argmin(np.abs(frametimes_sec - t)) for t in photostim_sec])
+    # this makes sure that the frametime will be just earlier than the photostim time
+    matching_frametimes_inds = np.array([np.searchsorted(frametimes_sec, t, side='right') - 1 for t in photostim_sec])
 
     ps_events = [somefishclass.baseline_frames + f for f in matching_frametimes_inds]
     ps_events = np.unique(ps_events)
@@ -332,7 +344,6 @@ def save_badframes_arr(somefishclass, automated_gui = False, force = True):
         print('saved bad frames array')
    
     return somefishclass.badframes_arr
-
 
 def refine_exact_badframes(img, bad_frames_approx, search_range=10, black_pct=5, save_path = None):
     """

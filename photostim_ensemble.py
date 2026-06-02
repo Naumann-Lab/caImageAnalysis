@@ -269,6 +269,7 @@ def build_functional_types_df_for_ensembles(omr_fishvolume,
         omr_Fish.load_saved_rois()
         print(f'adding regions {omr_Fish.roi_dict.keys()}')
         omr_data_rois = omr_Fish.return_cell_rois(range(len(omr_Fish.f_cells)))
+        omr_data_contours = [{k: omr_Fish.stats[i][k] for k in ['xpix', 'ypix']} for i in range(len(omr_Fish.f_cells))]
 
         sub_functional_types_df['omr_neur_id'] = range(len(omr_Fish.f_cells))
         print('loading omr data')
@@ -276,6 +277,7 @@ def build_functional_types_df_for_ensembles(omr_fishvolume,
                                                                          motion_cues=constants.photostim_motion_cues)
         sub_functional_types_df['motion_responses'] = all_motion_responses_lst
         sub_functional_types_df['neur_coords'] = omr_data_rois
+        sub_functional_types_df['neur_contours'] = omr_data_contours
         sub_functional_types_df['plane'] = [plane] * len(sub_functional_types_df)
         if motor_correlation:
             sub_functional_types_df['motor_corr'] = omr_Fish.motor_pearson_corrs
@@ -380,10 +382,11 @@ def build_functional_types_df_for_ensembles(omr_fishvolume,
                     bad_indices.append(n)
 
                     stim_cell_roi = stim_photostimFish.return_singlecell_rois(stim_cell)
+                    contour = [{k: stim_photostimFish.stats[i][k] for k in ['xpix', 'ypix']} for i in [stim_cell]]
                     plane = stim_photostimFish.stim_sites_df[
                         stim_photostimFish.stim_sites_df.cell_ids == stim_site_idx].plane.values[0]
                     new_row = {'resp_cell_id': f'stim_{stim_site_idx}', 'omr_neur_id': 'None', 'stim_neur_id': stim_cell,
-                               'neur_coords': stim_cell_roi, 'plane': plane,'region': 'Pt',
+                               'neur_coords': stim_cell_roi, 'neur_contours':contour, 'plane': plane,'region': 'Pt',
                                'visual_barcode': 'None', 'motion_responses': 'None',
                                'photostim': True, 'stim_frames': stim_frames, 'stim_events': stim_events}
                     sub_functional_types_df.loc[len(sub_functional_types_df)] = new_row

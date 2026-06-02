@@ -43,7 +43,8 @@ def convert_frame_to_sec(frame_lst, framerate):
     return [x / framerate for x in frame_lst]
 
 def add_time_scalebar(ax, length_secs, fps, label=None,
-                      pad_frac=0.05, lw=3):
+                      pad_frac=0.05, lw=3,
+                      transform=None, x=0.95, y=0.05):
     """
     Add a horizontal time scale bar to a subplot.
 
@@ -52,30 +53,45 @@ def add_time_scalebar(ax, length_secs, fps, label=None,
     fps         : frames per second
     label       : optional text (default = f'{length_secs} s')
     pad_frac    : padding from bottom as fraction of y-range
+    transform:
+        None → use data coords (default, current behavior)
+        ax.transAxes → axis coords (0–1)
+        fig.transFigure → figure coords (0–1)
+    x, y:
+        position of RIGHT end of scalebar in chosen coordinates
     """
     length_frames = length_secs * fps
 
-    x0, x1 = ax.get_xlim()
-    y0, y1 = ax.get_ylim()
+    if transform is None:
+        # --- original behavior ---
+        x0, x1 = ax.get_xlim()
+        y0, y1 = ax.get_ylim()
 
-    x_start = x1 - length_frames
-    y_bar = y0 + pad_frac * (y1 - y0)
+        x_start = x1 - length_frames
+        y_bar = y0 + pad_frac * (y1 - y0)
 
-    ax.plot(
-        [x_start, x1],
-        [y_bar, y_bar],
-        color='k',
-        lw=lw,
-        solid_capstyle='butt'
-    )
+        ax.plot([x_start, x1], [y_bar, y_bar], color='k', lw=lw)
+        ax.text((x_start + x1) / 2, y_bar - 0.03 * (y1 - y0),
+                label if label else ' ',
+                ha='center', va='top')
 
-    ax.text(
-        (x_start + x1) / 2,
-        y_bar - 0.03 * (y1 - y0),
-        label if label else f'{length_secs} s',
-        ha='center',
-        va='top'
-    )
+    else:
+        # --- normalized coords (axis or figure) ---
+        # convert frame length into fraction of x-axis
+        x0, x1 = ax.get_xlim()
+        frac = length_frames / (x1 - x0)
+
+        x_end = x
+        x_start = x - frac
+
+        ax.plot([x_start, x_end], [y, y],
+                transform=transform,
+                color='k', lw=lw, clip_on=False)
+
+        ax.text((x_start + x_end) / 2, y - 0.02,
+                label if label else f'{length_secs} s',
+                transform=transform,
+                ha='center', va='top')
 
 def highlight_region(ax, mask, color, alpha=0.25):
     idx = np.where(mask)[0]
@@ -188,5 +204,19 @@ def interpolate_colors(start_hex, end_hex, n):
     ]
     
     return colors
+
+
+
+def make_wide_white_bwr(white_fraction=0.3):
+    """
+    bwr-like colormap but with a wider white zone around 0.
+    white_fraction: how much of the colormap (centered) is white (0.0-1.0)
+    """
+    from matplotlib.colors import LinearSegmentedColormap
+    
+    half = white_fraction / 2
+    nodes = [0.0, 0.5 - half, 0.5, 0.5 + half, 1.0]
+    colors = ['blue', 'white', 'white', 'white', 'red']
+    return LinearSegmentedColormap.from_list('bwr_wide_white', list(zip(nodes, colors)))
 
 

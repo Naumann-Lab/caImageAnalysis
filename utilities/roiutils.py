@@ -48,6 +48,86 @@ def create_polygon_mask(image_shape, polygon_coords):
 
     return mask.astype(np.uint8)
 
+
+def extract_circular_roi_trace(image_stack, x_center, y_center, diameter_um, um_per_pixel):
+    """
+    Extracts raw pixel values within a circular ROI across a time series.
+    Like getting the raw traces for a specific stim site...
+    Parameters:
+    -----------
+    image_stack : np.ndarray
+        3D array with shape (frames, height, width)
+    x_center, y_center : float
+        The center coordinates of the stimulus in pixels
+    diameter_um : float
+        Diameter of the spot in micrometers (e.g., 5)
+    um_per_pixel : float
+        Spatial resolution of your imaging (e.g., 0.8)
+
+    Returns:
+    --------
+    roi_data : np.ndarray
+        2D array of raw pixel values with shape (frames, num_pixels_in_roi)
+    """
+    # 1. Convert physical diameter to pixel radius
+    radius_px = (diameter_um / um_per_pixel) / 2
+
+    # 2. Create a coordinate grid for the image dimensions
+    f, h, w = image_stack.shape
+    yy, xx = np.mgrid[:h, :w]
+
+    # 3. Calculate Euclidean distance of every pixel from the center
+    dist_from_center = np.sqrt((xx - x_center) ** 2 + (yy - y_center) ** 2)
+
+    # 4. Create a boolean mask of pixels within the radius
+    roi_mask = dist_from_center <= radius_px
+
+    # 5. Extract values: image_stack[:, roi_mask] returns (frames, N_pixels)
+    roi_pixel_values = image_stack[:, roi_mask]
+
+    return roi_pixel_values, roi_mask
+
+def extract_polygon_roi_trace(image_stack, ptlist):
+    """
+    Extract raw pixel values within a polygon ROI across a time series. - works when you make polygons with the draw_roi function
+
+    Parameters
+    ----------
+    image_stack : np.ndarray
+        3D array with shape (frames, height, width)
+
+    ptlist : list or np.ndarray
+        Polygon vertices as [(x1, y1), (x2, y2), ...]
+
+    Returns
+    -------
+    roi_pixel_values : np.ndarray
+        Raw pixel values with shape (frames, num_pixels_in_roi)
+
+    roi_mask : np.ndarray
+        Boolean mask of ROI with shape (height, width)
+    """
+
+    # image dimensions
+    frames, height, width = image_stack.shape
+
+    # make empty mask
+    roi_mask = np.zeros((height, width), dtype=np.uint8)
+
+    # convert points to OpenCV format
+    pts = np.array(ptlist, dtype=np.int32)
+
+    # fill polygon
+    cv2.fillPoly(roi_mask, [pts], 1)
+
+    # convert to boolean
+    roi_mask = roi_mask.astype(bool)
+
+    # extract raw pixel traces
+    roi_pixel_values = image_stack[:, roi_mask]
+
+    return roi_pixel_values, roi_mask
+
 # making masks out of rsChrmine images (or any red channel image)
 
 def make_red_channel_image_masks(reference_stack_path, otsu_thresh_factor = 1.1, save_mask_directory = None):
@@ -160,8 +240,12 @@ def compute_coverage(circle_pixels, polygon_pixels):
 
 
 # Functions for drawing and saving ROIs outside of the Fish class structure
+def draw_roi(ref_img, savePath, title, brightness=50, contrast=30):
+    # edited by chatgpt to allow me to see the line
 
-def draw_roi(ref_img, savePath, title):
+    import cv2
+    import numpy as np
+    from pathlib import Path
 
     img_arr = np.zeros((max(ref_img.shape), max(ref_img.shape)))
 
@@ -169,15 +253,113 @@ def draw_roi(ref_img, savePath, title):
         for y in np.arange(ref_img.shape[1]):
             img_arr[x, y] = ref_img[x, y]
 
+    plot_img = np.int16(img_arr)
+    plot_img = plot_img * (contrast / 127 + 1) - contrast + brightness
+    plot_img = np.clip(plot_img, 0, 255).astype(np.uint8)
+
+    # permanent drawing image
+    base_img = plot_img.copy()
+
+    ptlist = []
+
+    window_name = f"roiFinder_{title}"
+
+    def roigrabber(event, x, y, flags, params):
+
+        nonlocal base_img
+
+        # -----------------------------
+        # LEFT CLICK = add point
+        # -----------------------------
+        if event == cv2.EVENT_LBUTTONDOWN:
+
+            if len(ptlist) > 0:
+                cv2.line(
+                    base_img,
+                    ptlist[-1],
+                    (x, y),
+                    color=(0, 0),
+                    thickness=1)
+
+            cv2.circle(base_img, (x, y), 2, (0, 0), -1)
+
+            ptlist.append((x, y))
+
+            cv2.imshow(window_name, base_img)
+
+        # -----------------------------
+        # MOUSE MOVE = preview line
+        # -----------------------------
+        elif event == cv2.EVENT_MOUSEMOVE:
+
+            temp_img = base_img.copy()
+
+            if len(ptlist) > 0:
+                cv2.line(
+                    temp_img,
+                    ptlist[-1],
+                    (x, y),
+                    color=(0, 0),
+                    thickness=1,
+                )
+
+            cv2.imshow(window_name, temp_img)
+
+        # -----------------------------
+        # RIGHT CLICK = close polygon
+        # -----------------------------
+        elif event == cv2.EVENT_RBUTTONDOWN:
+
+            if len(ptlist) > 2:
+                cv2.line(
+                    base_img,
+                    ptlist[-1],
+                    ptlist[0],
+                    color=(0, 0),
+                    thickness=2,
+                )
+
+            cv2.imshow(window_name, base_img)
+
+            cv2.waitKey(300)
+            cv2.destroyAllWindows()
+
+    cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
+    cv2.resizeWindow(window_name, 1400, 1400)
+
+    cv2.setMouseCallback(window_name, roigrabber)
+
+    cv2.imshow(window_name, base_img)
+
+    try:
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
+    except:
+        cv2.destroyAllWindows()
+
+    save_roi(Path(savePath), title, ptlist)
+
+def draw_roi_original(ref_img, savePath, title, brightness=50, contrast=30):
+
+    img_arr = np.zeros((max(ref_img.shape), max(ref_img.shape)))
+
+    for x in np.arange(ref_img.shape[0]):
+        for y in np.arange(ref_img.shape[1]):
+            img_arr[x, y] = ref_img[x, y]
+
+    plot_img = np.int16(img_arr)
+    plot_img = plot_img * (contrast / 127 + 1) - contrast + brightness
+    plot_img = np.clip(plot_img, 0, 255).astype(np.uint8)
+
     ptlist = []
 
     def roigrabber(event, x, y, flags, params):
         if event == 1:  # left click
             if len(ptlist) == 0:
-                cv2.line(img_arr, pt1=(x, y), pt2=(x, y), color=(255, 255), thickness=3)
+                cv2.line(plot_img, pt1=(x, y), pt2=(x, y), color=(255, 255), thickness=3)
             else:
                 cv2.line(
-                    img_arr,
+                    plot_img,
                     pt1=(x, y),
                     pt2=ptlist[-1],
                     color=(255, 255),
@@ -192,7 +374,7 @@ def draw_roi(ref_img, savePath, title):
 
     cv2.setMouseCallback(f"roiFinder_{title}", roigrabber)
 
-    cv2.imshow(f"roiFinder_{title}", np.array(ref_img, "uint8"))
+    cv2.imshow(f"roiFinder_{title}", np.array(plot_img, "uint8"))
     try:
         cv2.waitKey(0)
         cv2.destroyAllWindows()

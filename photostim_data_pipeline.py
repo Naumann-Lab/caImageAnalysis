@@ -92,7 +92,10 @@ def build_functional_types_df(omr_fishvolume,
 
         sub_functional_types_df['omr_neur_id'] = range(len(omr_Fish.f_cells))
         print('loading omr data')
-        all_motion_responses_lst = gather_visual_motion_responses_for_df(omr_Fish, cell_id_array = None,
+        get_df_f = False
+        if 'caiman' in omr_Fish.data_paths.keys():
+            get_df_f = True
+        all_motion_responses_lst = gather_visual_motion_responses_for_df(omr_Fish, cell_id_array = None,get_df_f = get_df_f,
                                                                          motion_cues = constants.photostim_motion_cues)
         sub_functional_types_df['motion_responses'] = all_motion_responses_lst
         sub_functional_types_df['neur_coords'] = omr_data_rois
@@ -395,7 +398,7 @@ def gather_photostimulation_responses_for_df(responder_f_traces, stimulated_cell
             stim_evoked_raw_trial = np.zeros(shape = (len(resp_raw_trial), 1))
 
             for d, f in enumerate(resp_raw_trial):
-                base_e = f[:-photostim_response_frame_windows[0]] # i.e. frames 0:4
+                base_e = f[:- [0]] # i.e. frames 0:4
                 plot_e = (f - np.nanmean(base_e)) / np.nanmean(base_e)
                 evoked_e = np.nanmedian(plot_e[-photostim_response_frame_windows[0]:-photostim_response_frame_windows[0] + photostim_response_frame_windows[1]]) # evoked df f for each trial, i.e. frames 4:end
                 stim_evoked_df_f_trial[d] = evoked_e
@@ -721,13 +724,22 @@ def add_vizmotion_functional_identity_info_to_df(df, vizmotion_on_frame = 15, fr
     for each_row in range(len(df)):
         cell_motion_resp_info = df.iloc[each_row].motion_responses
         if cell_motion_resp_info != 'None':
-            motion_weights = get_motion_weights(cell_motion_resp_info, vizmotion_on_frame= vizmotion_on_frame, frames_motion_on=frames_motion_on)
-            tuning_angle, tuning_weight, tuning_color, dsi_val = get_tuning(cell_motion_resp_info,
-                                                                            motion_stim_list = tuning_motion_stim,
-                                                                            vizmotion_on_frame=vizmotion_on_frame,
-                                                                            frames_motion_on=frames_motion_on, plotting=False)
-            bi_val = get_bi(cell_motion_resp_info, vizmotion_on_frame=vizmotion_on_frame, frames_motion_on=frames_motion_on)
-            supp_val, supp_stim = get_suppression_value(motion_weights)
+            try:
+                motion_weights = get_motion_weights(cell_motion_resp_info, vizmotion_on_frame= vizmotion_on_frame, frames_motion_on=frames_motion_on)
+                tuning_angle, tuning_weight, tuning_color, dsi_val = get_tuning(cell_motion_resp_info,
+                                                                                motion_stim_list = tuning_motion_stim,
+                                                                                vizmotion_on_frame=vizmotion_on_frame,
+                                                                                frames_motion_on=frames_motion_on, plotting=False)
+                bi_val = get_bi(cell_motion_resp_info, vizmotion_on_frame=vizmotion_on_frame, frames_motion_on=frames_motion_on)
+                supp_val, supp_stim = get_suppression_value(motion_weights)
+            except:
+                tuning_angle = 'None'
+                tuning_weight = 'None'
+                tuning_color = 'None'
+                bi_val = 'None'
+                dsi_val = 'None'
+                motion_weights = 'None'
+                supp_val = 'None'
         else:
             tuning_angle = 'None'
             tuning_weight = 'None'

@@ -3,6 +3,15 @@ import shutil
 import numpy as np
 from pathlib import Path
 
+import caiman as cm
+from caiman.source_extraction.cnmf import cnmf, params
+from caiman.utils.visualization import get_contours
+from scipy.ndimage import binary_fill_holes
+import math
+from caiman.source_extraction.cnmf import cnmf as cnmf_module
+
+### PREPROCESS IMAGE TIFFS ###
+
 def run_image_rotation(base_fish, angle=0, crop=0.075):
     """
     :param base_fish:
@@ -130,6 +139,7 @@ def run_movement_correction(
     new_path = base_fish.folder_path.joinpath("movement_corr_img.tif")
     imsave(new_path, output) # saving the full motion corrected image here
 
+### RUN SOURCE EXTRACTION FUNCTIONS ###
 
 def run_suite2p(base_fish, input_tau=1.5, spatial_scale = 0, custom_parameter_dict=None, force=False):
     try:
@@ -411,6 +421,313 @@ def make_coordinates_into_dict(array_of_coors):
             new_coordinates.append({'xpix': np.nan, 'ypix': np.nan})
         
     return new_coordinates
+
+### RUN SOURCE EXTRACTION FUNCTIONS - CAIMAN, FOR SUPER LARGE DATASETS ###
+# derived from claude ai - important functions
+
+def make_subsampled_concat(movie_paths, subsample=3, out_path='subsampled_concat.tif', bad_frames_per_seq=None):
+    """
+    Load each sequence, subsample temporally, remove bad frames (±1 padding),
+    concatenate, save as tif.
+
+    Parameters
+    ----------
+    movie_paths        : list of str or Path
+    subsample          : int — keep every Nth frame
+    out_path           : str — where to save the concatenated subsampled tif
+    bad_frames_per_seq : list of list of int or None
+                         one list of bad frame indices per sequence,
+                         in the original (pre-subsample) frame space.
+                         e.g. [[10, 200], [45], [], [300, 301]]
+
+    Returns
+    -------
+    out_path     : str
+    """
+    import tifffile
+
+    frame_counts = []
+    total_frames = 0
+
+    for i, p in enumerate(movie_paths):
+        movie = np.array(cm.load(str(p)))   # (T, H, W)
+        subsampled = movie[::subsample]
+        del movie  # free immediately
+
+        T_sub = subsampled.shape[0]
+        if bad_frames_per_seq is not None and len(bad_frames_per_seq[i]) > 0:
+            bad_sub = set()
+            for bf in bad_frames_per_seq[i]:
+                bf_sub = bf // subsample
+                for offset in [-1, 0, 1]:
+                    idx = bf_sub + offset
+                    if 0 <= idx < T_sub:
+                        bad_sub.add(idx)
+
+            keep_mask = np.ones(T_sub, dtype=bool)
+            keep_mask[list(bad_sub)] = False
+            n_removed = int((~keep_mask).sum())
+            subsampled = subsampled[keep_mask]
+            print(f"  {Path(p).name}: removed {n_removed} frames around "
+                  f"{len(bad_frames_per_seq[i])} bad frame events")
+        else:
+            print(f"  {Path(p).name}: no bad frames")
+
+        # cast to float32 to halve memory
+        subsampled = subsampled.astype(np.float32)
+
+        # append directly to tif on disk — never accumulate in RAM
+        tifffile.imwrite(str(out_path), subsampled, append=True, bigtiff=True)
+
+        frame_counts.append(subsampled.shape[0])
+        total_frames += subsampled.shape[0]
+        print(f"    {subsampled.shape[0]} frames written (running total: {total_frames})")
+        del subsampled
+
+    print(f"\nTotal subsampled concat: {total_frames} frames saved to {out_path}")
+    return str(out_path)
+
+
+def run_caiman_on_subsampled(subsampled_path, framerate_subsampled, caiman_folder, custom_params=None):
+    """
+    Run CaImAn CNMF on the subsampled concatenated movie.
+    Only the spatial footprints (A matrix) from this are used downstream —
+    the temporal traces C are discarded.
+
+    Parameters
+    ----------
+    subsampled_path     : str — path to subsampled tif
+    framerate_subsampled: float — effective framerate after subsampling
+                          e.g. 6Hz / 3 = 2.0Hz
+    caiman_folder       : Path — where to save the HDF5
+    custom_params       : dict — override any default parameters
+
+    Returns
+    -------
+    save_path : str — path to saved HDF5
+    """
+    caiman_folder = Path(caiman_folder)
+    caiman_folder.mkdir(parents=True, exist_ok=True)
+
+    movie_orig = cm.load(subsampled_path)
+    correlation_image = cm.local_correlations(movie_orig, swap_dim=False)
+    correlation_image[np.isnan(correlation_image)] = 0
+
+    parameter_dict = {
+        'fnames'      : [subsampled_path],
+        'fr'          : framerate_subsampled,
+        'p'           : 1,
+        'nb'          : 2,
+        'merge_thr'   : 0.75,
+        'rf'          : 20,
+        'stride'      : 7,
+        'K'           : 10,
+        'gSig'        : [4, 4],
+        'ssub'        : 1,
+        'tsub'        : 1,
+        'method_init' : 'greedy_roi',
+        'min_SNR'     : 2.0,
+        'rval_thr'    : 0.85,
+        'use_cnn'     : True,
+        'min_cnn_thr' : 0.9,
+        'cnn_lowest'  : 0.3,
+        'decay_time'  : 1.5,   # GCaMP7f zebrafish RT
+    }
+
+    if custom_params is not None:
+        for k, v in custom_params.items():
+            parameter_dict[k] = v
+        print(f"Custom params applied: {list(custom_params.keys())}")
+
+    parameters = params.CNMFParams(params_dict=parameter_dict)
+
+    _, cluster, n_processes = cm.cluster.setup_cluster(
+        backend='local', n_processes=None, single_thread=False)
+
+    mc_memmapped_fname = cm.save_memmap(
+        [movie_orig], base_name='memmap_', order='C',
+        border_to_0=0, dview=cluster)
+
+    Yr, dims, num_frames = cm.load_memmap(mc_memmapped_fname)
+    images = np.reshape(Yr.T, [num_frames] + list(dims), order='F')
+
+    cnmf_model = cnmf.CNMF(n_processes, params=parameters, dview=cluster)
+    cnmf_fit   = cnmf_model.fit(images)
+    cnmf_refit = cnmf_fit.refit(images, dview=cluster)
+    print('Finished 2 CNMF iterations')
+
+    cnmf_refit.estimates.evaluate_components(
+        images, cnmf_refit.params, dview=cluster)
+
+    n_acc = len(cnmf_refit.estimates.idx_components)
+    n_rej = len(cnmf_refit.estimates.idx_components_bad)
+    print(f"Accepted: {n_acc}  |  Rejected: {n_rej}")
+
+    # clean up mmap
+    for entry in os.scandir(Path(subsampled_path).parent):
+        if entry.name.endswith('.mmap'):
+            os.remove(entry)
+
+    # save correlation image with object
+    cnmf_refit.estimates.Cn = correlation_image
+
+    save_path = str(caiman_folder / 'cnmf_subsampled_reference.hdf5')
+    cnmf_refit.save(save_path)
+    print(f"Saved reference CNMF to {save_path}")
+
+    cm.stop_server(dview=cluster)
+    return save_path
+
+
+def save_roi_metadata(cnm, caiman_folder, match_suite2p=True):
+    """
+    Save ROI spatial metadata in CNMF style, with optional Suite2p style dictionary.
+    """
+    import math
+    import numpy as np
+    from pathlib import Path
+    from caiman.base.rois import com as caiman_com
+    from caiman.utils.visualization import get_contours
+
+    caiman_folder = Path(caiman_folder)
+    Cn = cnm.estimates.Cn
+    A_all = cnm.estimates.A
+
+    # ---- centers ----
+    centers = caiman_com(A_all, *Cn.shape)
+    centers_xy = centers[:, ::-1]
+
+    # ---- contours ----
+    coors = get_contours(A_all, Cn.shape)
+    filtered_coords = []
+    for c in coors:
+        coords = c['coordinates']
+        coords_clean = [[x, y] for x, y in coords if not (math.isnan(x) or math.isnan(y))]
+        filtered_coords.append(np.array(coords_clean))
+    coords_arr = np.array(filtered_coords, dtype=object)
+
+    # ---- iscell ----
+    iscell = np.zeros(len(coords_arr))
+    iscell[cnm.estimates.idx_components] = 1
+
+    # ---- save CNMF style ----
+    np.save(caiman_folder / 'center.npy', centers_xy)
+    np.save(caiman_folder / 'coordinates.npy', coords_arr)
+    np.save(caiman_folder / 'iscell.npy', iscell)
+    print(f"Saved ROI metadata: {int(iscell.sum())} accepted cells")
+
+    # ---- optional Suite2p-style dict ----
+    if match_suite2p:
+        coords_dict = process.make_coordinates_into_dict(coords_arr)
+        np.save(caiman_folder / 'coordinates_dict.npy', coords_dict)
+        print("Saved coordinates_dict.npy (in Suite2p style)")
+
+    return centers_xy, coords_arr, iscell
+
+def extract_traces_with_residuals(movie_paths,cnm_ref, output_folder, bad_frames_dict=None, save_per_sequence=True):
+    '''
+    # new function from chatgpt for getting the correct C traces, and getting things in the correct format
+    :param movie_paths:
+    :param cnm_ref:
+    :param output_folder:
+    :param bad_frames_dict:
+    :param save_per_sequence:
+    :return:
+    '''
+    import numpy as np
+    import caiman as cm
+    from pathlib import Path
+
+    output_folder = Path(output_folder)
+    output_folder.mkdir(exist_ok=True)
+
+    A = cnm_ref.estimates.A
+    n_neurons = A.shape[1]
+
+    all_C = []
+    all_YrA = []
+    all_raw = []
+
+    print(f"Processing {len(movie_paths)} sequences...")
+
+    for seq_idx, movie_path in enumerate(movie_paths):
+
+        print(f"\n--- Sequence {seq_idx} ---")
+
+        movie = np.array(cm.load(str(movie_path))).astype(np.float32)
+        T, H, W = movie.shape
+
+        Y = movie.reshape(-1, T, order='F')
+        del movie
+
+        # ---- projection ----
+        AtA_diag = np.array(A.multiply(A).sum(axis=0)).ravel()
+        AtY = A.T @ Y
+        C_proj = AtY / (AtA_diag[:, None] + 1e-9)
+
+        # ---- YrA approximation ----
+        Y_hat = A @ C_proj
+        R = Y - Y_hat
+        YrA_approx = (A.T @ R) / (AtA_diag[:, None] + 1e-9)
+
+        # ---- raw ----
+        raw_approx = C_proj + YrA_approx
+
+        # ---- bad frames ----
+        if bad_frames_dict and seq_idx in bad_frames_dict:
+            bad_frames = bad_frames_dict[seq_idx]
+            C_proj[:, bad_frames] = np.nan
+            YrA_approx[:, bad_frames] = np.nan
+            raw_approx[:, bad_frames] = np.nan
+
+        # store
+        all_C.append(C_proj)
+        all_YrA.append(YrA_approx)
+        all_raw.append(raw_approx)
+
+        # optional saving
+        if save_per_sequence:
+            np.save(output_folder / f'C_seq{seq_idx}.npy', C_proj.astype(np.float32))
+            np.save(output_folder / f'YrA_seq{seq_idx}.npy', YrA_approx.astype(np.float32))
+            np.save(output_folder / f'raw_seq{seq_idx}.npy', raw_approx.astype(np.float32))
+
+    # ---- concatenate ----
+    C_full = np.concatenate(all_C, axis=1)
+    YrA_full = np.concatenate(all_YrA, axis=1)
+    raw_full = np.concatenate(all_raw, axis=1)
+
+    print(f"\nFinal shape: {C_full.shape}")
+
+    # ---- iscell (same as CaImAn output) ----
+    iscell = np.zeros(n_neurons, dtype=np.uint8)
+    iscell[cnm_ref.estimates.idx_components] = 1
+
+    # backup original C & YrA (optional but safer)
+    C_backup = cnm_ref.estimates.C.copy()
+    YrA_backup = cnm_ref.estimates.YrA if hasattr(cnm_ref.estimates, 'YrA') else None
+
+    cnm_ref.estimates.C = C_full
+    # cnm_ref.estimates.detrend_df_f(quantileMin=8, frames_window=250, use_residuals=False)
+    # F_dff = cnm_ref.estimates.F_dff.astype(np.float32)
+    # baseline = cnm_ref.estimates.bl.astype(np.float32)
+
+    # restore original C (optional)
+    cnm_ref.estimates.C = C_backup
+    if YrA_backup is not None:
+        cnm_ref.estimates.YrA = YrA_backup
+
+    # ---- save (match your naming style) ----
+    np.save(output_folder / 'C.npy', C_full.astype(np.float32))
+    np.save(output_folder / 'YrA.npy', YrA_full.astype(np.float32))
+    np.save(output_folder / 'raw.npy', raw_full.astype(np.float32))
+    np.save(output_folder / 'iscell.npy', iscell)
+    # np.save(output_folder / 'F_dff.npy', F_dff.astype(np.float32))
+    # np.save(output_folder / 'baseline.npy', baseline)
+
+    return C_full, YrA_full, raw_full
+
+
+### THRESHOLDING IMAGES ###
 
 def threshold_otsu_255_bins(image):
     """

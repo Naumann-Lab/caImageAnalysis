@@ -108,7 +108,7 @@ deg_dict = {
     "forward": 0,
     "forward_left": 315,
     "left": 270,
-    "backward_left": 215,
+    "backward_left": 225,
     "backward": 180,
     "backward_right": 135,
 }
