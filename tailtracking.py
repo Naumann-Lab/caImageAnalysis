@@ -54,7 +54,7 @@ def tail_df_creator(bhvr_data_folder, saving = True):
     for r in range(len(behavior_log_paths)):
         bhvr_df = bhvr_log_to_df(behavior_log_paths[r], metadata_paths[r])
         bhvr_df_lst.append(bhvr_df)
-    
+
     if len(bhvr_df_lst) > 1:
         all_tail_data = pd.concat(bhvr_df_lst)
         all_tail_data.reset_index(drop = True, inplace = True)
@@ -65,7 +65,8 @@ def tail_df_creator(bhvr_data_folder, saving = True):
             if all_tail_data.t.values[i - 1] > all_tail_data.t.values[i]: # compare current value to previous value
                 transition_idx.append(i)
 
-        new_t_arr = all_tail_data.t.values[:]
+        new_t_arr = all_tail_data.t.values[:].copy()
+
         for e, idx in enumerate(transition_idx):
             previous_value = all_tail_data.t.values[idx - 1] # seconds
             pause_time = dateToMillisec(all_tail_data.t_dt.values[idx+1]) - dateToMillisec(all_tail_data.t_dt.values[idx])  # getting the pause between experiments (in milliseconds)
