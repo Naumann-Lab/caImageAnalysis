@@ -12,10 +12,10 @@ def run_image_rotation(base_fish, angle=0, crop=0.075):
     :param crop: percentage of image cropped on the fly back side (which is the left side with how it saves)
     :return:
     """
-    from scipy.ndimage import rotate  #wtf man
 
+    print("Rotating", base_fish.data_paths["original_image"])
     with tifffile.TiffWriter(base_fish.folder_path.joinpath("img_rotated.tif"), bigtiff=True, imagej=True) as output:
-        with tifffile.TiffFile(base_fish.data_paths["image"]) as tiff:
+        with tifffile.TiffFile(base_fish.data_paths["original_image"]) as tiff:
             for page in tiff.pages:
                 apage = page.asarray().astype("uint16")
                 if crop != 0:
@@ -43,14 +43,15 @@ def run_image_rotation_90deg(base_fish, crop=0.0):
         Optional fraction to crop from the left side (same behavior as your original).
     """
 
-    with tifffile.TiffWriter(base_fish.folder_path.joinpath("img_rotated.tif"), bigtiff=True, imagej=True) as output:
-        with tifffile.TiffFile(base_fish.data_paths["original_image"]) as tiff:
-            for page in tiff.pages:
-                apage = page.asarray().astype("uint16")
-                if crop != 0:
-                    apage = apage[:, int(apage.shape[1]*crop):]
-                rot = np.rot90(apage, k=1)
-                output.write(rot.astype(apage.dtype), contiguous=True)
+    if not os.path.exists(base_fish.folder_path.joinpath("img_rotated.tif")):
+        with tifffile.TiffWriter(base_fish.folder_path.joinpath("img_rotated.tif"), bigtiff=True, imagej=True) as output:
+            with tifffile.TiffFile(base_fish.data_paths["original_image"]) as tiff:
+                for page in tiff.pages:
+                    apage = page.asarray().astype("uint16")
+                    if crop != 0:
+                        apage = apage[:, int(apage.shape[1]*crop):]
+                    rot = np.rot90(apage, k=1)
+                    output.write(rot.astype(apage.dtype), contiguous=True)
                 
 
     # load full movie: shape (T, Y, X)
@@ -79,7 +80,7 @@ def run_movement_correction(
     num_cores=14
 ):
     import caiman as cm
-    from tifffile import imsave
+    from tifffile import imwrite
 
     base_fish.process_filestructure(midnight_noon = "noon")  # why not update :)
 
@@ -105,6 +106,9 @@ def run_movement_correction(
             "border_nan": "copy",
             "downsample_ratio": 0.2,
         }
+    if ("dview" in locals()) or ("dview" in globals()):
+        dview.terminate()
+
     c, dview, n_processes = cm.cluster.setup_cluster(
         backend="local", n_processes=num_cores, single_thread=False
     )
@@ -121,7 +125,7 @@ def run_movement_correction(
         is3D=False,
     )
     mc.motion_correct(save_movie=True)
-    bord_px_rig = np.ceil(np.max(mc.shifts_rig)).astype(np.int)
+    bord_px_rig = np.ceil(np.max(mc.shifts_rig)).astype(int)
     mc.pw_rigid = True  # turn the flag to True for pw-rigid motion correction
     mc.template = (
         mc.mmap_file
@@ -146,7 +150,7 @@ def run_movement_correction(
     cm.stop_server()
 
     new_path = base_fish.folder_path.joinpath("movement_corr_img.tif")
-    imsave(new_path, output) # saving the full motion corrected image here
+    imwrite(new_path, output) # saving the full motion corrected image here
 
 
 def run_suite2p(base_fish, input_tau=1.5, spatial_scale = 0, custom_parameter_dict=None, force=False):
