@@ -6,6 +6,7 @@ logging.getLogger('tifffile').setLevel(logging.ERROR)
 warnings.filterwarnings("ignore", category=UserWarning, module="tifffile")
 
 import os
+import time
 from pathlib import Path
 import shutil
 import pandas as pd
@@ -17,6 +18,7 @@ import xml.etree.ElementTree as ET
 import glob
 import caiman as cm
 from scipy.signal import find_peaks
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 import sys
 sys.path.append(r'C:\Users\Kaitlyn\PyCharmProjects\imaging\caImageAnalysis')
@@ -63,8 +65,15 @@ def get_frametimes(info_xml_path, voltage_path):
     frametimes_df.to_hdf(save_path, key="frames", mode="a")  # saving master frametimes file
 
     return frametimes_df
+
+def deinterleave(plane, files, output_parent_path):
+    with tifffile.TiffWriter(os.path.join(output_parent_path, f"plane_{plane}", f"img_stack_{plane}.tif"),
+                    bigtiff=True, imagej=False) as output:
+        for file in files:
+            single_plane = imread(file)[plane]
+            output.write(single_plane)
     
-def bruker_img_organization(folder_path, testkey = 'Cycle', safe=False, single_plane=False, pstim_file = True):
+def bruker_img_organization(folder_path, testkey = 'Cycle', safe=False, single_plane=False, pstim_file = True, mem_efficient=False):
     '''
     PV 5.8 software bruker organization function (ome tif files into regular tif files)
 
@@ -75,7 +84,6 @@ def bruker_img_organization(folder_path, testkey = 'Cycle', safe=False, single_p
     pstim_file = if you have a stimulus txt file that needs to be moved into each plane folder
     '''
     keyset = set()
-
     voltage_path = None
 
     with os.scandir(folder_path) as entries:
@@ -100,8 +108,18 @@ def bruker_img_organization(folder_path, testkey = 'Cycle', safe=False, single_p
     if not os.path.exists(new_output):
         os.mkdir(new_output)
 
+    ftstart = time.time()
     # collect frame times from files
-    frametimes_df = get_frametimes(info_xml_path, voltage_path = None)
+    mftpath = os.path.join(folder_path, "master_frametimes.h5")
+    if not os.path.exists(mftpath):
+        print("generating new frametime hdf")
+        frametimes_df = get_frametimes(info_xml_path, voltage_path = None)
+        print(frametimes_df)
+    else:
+        print(f"Pulling main frametime reference from file: {mftpath}")
+        frametimes_df = pd.read_hdf(mftpath)
+        print(frametimes_df)
+
 
 
     if single_plane == True:
@@ -125,16 +143,6 @@ def bruker_img_organization(folder_path, testkey = 'Cycle', safe=False, single_p
                         output.write(page.asarray().astype("uint16"),
                                     contiguous=True)
 
-        
-        ##### ARCHIVED #####
-        # m.save(os.path.join(save_fld,'img_stack.tif'), bigtiff=True)
-        # m is a Timeseries object
-        # arr = np.asarray(m, dtype=np.uint16)
-
-        # save_path = os.path.join(save_fld, 'img_stack.tif')
-        # # imwrite(save_path, arr, bigtiff=True)
-        ########################
-
 
         save_path = Path(save_fld).joinpath(
             "frametimes.h5"
@@ -142,63 +150,93 @@ def bruker_img_organization(folder_path, testkey = 'Cycle', safe=False, single_p
         frametimes_df.to_hdf(save_path, key="frames", mode="a")  # saving frametimes file into single plane
 
         if pstim_file:  # if pstim output exists, save into each folder
-            shutil.copy(pstim_path, Path(save_fld).joinpath(f"pstim_output.txt"))
+            shutil.copyfile(pstim_path, Path(save_fld).joinpath(f"pstim_output.txt"))
         else:
             print('no pstim file')
 
     else:
-        # do everything for volumes here
-        volume_path_dict = {k: {} for k in sorted(keyset)}
-        print(sorted(keyset))
+        if mem_efficient:
 
-        # image paths go in this dict for each volume
-        for k in volume_path_dict.keys():
-            with os.scandir(folder_path) as entries:
-                for entry in entries:
-                    if f'Cycle{k}' in entry.name and 'tif' in entry.name:
-                        volume_path_dict[k] = entry.path
+            presort = pd.DataFrame([[int(file.split("Cycle")[-1].split("_")[0]), os.path.join(path,file)] 
+            for path, _, files in os.walk(folder_path) 
+            for file in files 
+            if file.__contains__("Cycle") and file.endswith(".tif")])
+            sorted_preproc = presort.sort_values(0)
+            files2concat = sorted_preproc[1].values
 
-        # number of planes gotten from the first image
-        plane_no = imread(volume_path_dict[k]).shape[0]
-        planes_dict = {k: [] for k in range(plane_no)}  # dictionary for each plane
+            num_planes = imread(files2concat[0]).shape[0]
+            for i in range(num_planes):
+                poi= os.path.join(folder_path, "output_folders", f"plane_{i}")
+                if not os.path.exists(poi):
+                    os.mkdir(poi)
 
-        print(sorted(volume_path_dict.keys()))
-        for k in sorted(volume_path_dict.keys()):
-            vol_img = volume_path_dict[k]
-            for n in range(len(planes_dict.keys())):
-                img = imread(vol_img)[n]
-                planes_dict[n].append(img)  # each plane_dict key is a different plane, with every image in a list    
-    
-        # getting plane stacks into specific folders
-        for k, v in planes_dict.items():
-            fld = Path(new_output).joinpath(f"plane_{k}")
-            if not os.path.exists(fld):
-                os.mkdir(fld)
-            for i, individual in enumerate(v):
-                _i = str(("%05d" % i))
-                imwrite(
-                    fld.joinpath(f"individual_img_{k}_{_i}.tif"), individual
-                )  # saving new tifs, each one is a time series for each plane
-            fls = glob.glob(os.path.join(fld,'*.tif'))  #  change tif to the extension you need
-            fls.sort()  # make sure your files are sorted alphanumerically
-            m = cm.load_movie_chain(fls)
-            m.save(os.path.join(fld,f'img_stack_{k}.tif'))
-            with os.scandir(fld) as entries:
-                for entry in entries:
-                    if 'individual' in entry.name:
-                        os.remove(entry)
+            with ProcessPoolExecutor(max_workers=os.cpu_count()) as executor:
+                futures = [executor.submit(deinterleave, plane, files2concat, new_output) for plane in range(num_planes)]
 
-            for i in range(plane_no):
-                _frametimes_df = frametimes_df.iloc[i:]
-                subdf = _frametimes_df.iloc[::plane_no, :]
-                subdf.reset_index(drop=True, inplace=True)
-                if i == int(k):
-                    saving = Path(fld).joinpath(f"frametimes.h5")
-                    subdf.to_hdf(
-                        saving, key="frames", mode="a"
-                    )  # saving frametimes into each specific folder
-                    if pstim_file:  # if pstim output exists, save into each folder
-                        shutil.copy(pstim_path, Path(fld).joinpath(f"pstim_output.txt"))
+            for future in as_completed(futures):
+                future.result()  # re-raises exceptions   
+            plane_no = num_planes
+
+            #She also includ
+
+        else:
+            pass
+            # # do everything for volumes here
+            # volume_path_dict = {k: {} for k in sorted(keyset)}
+            # print("SORTED KEYSET:", sorted(keyset))
+
+            # # image paths go in this dict for each volume
+            # for k in volume_path_dict.keys():
+            #     with os.scandir(folder_path) as entries:
+            #         for entry in entries:
+            #             if f'Cycle{k}' in entry.name and 'tif' in entry.name:
+            #                 volume_path_dict[k] = entry.path
+
+            # # number of planes gotten from the first image
+            # plane_no = imread(volume_path_dict[k]).shape[0]
+            # planes_dict = {k: [] for k in range(plane_no)}  # dictionary for each plane
+
+
+            # print(sorted(volume_path_dict.keys()))
+            # for k in sorted(volume_path_dict.keys()):
+            #     vol_img = volume_path_dict[k]
+            #     print("vol_img:", vol_img)
+            #     for n in range(len(planes_dict.keys())):
+            #         img = imread(vol_img)[n]
+            #         planes_dict[n].append(img)  # each plane_dict key is a different plane, with every image in a list    
+        
+            # # getting plane stacks into specific folders
+            # for k, v in planes_dict.items():
+            #     fld = Path(new_output).joinpath(f"plane_{k}")
+            #     if not os.path.exists(fld):
+            #         os.mkdir(fld)
+            #     for i, individual in enumerate(v):
+            #         _i = str(("%05d" % i))
+            #         imwrite(
+            #             fld.joinpath(f"individual_img_{k}_{_i}.tif"), individual
+            #         )  # saving new tifs, each one is a time series for each plane
+            #     print("folder saving?", fld)
+            #     fls = glob.glob(os.path.join(fld,'*.tif'))  #  change tif to the extension you need
+            #     fls.sort()  # make sure your files are sorted alphanumerically
+            #     m = cm.load_movie_chain(fls)
+            #     m.save(os.path.join(fld,f'img_stack_{k}.tif'))
+            #     with os.scandir(fld) as entries:
+            #         for entry in entries:
+            #             if 'individual' in entry.name:
+            #                 os.remove(entry)
+
+        for i in range(plane_no):
+            fld = os.path.join(folder_path, "output_folders",f"plane_{i}")
+            _frametimes_df = frametimes_df.iloc[i:]
+            subdf = _frametimes_df.iloc[::plane_no, :]
+            subdf.reset_index(drop=True, inplace=True)
+
+            saving = Path(fld).joinpath(f"frametimes.h5")
+            subdf.to_hdf(
+                saving, key="frames", mode="a"
+            )  # saving frametimes into each specific folder
+            if pstim_file:  # if pstim output exists, save into each folder
+                shutil.copyfile(pstim_path, Path(fld).joinpath(f"pstim_output.txt"))
 
     # move over the original images into a new folder
     moveto_folder = Path(folder_path).joinpath("bruker_images")
@@ -270,12 +308,13 @@ def move_xml_files(folder_path):
     with os.scandir(Path(folder_path).joinpath('output_folders')) as entries:
         for entry in entries:
             fld = Path(entry.path)
-            shutil.copy(info_xml_path, Path(fld).joinpath(Path(info_xml_path).name))
-            shutil.copy(info_env_path, Path(fld).joinpath(Path(info_env_path).name))
-            if ps_xml_path:
-                shutil.copy(ps_xml_path, Path(fld).joinpath(Path(ps_xml_path).name))
-            if voltage_path:
-                shutil.copy(voltage_path, Path(fld).joinpath(Path(voltage_path).name))      
+            if os.path.isdir(fld):
+                shutil.copyfile(info_xml_path, Path(fld).joinpath(Path(info_xml_path).name))
+                shutil.copyfile(info_env_path, Path(fld).joinpath(Path(info_env_path).name))
+                if ps_xml_path:
+                    shutil.copyfile(ps_xml_path, Path(fld).joinpath(Path(ps_xml_path).name))
+                if voltage_path:
+                    shutil.copyfile(voltage_path, Path(fld).joinpath(Path(voltage_path).name))      
     return print('done')
 
 def get_micronstopixels_scale(info_xml_file_path):
