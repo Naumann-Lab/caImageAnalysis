@@ -47,6 +47,11 @@ def tail_df_creator(bhvr_data_folder, saving = True):
     '''
     from utilities import pathutils
 
+    if os.path.exists(os.path.join(bhvr_data_folder, "tail_df.h5")):
+        print("Tail Dataframe already saved at:", os.path.join(bhvr_data_folder, "tail_df.h5"))
+        return 0
+
+
     behavior_log_paths = pathutils.pathcrawler(bhvr_data_folder, set(), [], mykey = 'behavior_log')
     metadata_paths = pathutils.pathcrawler(bhvr_data_folder, set(), [], mykey = 'metadata')
             
