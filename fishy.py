@@ -25,6 +25,7 @@ import process
 import photostim_utils
 import tailtracking
 import bruker_images
+import scipy
 
 
 class BaseFish:

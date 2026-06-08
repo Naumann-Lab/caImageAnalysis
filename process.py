@@ -2,6 +2,7 @@ import os
 import shutil
 import numpy as np
 import tifffile
+import scipy
 
 
 def run_image_rotation(base_fish, angle=0, crop=0.075):

@@ -5,7 +5,7 @@ Multiple functions to help process photostimulation and OMR datasets together an
 
 import os
 from pathlib import Path
-from symbol import continue_stmt
+#from symbol import continue_stmt
 
 import pandas as pd
 import numpy as np
@@ -16,7 +16,7 @@ from matplotlib.patches import Circle, Patch
 import seaborn as sns
 from bcdict import BCDict
 import shutil
-from tiffile import imread
+from tifffile import imread
 import math
 import scipy
 
