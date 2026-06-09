@@ -17,7 +17,7 @@ def run_image_rotation(base_fish, angle=0, crop=0.075):
     with tifffile.TiffWriter(base_fish.folder_path.joinpath("img_rotated.tif"), bigtiff=True, imagej=True) as output:
         with tifffile.TiffFile(base_fish.data_paths["original_image"]) as tiff:
             for page in tiff.pages:
-                apage = page.asarray().astype("uint16")
+                apage = page.asarray().astype("uint32")
                 if crop != 0:
                     apage = apage[:, int(apage.shape[1]*crop):]
                 rot = scipy.ndimage.rotate(apage, reshape=False, angle=angle).astype(apage.dtype)
@@ -220,6 +220,11 @@ def run_suite2p_normal(imagepath, imageHz, input_tau=1.5, custom_parameter_dict=
             "block_size": [32, 32],
             "spatial_scale" : 0,
             "fs": imageHz,
+            "max_deviation_rigid": 3,
+            "pw_rigid": False,
+            "shifts_opencv": True,
+            "border_nan": "copy",
+            "downsample_ratio": 0.2,
             "tiff_list": [imagepath.name],
         }
 
@@ -237,7 +242,7 @@ def run_suite2p_normal(imagepath, imageHz, input_tau=1.5, custom_parameter_dict=
 
     output_ops = run_s2p(ops=ops, db=db)
 
-def run_caiman_cnmf(base_fish, custom_parameter_dict = None, match_suite2p = True, keep_mmaps = False, force = True):
+def run_caiman_cnmf(base_fish, custom_parameter_dict = None, match_suite2p = True, keep_mmaps = False, force = True, tmp_save_path=None):
     '''
     base_fish: some BaseFish class that needs to be processed
     custom_parameter_dict: dictionary with custom parameters for caiman source extraction 
@@ -298,7 +303,7 @@ def run_caiman_cnmf(base_fish, custom_parameter_dict = None, match_suite2p = Tru
 
     # stopping other servers, to make sure on the newest one
     _, cluster, n_processes = cm.cluster.setup_cluster(backend='local', 
-                                                       n_processes=None, single_thread=False)
+                                                       n_processes=os.cpu_count(), single_thread=False)
     
     # don't need to run motion correction here, straight to memmap
     mc_memmapped_fname = cm.save_memmap([movie_orig], base_name='memmap_',
@@ -309,9 +314,8 @@ def run_caiman_cnmf(base_fish, custom_parameter_dict = None, match_suite2p = Tru
     images = np.reshape(Yr.T, [num_frames] + list(dims), order='F') 
     
     cnmf_model = cnmf.CNMF(n_processes, params=parameters, dview=cluster)
-    
     cnmf_fit = cnmf_model.fit(images)
-    cnmf_refit = cnmf_fit.refit(images, dview=cluster)
+    cnmf_refit = cnmf_model.refit(images, dview=cluster)
     print('finished 2 iterations on cnmf model')
     
     # evaulating components
@@ -327,10 +331,16 @@ def run_caiman_cnmf(base_fish, custom_parameter_dict = None, match_suite2p = Tru
                         os.remove(entry)
     
     #saving cnmf model
-    moveto_folder = Path(base_fish.folder_path).joinpath("caiman")
+    if type(tmp_save_path) == str:
+        savePath = tmp_save_path
+        str_atth  = f"caiman_{os.path.basename(base_fish.folder_path)}"
+        moveto_folder = Path(savePath).joinpath(str_atth)
+    else:
+        savePath = base_fish.folder_path
+        moveto_folder = Path(savePath).joinpath("caiman")
     if not os.path.exists(moveto_folder):
         os.mkdir(moveto_folder)
-    save_path = str(moveto_folder) + '\\cnmf_results.hdf5'
+    save_path = os.path.join(moveto_folder, "cnmf_results.hdf5")
     cnmf_refit.estimates.Cn = correlation_image_orig # squirrel away correlation image with cnmf object
     cnmf_refit.save(save_path)
     print('saved cnmf results')
@@ -346,16 +356,40 @@ def run_caiman_cnmf(base_fish, custom_parameter_dict = None, match_suite2p = Tru
     centers = cm.base.rois.com(cnmf_refit.estimates.A, *cnmf_refit.estimates.Cn.shape)
     correct_centers = centers[:, ::-1] #need to invert x and y positions in the CoM array
     coors = get_contours(cnmf_refit.estimates.A, correlation_image_orig.shape)
-    og_coordinates_arr = np.array([coors[i]['coordinates'] for i in range(len(coors))])
-    # remove any nan's in the coordinate list
-    filtered_coordinates = []
-    for coord_lst in og_coordinates_arr:
-        new_coord_lst = []
-        for coord in coord_lst:
-            if not (math.isnan(coord[0]) or math.isnan(coord[1])):
-                new_coord_lst.append([coord[0], coord[1]])
-        filtered_coordinates.append(np.array(new_coord_lst))
-    coordinates_arr = np.array(filtered_coordinates)
+
+    vtest = np.__version__.split(".")
+    ifver = (int(vtest[0]) < 2) & (int(vtest[1]) < 19)
+    if ifver:
+        og_coordinates_arr = np.array([coors[i]['coordinates'] for i in range(len(coors))])
+
+        # remove any nan's in the coordinate list
+        filtered_coordinates = []
+        for coord_lst in og_coordinates_arr:
+            new_coord_lst = []
+            for coord in coord_lst:
+                if not (math.isnan(coord[0]) or math.isnan(coord[1])):
+                    new_coord_lst.append([coord[0], coord[1]])
+            filtered_coordinates.append(np.array(new_coord_lst))
+        coordinates_arr = np.array(filtered_coordinates)
+        if match_suite2p:
+            new_coordinates_arr = make_coordinates_into_dict(coordinates_arr)
+            np.save(Path(moveto_folder).joinpath('coordinates_dict.npy'), new_coordinates_arr) # matching suite2p output
+    else:
+        ogca = {i: np.array(coors[i]["coordinates"]) for i in range(len(coors))}
+        coordinates_list = []
+        cleaned_dict = {}
+        for k in ogca.keys():
+            coordarr = ogca[k]
+            status = ~np.isnan(coordarr)
+            comb_stat = status[:,0]*status[:,1]
+            cleaned_arr = coordarr[comb_stat,:]
+            cd_entry = {"xpix": cleaned_arr[0],
+                "ypix": cleaned_arr[1]}
+            cleaned_dict[k] = cd_entry
+            coordinates_list.append(int(k))
+
+        coordinates_arr = np.array(coordinates_list)
+        np.save(Path(moveto_folder).joinpath('coordinates_dict.npy'), cleaned_dict)
 
     #saving accepted cells
     accepted_cells_arr = np.zeros(shape = len(coordinates_arr))
@@ -367,10 +401,15 @@ def run_caiman_cnmf(base_fish, custom_parameter_dict = None, match_suite2p = Tru
     # saving coordinates and centers
     np.save(Path(moveto_folder).joinpath('center.npy'), correct_centers) # center of ROIs
     np.save(Path(moveto_folder).joinpath('coordinates.npy'),coordinates_arr) # spatial contours
-    
-    if match_suite2p:
-        new_coordinates_arr = make_coordinates_into_dict(coordinates_arr)
-        np.save(Path(moveto_folder).joinpath('coordinates_dict.npy'), new_coordinates_arr) # matching suite2p output
+
+    if type(tmp_save_path) == str:
+        dst = os.path.join(base_fish.folder_path, "caiman")
+        if not os.path.exists(dst):
+            os.mkdir(dst)
+        for fil in moveto_folder.iterdir():
+            if fil.is_file():
+                Path(os.path.join(dst, fil.name)).write_bytes(fil.read_bytes())
+        shutil.rmtree(moveto_folder)
         
     cm.stop_server(dview=cluster)
 
