@@ -28,7 +28,7 @@ def get_pertrial_f(fish):
     for stim in stim_list:
         #get important stimulus information
         stim_df = fish.stimulus_df[fish.stimulus_df['stim_name'] == stim].reset_index(drop=True)
-        duration = stim_df['duration'].iloc[0] + 20
+        duration = stim_df['duration'].iloc[0]+20
         print('getting pertrial f stim duration + 20s')
         #define plotting range (what are the frames of data to grab in general)
         image_range_frame = (0, int((duration) / fish.image_s))#general
@@ -76,7 +76,7 @@ def select_visbarcode(fish, f_pertrial_dict, baseline_s=10, response_s=10, perc_
         f_pertrial_baselinestd = np.std(f_pertrial_baseline, axis=2)
         f_pertrial_responsemax = np.mean(f_pertrial_response, axis=2)
         # if response > baselien + 1.8*std
-        boundary = .5
+        boundary = 1
         print(f"selection criteria: max >= baseline mean * {boundary}")
         f_responding = (f_pertrial_responsemax - f_pertrial_baselinemean) / f_pertrial_baselinestd >= boundary
         f_responding_percentage = np.divide(np.sum(f_responding, axis=0), f_responding.shape[0])
@@ -141,10 +141,7 @@ def select_dotbarcode(fish, f_pertrial_dict, baseline_s =10, response_s = 10, pe
     #build a neuron accumulator
     stim_list = fish.stimulus_df.stim_name.unique()
     dot_stim = [s for s in stim_list if ('dot' in s) and ('[' not in s)]
-    all_n_index = []
-    for plane in fish.planes:
-        all_n_index = all_n_index + list(fish.f_dict[plane].index)
-    barcode = pd.DataFrame(columns = dot_stim, index = all_n_index)
+    barcode = pd.DataFrame(columns = dot_stim, index = fish.pos_all.index)
     for stim in dot_stim:
         stim_df = fish.stimulus_df[fish.stimulus_df['stim_name'] == stim].reset_index(drop=True)
         stationary_time = stim_df['stationary_time'].iloc[0]
@@ -162,8 +159,9 @@ def select_dotbarcode(fish, f_pertrial_dict, baseline_s =10, response_s = 10, pe
         #if response > baselien + 1.8*std
         boundary = 2
         print(f"selection criteria: max >= baseline mean * {boundary}")
-        f_responding = (f_pertrial_responsemax - f_pertrial_baselinemean)/f_pertrial_baselinestd >= boundary
+        f_responding = ((f_pertrial_responsemax - f_pertrial_baselinemean)/f_pertrial_baselinestd) >= boundary
         f_responding_percentage = np.divide(np.sum(f_responding, axis = 0), f_responding.shape[0])
+
         barcode.loc[:, stim] = f_responding_percentage
     #actually picking barcode neurons
     barred_neurons = {s: None for s in dot_stim}
@@ -187,12 +185,14 @@ def sort_dotneurons(fish, f_pertrial_dict, barred_dotneurons):
     return barred_dotneurons
 
 
-def plot_dotneurons(fish, f_pertrial_dict, barred_dotneurons):
+def plot_dotneurons(fish, f_pertrial_dict, barred_dotneurons, efference = False):
     stim_list = fish.stimulus_df.stim_name.unique()
     dot_stim = [s for s in stim_list if ('dot' in s) and ('[' not in s)]
-    fig, ax = plt.subplots(3, len(dot_stim), figsize = (10, 10))
+    fig, ax = plt.subplots(3 + len(fish.stimulus_df[fish.stimulus_df.stim_name == dot_stim[0]]), len(dot_stim), figsize = (10,20))
     for n, stim in enumerate(dot_stim):
         ax[0, n].imshow(fish.img_dict[0], origin='lower', cmap='Greys_r')
+
+
         ax[0, n].scatter(fish.pos_all.loc[barred_dotneurons[stim], 'xpos'],
                          fish.pos_all.loc[barred_dotneurons[stim], 'ypos'], c=range(len(barred_dotneurons[stim])),
                          cmap='plasma', s=.3)
@@ -213,7 +213,17 @@ def plot_dotneurons(fish, f_pertrial_dict, barred_dotneurons):
         ax[1, n].set_yticklabels(['V', 'D'])
 
         sns.heatmap(f_pertrial_dict[stim][:, barred_dotneurons[stim], :].mean(axis=0), cmap='viridis', ax=ax[2, n],
-                    xticklabels=[], yticklabels=[])
+                    xticklabels=[], yticklabels=[], vmin = 0.2, vmax = 0.8, cbar = False)
+
+        for trial in range(len(f_pertrial_dict[stim])):
+            sns.heatmap(f_pertrial_dict[stim][trial, barred_dotneurons[stim], :], cmap='viridis', ax=ax[2 + trial + 1, n],
+                    xticklabels=[], yticklabels=[], vmin = 0, vmax = 1, cbar = False)
+            if efference:
+                ax[2 + trial + 1, n].set_title(f"{fish.stimulus_df[fish.stimulus_df.stim_name == stim].iloc[trial].some_eye}\
+                H: {fish.stimulus_df[fish.stimulus_df.stim_name == stim].iloc[trial].hunting_eye}\
+                OKR: {fish.stimulus_df[fish.stimulus_df.stim_name == stim].iloc[trial].okr_eye} ")
+                                               #
+
 
         ax[0, n].set_title(stim)
     return fig
@@ -236,7 +246,7 @@ def plot_timing(fish, stim_responses):
         plane_n = list(set(fish.pos_dict[plane].index) & barred)
         #color: tuned angles
         colors = stim_responses.loc[plane_n, 'timing']
-        colors = plt.cm.coolwarm_r(plt.Normalize(vmin=-.2, vmax=.2)(colors))
+        colors = plt.cm.coolwarm_r(plt.Normalize(vmin=-.1, vmax=.1)(colors))
         #alpha: dsi
         alphas = stim_responses.loc[plane_n, 'DSI']
         alphas = [i if not np.isnan(i) else 0 for i in alphas]
@@ -267,17 +277,20 @@ def get_grating_dsi(fish, f_pertrial_dict, baseline_s = 7, response_s = 10, dot_
     for stim in omr_stim:
         #define plotting range (what are the frames of data to grab in general)
         stim_df = fish.stimulus_df[fish.stimulus_df['stim_name'] == stim].reset_index(drop=True)
+
         stationary_time = stim_df['stationary_time'].iloc[0]
         if dot_stim is not None:#overlapstimulus
-            stationary_time = stationary_time[0]
-            print('looking at overlap onset time, not grating')
+            stationary_time = stationary_time[1]
         stationary_frame = int(stationary_time/fish.image_s)
         baseline_frame = int((stationary_time - baseline_s)/ fish.image_s)#how many frame before stationary frame
+        response_startframe = int((stationary_time + 10)/ fish.image_s)
+        print(f"baseline: {stationary_time - baseline_s} to {stationary_time}")
+        print(f"response: {stationary_time + 10} to {stationary_time + response_s}")
         response_frame = int((stationary_time + response_s)/ fish.image_s)#how many frame after stationary frame
         #get all the baseline per trial
         f_pertrial = f_pertrial_dict[stim]
         f_pertrial_baseline = f_pertrial[:, :, baseline_frame:stationary_frame]
-        f_pertrial_response = f_pertrial[:, :, stationary_frame:response_frame]#[:, :, stationary_frame + int(4/ fish.image_s):response_frame]
+        f_pertrial_response = f_pertrial[:, :, response_startframe:response_frame]#[:, :, stationary_frame + int(4/ fish.image_s):response_frame]
         f_pertrial_baselinemean = np.mean(f_pertrial_baseline, axis = 2)
         f_pertrial_responsemax = np.mean(f_pertrial_response, axis = 2)
         f_pertrial_response = np.subtract(f_pertrial_responsemax, f_pertrial_baselinemean)
@@ -364,11 +377,16 @@ def sort_gratingneurons(fish, f_pertrial_dict, barred_gratingneurons):
         barred_gratingneurons[stim] = [barred_gratingneurons[stim][i] for i in sort_i]
     return barred_gratingneurons
 
-def plot_gratingneurons(fish, f_pertrial_dict, barred_gratingneurons, stim_responses = None):
+def plot_gratingneurons(fish, f_pertrial_dict, barred_gratingneurons, stim_responses = None, efference = False, dot_stim = None):
     stim_list = fish.stimulus_df.stim_name.unique()
     grating_stim = [s for s in stim_list if ('dot' not in s) and ('[' not in s) and ('pause' not in s)]
     grating_stim = np.sort(grating_stim)
-    fig, ax = plt.subplots(3, len(grating_stim), figsize = (10, 8))
+    if dot_stim == None:
+        fig, ax = plt.subplots(3 + len(fish.stimulus_df[fish.stimulus_df.stim_name == grating_stim[0]]), len(grating_stim),
+                           figsize = (10, 20))
+    else:
+        fig, ax = plt.subplots(3 + len(fish.stimulus_df[fish.stimulus_df.stim_name == str([dot_stim, str(grating_stim[0])])]),
+                               len(grating_stim), figsize=(10, 20))
     for n, stim in enumerate(grating_stim):
         ax[0, n].imshow(fish.img_dict[2], origin='lower', cmap='Greys_r')
         if type(stim_responses) != pd.DataFrame:
@@ -396,10 +414,21 @@ def plot_gratingneurons(fish, f_pertrial_dict, barred_gratingneurons, stim_respo
         ax[1, n].set_xticklabels(['P', 'A'])
         ax[1, n].set_yticks([0, len(fish.planes) * .05])
         ax[1, n].set_yticklabels(['V', 'D'])
-
-        sns.heatmap(f_pertrial_dict[stim][:, barred_gratingneurons[stim], :].mean(axis=0), cmap='viridis', ax=ax[2, n],
+        if dot_stim != None:
+            heatmapstim = str([dot_stim, str(stim)])
+        else:
+            heatmapstim = stim
+        sns.heatmap(f_pertrial_dict[heatmapstim][:, barred_gratingneurons[stim], :].mean(axis=0), cmap='viridis', ax=ax[2, n],
                     xticklabels=[], yticklabels=[], vmin = 0, vmax = 0.75)
 
+        for trial in range(len(f_pertrial_dict[heatmapstim])):
+            sns.heatmap(f_pertrial_dict[heatmapstim][trial, barred_gratingneurons[stim], :], cmap='viridis', ax=ax[2 + trial + 1, n],
+                    xticklabels=[], yticklabels=[], vmin = 0.2, vmax = 0.8)
+            if efference:
+                ax[2 + trial + 1, n].set_title(
+                    f"{fish.stimulus_df[fish.stimulus_df.stim_name == heatmapstim].iloc[trial].some_eye}\
+                    H: {fish.stimulus_df[fish.stimulus_df.stim_name == heatmapstim].iloc[trial].hunting_eye}\
+                    OKR: {fish.stimulus_df[fish.stimulus_df.stim_name == heatmapstim].iloc[trial].okr_eye} ")
 
     return fig
 
@@ -443,7 +472,7 @@ def plot_rainbow(fish, stim_responses):
     ax_imshow_all.set_axis_off()
     return fig
 
-def select_overlapbarcode(fish, f_pertrial_dict, baseline_s =10, response_s = 10, perc_trial_threshold = 0.8):
+def select_overlapbarcode(fish, f_pertrial_dict, baseline_s =10, response_s = 10, delay_s = 5, perc_trial_threshold = 0.8):
     """Select barcoded neurons with 1.8std above baseline and below 1.8std for the opposite stimulus"""
     #TODO: replace xpos with rois
     #build a neuron accumulator
@@ -460,16 +489,17 @@ def select_overlapbarcode(fish, f_pertrial_dict, baseline_s =10, response_s = 10
         #define plotting range (what are the frames of data to grab in general)
         stationary_frame = int(stationary_time/fish.image_s)
         baseline_frame = int((stationary_time - baseline_s)/ fish.image_s)#how many frame before stationary frame
-        response_frame = int((stationary_time + response_s)/ fish.image_s)#how many frame after stationary frame
+        responsestart_frame = int((stationary_time + delay_s)/ fish.image_s)
+        responseend_frame = int((stationary_time + response_s)/ fish.image_s)#how many frame after stationary frame
         #get all the baseline per trial
         f_pertrial = f_pertrial_dict[stim]
         f_pertrial_baseline = f_pertrial[:, :, baseline_frame:stationary_frame]
-        f_pertrial_response = f_pertrial[:, :, stationary_frame:response_frame]
+        f_pertrial_response = f_pertrial[:, :, responsestart_frame:responseend_frame]
         f_pertrial_baselinemean = np.mean(f_pertrial_baseline, axis = 2)
         f_pertrial_baselinestd = np.std(f_pertrial_baseline, axis = 2)
         f_pertrial_responsemax = np.max(f_pertrial_response, axis = 2)
         #if response > baselien + 1.8*std
-        boundary = 1.8
+        boundary = 2
         print(f"selection criteria: max >= baseline max * {boundary}")
         f_responding = (f_pertrial_responsemax  - f_pertrial_baselinemean)/f_pertrial_baselinestd >= boundary
         f_responding_percentage = np.divide(np.sum(f_responding, axis = 0), f_responding.shape[0])

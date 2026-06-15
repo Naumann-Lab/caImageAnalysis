@@ -3,6 +3,8 @@ import numpy as np
 from scipy.stats import zscore
 from scipy.signal import find_peaks
 import os
+from scipy.signal import butter, filtfilt
+
 from datetime import datetime as dt, timedelta, date
 
 
@@ -17,10 +19,12 @@ class Gafftopsail:
     Treat this merely as a data STORAGE mahcine, instaed of something that process any function since it's a lil slow
     """
 
-    def __init__(self, path, sequence = 1, filelist = ['stimulus', 'tail', 'eye', 'imaging', 'processed_tail', 'processed_eye']):
+    def __init__(self, path, sequence = 1, filelist = ['stimulus', 'tail', 'eye', 'imaging', 'processed_tail', 'processed_eye'],
+                 raw = False):
         self.path = path
         self.filelist = filelist
         self.sequence = sequence
+        self.raw = raw
         if 'stimulus' in filelist: self.stimulus_df = self.load_stimulus()
         else: print('no stimulus files, zeroing with imaging frametimes')
         if 'tail' in filelist: self.tail_df = self.load_tail()
@@ -48,6 +52,8 @@ class Gafftopsail:
     def load_stimulus(self):
         # gather the stimulus file
         stimulus_df = pd.read_hdf(self.path + 'stimulus_df.hdf', dtype = object).reset_index(drop=True)
+        #make nan stimulus disappear
+        stimulus_df = stimulus_df.dropna(subset=['real_starttime'])
         # make stimulus file stationary friendly
         for n, row in stimulus_df.iterrows():
             if type(row['stim_name']) == list and 'stationary' in row['stim_name'][1]:  # actual dot only
@@ -93,8 +99,18 @@ class Gafftopsail:
             """
             return np.convolve(x, np.ones(n) / n, mode="same")
 
+        def lowpass_filter(row, cutoff=0.5, order=3):
+            b, a = butter(order, cutoff, fs = 2)
+            return filtfilt(b, a, row)
+
         #normalize f from 0 to 1
         def norm_rows(arr):
+            #let's try the butter filter
+            if self.raw:
+                print('raw, not lowpass')
+            else:
+                arr = np.apply_along_axis(lowpass_filter, 1, arr)
+                print("low passs assuming framerate ~2")
             # Z-score each row
             row_mean = arr.mean(axis=1, keepdims=True)
             row_std = arr.std(axis=1, keepdims=True)
@@ -383,6 +399,9 @@ class Gafftopsail:
             self.frametimes = [(i - t_start).total_seconds() for i in self.frametimes]  # imagin
             self.frametimes_dict = {plane: [(i - t_start).total_seconds() for i in self.frametimes_dict[plane]]
                                    for plane in self.frametimes_dict.keys()}
+            if 'stimulus' in self.filelist:
+                self.stimulus_df = self.stimulus_df[(self.stimulus_df['real_starttime_s']>=self.frametimes[0]) &
+                                                (self.stimulus_df['real_starttime_s'] + self.stimulus_df['duration'] <= self.frametimes[-1])]
         if 'photostim_ensemble' in self.filelist:
             self.photostim_time = [(i - t_start).total_seconds() for i in self.photostim_time]
 
@@ -420,21 +439,57 @@ class Gafftopsail:
         # gather all the tail data
         import re
         tailpath = self.path + 'Tail//'
-        bout_df = pd.read_csv(tailpath + 'tail_bout_df.csv', index_col = 0, converters={
-        "cont_tuples_tailindex": lambda x: (int(x.split('(')[2].split(')')[0]), int(x.split('(')[3].split(')')[0])),
-        "cont_tuples_realtime_s":lambda x: (float(x.split('(')[2].split(')')[0]), float(x.split('(')[3].split(')')[0])),
-        "tail_angle": float})
+        try:
+            bout_df = pd.read_csv(tailpath + 'tail_bout_df_classified.csv', index_col = 0,  converters={
+                    "cont_tuples_tailindex": lambda x: (int(x.split('(')[1].split(',')[0]),
+                                                        int(x.split(',')[1].split(')')[0])),
+                    "cont_tuples_realtime_s": lambda x: (float(x.split('(')[1].split(',')[0]),
+                                                         float(x.split(',')[1].split(')')[0])),
+                    "tail_angle": float})
+            print("bouts are classified")
+        except FileNotFoundError:
+            try:
+                bout_df = pd.read_csv(tailpath + 'tail_bout_df.csv', index_col = 0, converters={
+                "cont_tuples_tailindex": lambda x: (int(x.split('(')[2].split(')')[0]), int(x.split('(')[3].split(')')[0])),
+                "cont_tuples_realtime_s":lambda x: (float(x.split('(')[2].split(')')[0]), float(x.split('(')[3].split(')')[0])),
+                "tail_angle": float})
+            except IndexError:
+                bout_df = pd.read_csv(tailpath + 'tail_bout_df.csv', index_col=0, converters={
+                    "cont_tuples_tailindex": lambda x: (int(x.split('(')[1].split(',')[0]),
+                                                        int(x.split(',')[1].split(')')[0])),
+                    "cont_tuples_realtime_s": lambda x: (float(x.split('(')[1].split(',')[0]),
+                                                         float(x.split(',')[1].split(')')[0])),
+                    "tail_angle": float})
+
         return bout_df
 
     def load_saccade_df(self):
         # gather all the tail data
         eyepath = self.path + 'Eye//'
-        saccade_df = pd.read_csv(eyepath + 'eye_saccade_df.csv', index_col = 0,
-                                 converters={
-                                     "cont_tuples_eyeindex": lambda x: (int(x.split('(')[2].split(')')[0]), int(x.split('(')[3].split(')')[0])),
-                                     "cont_tuples_realtime_s": lambda x: (float(x.split('(')[2].split(')')[0]), float(x.split('(')[3].split(')')[0])),
-                                 }
-                                 )
+        try:
+            saccade_df = pd.read_csv(eyepath + 'eye_saccade_df_classified.csv', index_col=0,
+                                     converters={
+                                         "cont_tuples_eyeindex": lambda x: (int(x.split('(')[1].split(',')[0]),
+                                                                            int(x.split(',')[1].split(')')[0])),
+                                         "cont_tuples_realtime_s": lambda x: (float(x.split('(')[1].split(',')[0]),
+                                                                              float(x.split(',')[1].split(')')[0])), })
+
+            print('eye classified')
+        except FileNotFoundError:
+            try:
+                saccade_df = pd.read_csv(eyepath + 'proofread_eye_saccade_df.csv', index_col=0,
+                                         converters={
+                    "cont_tuples_eyeindex": lambda x: (int(x.split('(')[1].split(',')[0]),int(x.split(',')[1].split(')')[0])),
+                    "cont_tuples_realtime_s": lambda x: (float(x.split('(')[1].split(',')[0]),float(x.split(',')[1].split(')')[0])),})
+
+                print('eye proofread')
+            except FileNotFoundError:
+                saccade_df = pd.read_csv(eyepath + 'eye_saccade_df.csv', index_col = 0,
+                                     converters={
+                                         "cont_tuples_eyeindex": lambda x: (int(x.split('(')[2].split(')')[0]), int(x.split('(')[3].split(')')[0])),
+                                         "cont_tuples_realtime_s": lambda x: (float(x.split('(')[2].split(')')[0]), float(x.split('(')[3].split(')')[0])),
+                                     })
+                print('eye not proofread')
         return saccade_df
 
     def load_alignment(self):
@@ -453,7 +508,7 @@ class Gafftopsail:
         apos_dict = {plane: None for plane in range(len(planes_dir))}
         neuron_count = 0
         for plane, plane_dir in zip(range(len(planes_dir)), planes_dir):
-            apos_dict[plane] = pd.read_csv(plane_dir + 'new_pos.csv', index_col = 0, converters={"regions": ast.literal_eval})
+            apos_dict[plane] = pd.read_csv(plane_dir + 'new_pos_all.csv', index_col = 0, converters={"regions": lambda x: [] if (pd.isna(x) or str(x)=="[]" or str(x) == "") else ast.literal_eval(x)})
             apos_dict[plane].index = np.add(range(len(apos_dict[plane])), neuron_count)
             neuron_count += len(apos_dict[plane])
         apos_all = pd.concat([apos_dict[plane] for plane in planes], ignore_index=True).reset_index(drop=True)
@@ -480,12 +535,13 @@ class BuffaloBream:
         self.path = path
         self.filelist = filelist
         self.experimenter = experimenter
+        if 'imaging' in filelist: self.image_s = self.get_framerate()
         if 'imaging' in filelist: self.planes, self.f_dict, self.f_all, self.pos_dict, self.pos_all, self.img_dict, self.frametimes, self.frametimes_dict = self.load_imaging_data()
         if 'stimulus' in filelist: self.stimulus_df = self.load_stimulus()
         if 'photostim_ensemble' in filelist: self.photostim_sites, self.photostim_frame_dict = self.load_photostim_ensemble()
         if 'roi' in filelist: self.roi_dict = self.load_rois()
         self.zero_timeline()
-        if 'imaging' in filelist: self.image_s = self.get_framerate()
+
 
         if 'processed_vis' in filelist: self.vis_df = self.load_vis_df()
         if 'processed_weightedf' in filelist: self.f_weighted = self.load_weighted_f()

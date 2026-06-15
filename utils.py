@@ -2,7 +2,11 @@ import colorsys
 import numpy as np
 from scipy.signal import butter, lfilter, freqz
 from matplotlib.colors import LinearSegmentedColormap
-
+from matplotlib.colors import to_rgb
+pink = "#FB008C"
+green = "#72D100"
+pink = to_rgb(pink)
+green = to_rgb(green)
 
 #codes for omr related colors
 def angle_to_rgba(angle, saturation, alpha):
@@ -12,7 +16,7 @@ def angle_to_rgba(angle, saturation, alpha):
     # Convert to HSL
     h = angle / 360  # Normalize angle to [0, 1] range for colorsys
     s = saturation # [0, 1]
-    l = 0.5  # Mid lightness
+    l = .7 # Mid lightness
     # Convert HSL to RGB
     rgb = colorsys.hls_to_rgb(h, l, s)
     rgba = (rgb[0], rgb[1], rgb[2], alpha)
@@ -25,7 +29,8 @@ omr_angles = {'forward': 0, 'left': 270, 'right': 90, 'backward': 180,
                 'x_forward': 0, 'x_backward': 180, 'forward_x': 0, 'backward_x': 180,
                'cw': 90, 'ccw': 270}
 angles_omr = {0: 'forward', 270: 'left', 90: 'right', 180: 'backward'}
-omr_colors = {key: angle_to_rgba(angle, 0.5, 1) for key, angle in omr_angles.items()}
+omr_colors = {key: angle_to_rgba(angle, 1, 1) for key, angle in omr_angles.items()}
+
 omr_colors['stationary'] = (0.8, 0.8, 0.8, 1)
 omr_cbars = {'forward': 'Greens', 'right': 'Reds', 'backward': 'Purples', 'left': 'Blues'}
 
@@ -34,9 +39,9 @@ dot_angles = {'l': 270, 'r': 90}
 dot_dists = {'far': 0.5, 'cls': 1}
 dot_sizes = {'l': 1, 'm': 0.8, 's': 0.6, '3': 0.2, '5': 0.4, '10': 0.6, '20': 0.8, '40': 1}
 
-dot_colors = {'dot_' + dir + '_' + size: angle_to_rgba(angle, .5, alpha)
-              for dir, angle in dot_angles.items()
-              for size, alpha in dot_sizes.items()}
+dot_colors = {'dot_l': (0.415686, 0.352941, 0.803922, 1.0), 'dot_r': (0.78, 0.08, 0.52, 1.0)}#{'dot_' + dir + '_' + size: angle_to_rgba(angle, .5, alpha)
+              #for dir, angle in dot_angles.items()
+              #for size, alpha in dot_sizes.items()}
 # dot_colors = {'dot_' + dir + '_' + dist + '_' + size: angle_to_rgba(angle, saturation, alpha)
 #               for dir, angle in dot_angles.items()
 #               for dist, saturation, in dot_dists.items()
@@ -44,8 +49,9 @@ dot_colors = {'dot_' + dir + '_' + size: angle_to_rgba(angle, .5, alpha)
 simple_dot_colors = {'dot_' + dir : angle_to_rgba(angle, .5, 1)
               for dir, angle in dot_angles.items()}
 dot_colors['stationary'] = (0.8, 0.8, 0.8, 1)
+dot_colors['pause'] = (0.8, 0.8, 0.8, 1)
 
-stim_colors = omr_colors|dot_colors|simple_dot_colors
+stim_colors = omr_colors|dot_colors#|simple_dot_colors
 
 def make_cmap(stim_color, name = "costumcmap"):
     """Make a color map that goes from color (rgba), to white, to the anti color"""
@@ -210,3 +216,35 @@ def butter_lowpass_filter(data, cutoff, fs, order=5):
     b, a = butter_lowpass(cutoff, fs, order=order)
     y = lfilter(b, a, data)
     return y
+
+def sigmoid_flexible(x, L=1, k=1, x0=0, b=0):
+    """
+    Flexible sigmoid function with adjustable range.
+        @chatgpt
+    Args:
+      x: Input value(s).
+      L: Scales the output range.
+      k: Controls the steepness of the curve.
+      x0: Shifts the curve horizontally.
+      b: Adds a vertical offset to the output.
+
+    Returns:
+      Sigmoid transformed output with the specified range.
+    """
+    return list(L / (1 + np.exp(-k * (x - x0))) + b)
+
+
+def parse_int_tuple(x):
+    try:
+        return (int(x.split('(')[1].split(',')[0]),
+                int(x.split(',')[1].split(')')[0]))
+    except (ValueError, IndexError):
+        return (int(x.split('(')[2].split(')')[0]), int(x.split('(')[3].split(')')[0]))
+
+
+def parse_float_tuple(x):
+    try:
+        return (float(x.split('(')[1].split(',')[0]),
+                float(x.split(',')[1].split(')')[0]))
+    except (ValueError, IndexError):
+        return (float(x.split('(')[2].split(')')[0]), float(x.split('(')[3].split(')')[0]))
