@@ -13,9 +13,10 @@ from tifffile import imread
 from tqdm.auto import tqdm
 import matplotlib.pyplot as plt
 from bcdict import BCDict
+import cv2
 
 import sys
-sys.path.append(r'C:\Users\Kaitlyn\PyCharmProjects\imaging\caImageAnalysis')
+# sys.path.append(r'C:\Users\Kaitlyn\PyCharmProjects\imaging\caImageAnalysis')
 # local imports
 import constants
 import angles
@@ -26,6 +27,8 @@ import photostim_utils
 import tailtracking
 import bruker_images
 import scipy
+from packaging.version import Version
+import matplotlib.path as mpltPath
 
 
 class BaseFish:
@@ -59,6 +62,7 @@ class BaseFish:
         if 'caiman' in self.data_paths.keys():
             self.load_caiman(caiman_type) # load in caiman data 
             self.is_cell() # clean up cells (close to edge, not changing fluor, nan location, etc)
+
 
         
     def process_filestructure(self, midnight_noon = "noon"):
@@ -184,10 +188,13 @@ class BaseFish:
         self.iscell = np.load(
             self.data_paths["caiman"].joinpath("iscell.npy"), allow_pickle=True
         ).astype(bool)
+        vtest = np.__version__ > "1.19"
 
         self.stats = np.load(
             self.data_paths["caiman"].joinpath("coordinates_dict.npy"), allow_pickle=True
         )
+        if vtest:
+            self.stats = self.stats.item()
 
         if caiman_type == 'raw':
             if not self.data_paths["caiman"].joinpath("raw.npy").exists():
@@ -209,74 +216,124 @@ class BaseFish:
         4 - if caiman data, then make sure the cells are within the brain region
         """
         # 0 - remove cells that are too close to the edge - for all sources
-        height, width = self.ops['refImg'].shape
-        edge_cell_indices = []
-        for idx, location_info in enumerate(self.stats):
-            x = location_info['xpix']
-            y = location_info['ypix']
-            # Compute min and max of the cell location
-            xmin = np.min(x)
-            xmax = np.max(x)
-            ymin = np.min(y)
-            ymax = np.max(y)
-            # Check if any pixel touches the margin
-            if (xmin < edge_margin or xmax > (width - edge_margin - 1) or ymin < edge_margin or ymax > (height - edge_margin - 1)):
-                edge_cell_indices.append(idx)
+        vtest = Version(np.__version__) > Version("1.19")
+        # height, width = self.ops['refImg'].shape
+        # edge_cell_indices = []
+        # for idx, location_info in enumerate(self.stats):
+            
+        #     if vtest:
+        #         location_info = self.stats[location_info]
 
-            # Check if there is a nan location
-            for value in location_info.values():
-                if isinstance(value, float) and np.isnan(value):
-                    edge_cell_indices.append(idx)
-        iscell_index = [index for index in range(len(self.f_cells)) if index not in edge_cell_indices]
+        #     x = location_info['xpix']
+        #     y = location_info['ypix']
+        #     # Compute min and max of the cell location
+        #     xmin = np.min(x)
+        #     xmax = np.max(x)
+        #     ymin = np.min(y)
+        #     ymax = np.max(y)
+        #     # Check if any pixel touches the margin
+        #     if (xmin < edge_margin or xmax > (width - edge_margin - 1) or ymin < edge_margin or ymax > (height - edge_margin - 1)):
+        #         edge_cell_indices.append(idx)
 
-        try:
-            self.load_saved_rois()
-            if 'brain' in list(self.roi_dict.keys()): # if there is a large brain ROI
-                print('brain ROI found')
-                iscell_inbrain_index = np.array(self.return_cells_by_saved_roi('brain'))
-                iscell_index_2 = np.intersect1d(np.array(iscell_index), iscell_inbrain_index)
-                iscell_index = iscell_index_2
-        except:
-            print('no brain ROI found')
+        #     # Check if there is a nan location
 
-        self.f_cells = self.f_cells[iscell_index]
-        self.stats = self.stats[iscell_index]
-        if hasattr(self, 'df_f_cells'):
-            self.df_f_cells = self.df_f_cells[iscell_index]
+        #     for value in location_info.values():
+        #         if isinstance(value, float) and np.isnan(value):
+        #             edge_cell_indices.append(idx)
+        # iscell_index = [index for index in range(len(self.f_cells)) if index not in edge_cell_indices]
+
+        # try:
+        #     self.load_saved_rois()
+        #     if 'brain' in list(self.roi_dict.keys()): # if there is a large brain ROI
+        #         print('brain ROI found')
+        #         iscell_inbrain_index = np.array(self.return_cells_by_saved_roi('brain'))
+        #         iscell_index_2 = np.intersect1d(np.array(iscell_index), iscell_inbrain_index)
+        #         iscell_index = iscell_index_2
+        # except:
+        #     print('no brain ROI found')
+
+        # self.f_cells = self.f_cells[iscell_index]
+
+
+        # if vtest:
+        #     self.stats = {int(cell) : self.stats[int(cell)] for cell in iscell_index} 
+
+        # else:
+        #     self.stats = self.stats[iscell_index]
+        # if hasattr(self, 'df_f_cells'):
+        #     self.df_f_cells = self.df_f_cells[iscell_index]
 
         if 'caiman' in self.data_paths.keys(): # this does not overwrite the original caiman output
+            print(self.folder_path)
+            print(self.data_paths.keys())
             # 1 - is part of is cell index
-            iscell_index = np.where(self.iscell)
+
+            iscell_index = np.where(self.iscell) 
 
             # 2 - cell is changing
             ischanging_index = np.where(np.amax(self.f_cells, 1) != np.amin(self.f_cells, 1))
             iscell_index = np.intersect1d(iscell_index, ischanging_index)
+            
             # iscell_index = iscell_index[0]
 
             # 3 - remove cells with a nan location
             notcell_index = []
-            for e, x in enumerate(self.stats):
+            if vtest:
+                toiter = self.stats.keys()
+            else: 
+                toiter = self.stats
+
+            for e, x in enumerate(toiter):
+                if vtest:
+                    x = self.stats[x]
+
                 for value in x.values():
                     if isinstance(value, float) and np.isnan(value):
                         notcell_index.append(e)
-            iscell_index = [index for index in iscell_index if index not in notcell_index]
-
+            iscell_index = [int(index) for index in iscell_index if index not in notcell_index]
             self.f_cells = self.f_cells[iscell_index]
-            self.stats = self.stats[iscell_index]
+
+            if vtest:
+                self.stats = {int(cell) : self.stats[int(cell)] for cell in iscell_index}
+
+            else:
+                self.stats = self.stats[iscell_index]
             if hasattr(self, 'df_f_cells'):
                 self.df_f_cells = self.df_f_cells[iscell_index]
 
+
             # 4 - with caiman data, make sure that these cells are within the brain region
+
             try:
-                iscell_inbrain_index = np.array(self.return_cells_by_saved_roi('brain')) # if there is a good brain ROI
-            except KeyError:
-                self.draw_roi2('brain', overwrite=True) # in case you need to get the brain ROI again
-                iscell_inbrain_index = np.array(self.return_cells_by_saved_roi('brain'))
-            iscell_index_2 = np.intersect1d(np.array(iscell_index), iscell_inbrain_index)
-            self.f_cells = self.f_cells[iscell_index_2]
-            self.stats = self.stats[iscell_index_2]
-            self.df_f_cells = self.df_f_cells[iscell_index_2] 
-            print('completed iscell check')
+                self.load_saved_rois()
+                if 'brain' in list(self.roi_dict.keys()): # if there is a large brain ROI
+                    print('brain ROI found')
+                    iscell_inbrain_index = np.array(self.return_cells_by_saved_roi('brain'))
+                    iscell_index_2 = np.intersect1d(np.array(iscell_index), iscell_inbrain_index)
+                    iscell_index = iscell_index_2
+            except:
+                print('no brain ROI found')
+
+            if os.path.exists(self.folder_path.joinpath("rois")):
+                try:
+                    iscell_inbrain_index = np.array(self.return_cells_by_saved_roi('brain')) # if there is a good brain ROI
+                    print("no err")
+                except KeyError:
+                    print("YOU HIT THE KEY ERR")
+                    self.draw_roi2('brain', overwrite=True) # in case you need to get the brain ROI again
+
+                    iscell_inbrain_index = np.array(self.return_cells_by_saved_roi('brain'))
+
+
+                iscell_index_2 = np.intersect1d(np.array(iscell_index), iscell_inbrain_index)
+                self.f_cells = self.f_cells[iscell_index_2]
+
+                if vtest:
+                    self.stats = {int(cell) : self.stats[int(cell)] for cell in iscell_index_2}
+                else:
+                    self.stats = self.stats[iscell_index_2]
+                self.df_f_cells = self.df_f_cells[iscell_index_2] 
+
 
     def return_cell_rois(self, cells):
         if isinstance(cells, int):
@@ -314,6 +371,7 @@ class BaseFish:
 
     def draw_roi(self, title="blank", overwrite=False, brightness = 50, contrast =30):
         import cv2
+        print("LAUNCHED ROI1")
 
         img = self.ops["refImg"].copy()
 
@@ -362,6 +420,7 @@ class BaseFish:
         self.save_roi(title, overwrite)
     
     def draw_roi2(self, title="blank", overwrite=False, brightness=50, contrast=30):
+        print("LAUNCHED ROI2")
         
         # Make a copy of the reference image
         img = self.ops["refImg"].copy()
@@ -374,7 +433,6 @@ class BaseFish:
 
         # ---------- Try OpenCV GUI ----------
         try:
-            import cv2
 
             window_name = f"roiFinder_{title}"
 
@@ -423,6 +481,7 @@ class BaseFish:
         self.save_roi(title, overwrite)
 
     def save_roi(self, save_name, overwrite):
+        print("save_roi starts")
         savePathFolder = self.folder_path.joinpath("rois")
         if not os.path.exists(savePathFolder):
             os.mkdir(savePathFolder)
@@ -433,17 +492,23 @@ class BaseFish:
         else:
             np.save(savePath, self.ptlist)
             print(f"saved {save_name}")
+        print("saved rois successfully")
 
     def load_saved_rois(self):
+        print("loading saved rois")
         self.roi_dict = {}
         with os.scandir(self.folder_path.joinpath("rois")) as entries:
             for entry in entries:
                 self.roi_dict[Path(entry.path).stem] = entry.path
+        print("loaded saved rois")
 
     def return_cells_by_saved_roi(self, roi_name, overwrite=False):
         try:
+            print("attempting to load savedrois")
             self.load_saved_rois()
         except FileNotFoundError:
+            print("No ROI file found.  Launching ROI function")
+            # self.draw_roi("brain")
             pass
         
         if overwrite:
@@ -453,7 +518,6 @@ class BaseFish:
                 self.load_saved_rois()
 
         roi_points = np.load(self.roi_dict[roi_name])
-        import matplotlib.path as mpltPath
 
         path = mpltPath.Path(roi_points)
 
