@@ -26,10 +26,13 @@ def tolerant_mean(arrs):
     return arr.mean(axis=-1), arr.std(axis=-1)
 
 def norm_0to1(cell_array):
-    if len(cell_array.shape) == 1:
-        norm_cell_arr = np.array((cell_array - np.nanmin(cell_array)) / (np.nanmax(cell_array) - np.nanmin(cell_array)))
+    if type(cell_array) == "dict":
+        norm_cell_arr = {c: (cell_array[c] - np.nanmin(cell_array[c])) / (np.nanmax(cell_array[c]) - np.nanmin(cell_array[c])) for c in cell_array.keys()}
     else:
-        norm_cell_arr = np.array([(c - np.nanmin(c)) / (np.nanmax(c) - np.nanmin(c)) for c in cell_array])
+        if len(cell_array.shape) == 1:
+            norm_cell_arr = np.array((cell_array - np.nanmin(cell_array)) / (np.nanmax(cell_array) - np.nanmin(cell_array)))
+        else:
+            norm_cell_arr = np.array([(c - np.nanmin(c)) / (np.nanmax(c) - np.nanmin(c)) for c in cell_array])
     return norm_cell_arr
 
 def norm_fdff(cell_array):
