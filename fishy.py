@@ -14,6 +14,7 @@ from tqdm.auto import tqdm
 import matplotlib.pyplot as plt
 from bcdict import BCDict
 import cv2
+import matplotlib
 
 import sys
 # sys.path.append(r'C:\Users\Kaitlyn\PyCharmProjects\imaging\caImageAnalysis')
@@ -157,6 +158,10 @@ class BaseFish:
             if midnight_noon == 'midnight':
                 if text[:2] == '12':
                     text = '00' + text[2:]
+
+    def load_caiman(self, caiman_type):
+        # make a ops['refImg'] to be used later, like with suite2p data
+        if hasattr(self, "mean_img"):
             times.append(dt.strptime(text, "%H:%M:%S.%f").time())
         times_df = pd.DataFrame(times)
         times_df.rename({0: "time"}, axis=1, inplace=True)
@@ -264,8 +269,7 @@ class BaseFish:
         #     self.df_f_cells = self.df_f_cells[iscell_index]
 
         if 'caiman' in self.data_paths.keys(): # this does not overwrite the original caiman output
-            print(self.folder_path)
-            print(self.data_paths.keys())
+
             # 1 - is part of is cell index
 
             iscell_index = np.where(self.iscell) 
@@ -273,7 +277,10 @@ class BaseFish:
             # 2 - cell is changing
             ischanging_index = np.where(np.amax(self.f_cells, 1) != np.amin(self.f_cells, 1))
             iscell_index = np.intersect1d(iscell_index, ischanging_index)
-            
+
+            self.f_cells = {k:v for k, v in enumerate(self.f_cells)}
+            self.df_f_cells = {k:v for k, v in enumerate(self.df_f_cells)}
+  
             # iscell_index = iscell_index[0]
 
             # 3 - remove cells with a nan location
@@ -282,7 +289,7 @@ class BaseFish:
                 toiter = self.stats.keys()
             else: 
                 toiter = self.stats
-
+            print(1)
             for e, x in enumerate(toiter):
                 if vtest:
                     x = self.stats[x]
@@ -291,64 +298,61 @@ class BaseFish:
                     if isinstance(value, float) and np.isnan(value):
                         notcell_index.append(e)
             iscell_index = [int(index) for index in iscell_index if index not in notcell_index]
-            self.f_cells = self.f_cells[iscell_index]
 
+            self.f_cells = {int(cell) : self.f_cells[int(cell)] for cell in iscell_index}
+            print(2)
             if vtest:
                 self.stats = {int(cell) : self.stats[int(cell)] for cell in iscell_index}
-
+            
             else:
                 self.stats = self.stats[iscell_index]
             if hasattr(self, 'df_f_cells'):
-                self.df_f_cells = self.df_f_cells[iscell_index]
-
+                self.df_f_cells = {int(cell) : self.df_f_cells[int(cell)] for cell in iscell_index}
+            print(3)
+            print(self.data_paths)
 
             # 4 - with caiman data, make sure that these cells are within the brain region
 
             try:
-                self.load_saved_rois()
-                if 'brain' in list(self.roi_dict.keys()): # if there is a large brain ROI
-                    print('brain ROI found')
-                    iscell_inbrain_index = np.array(self.return_cells_by_saved_roi('brain'))
-                    iscell_index_2 = np.intersect1d(np.array(iscell_index), iscell_inbrain_index)
-                    iscell_index = iscell_index_2
-            except:
-                print('no brain ROI found')
+                iscell_inbrain_index = np.array(self.return_cells_by_saved_roi('brain')) # if there is a good brain ROI
 
-            if os.path.exists(self.folder_path.joinpath("rois")):
-                try:
-                    iscell_inbrain_index = np.array(self.return_cells_by_saved_roi('brain')) # if there is a good brain ROI
-                    print("no err")
-                except KeyError:
-                    print("YOU HIT THE KEY ERR")
-                    self.draw_roi2('brain', overwrite=True) # in case you need to get the brain ROI again
+ 
+            except KeyError:
 
-                    iscell_inbrain_index = np.array(self.return_cells_by_saved_roi('brain'))
+                self.draw_roi2('brain', overwrite=True) # in case you need to get the brain ROI again
+                iscell_inbrain_index = np.array(self.return_cells_by_saved_roi('brain'))
+
+            iscell_index_2 = np.intersect1d(np.array(iscell_index), iscell_inbrain_index)
 
 
-                iscell_index_2 = np.intersect1d(np.array(iscell_index), iscell_inbrain_index)
-                self.f_cells = self.f_cells[iscell_index_2]
+            self.f_cells = {int(cell) : self.f_cells[int(cell)] for cell in iscell_index_2}
 
-                if vtest:
-                    self.stats = {int(cell) : self.stats[int(cell)] for cell in iscell_index_2}
-                else:
-                    self.stats = self.stats[iscell_index_2]
-                self.df_f_cells = self.df_f_cells[iscell_index_2] 
+
+            if vtest:
+                self.stats = {int(cell) : self.stats[int(cell)] for cell in iscell_index_2}
+            else:
+                self.stats = self.stats[iscell_index_2]
+            self.df_f_cells = {int(cell) : self.df_f_cells[int(cell)] for cell in iscell_index_2}
+
 
 
     def return_cell_rois(self, cells):
         if isinstance(cells, int):
+            
             cells = [cells]
 
         rois = []
+
         for cell in cells:
             ypix = self.stats[cell]["ypix"]
             xpix = self.stats[cell]["xpix"]
             mean_y = int(np.nanmean(ypix))
             mean_x = int(np.nanmean(xpix))
-            rois.append([mean_x, mean_y])
+            rois.append([cell, mean_x, mean_y])
         return rois
     
     def return_singlecell_rois(self, single_cell):
+        
         single_cell = int(single_cell)
         ypix = self.stats[single_cell]["ypix"]
         xpix = self.stats[single_cell]["xpix"]
@@ -359,19 +363,22 @@ class BaseFish:
         return roi
 
     def return_cells_by_location(self, xmin=0, xmax=99999, ymin=0, ymax=99999):
+
+        fcelllist = [int(k) for k in self.f_cells.keys()]
+
         cell_df = pd.DataFrame(
-            self.return_cell_rois(np.arange(0, len(self.f_cells))), columns=["x", "y"]
+            self.return_cell_rois(fcelllist), columns=["cell_id", "x", "y"]
         )
+
         return cell_df[
-            (cell_df.y >= ymin)
-            & (cell_df.y <= ymax)
-            & (cell_df.x >= xmin)
-            & (cell_df.x <= xmax)
-        ].index.values
+                (cell_df.y >= ymin)
+                & (cell_df.y <= ymax)
+                & (cell_df.x >= xmin)
+                & (cell_df.x <= xmax)]["cell_id"].values
 
     def draw_roi(self, title="blank", overwrite=False, brightness = 50, contrast =30):
-        import cv2
-        print("LAUNCHED ROI1")
+   
+
 
         img = self.ops["refImg"].copy()
 
@@ -420,7 +427,6 @@ class BaseFish:
         self.save_roi(title, overwrite)
     
     def draw_roi2(self, title="blank", overwrite=False, brightness=50, contrast=30):
-        print("LAUNCHED ROI2")
         
         # Make a copy of the reference image
         img = self.ops["refImg"].copy()
@@ -430,9 +436,11 @@ class BaseFish:
         plot_img = np.int16(img)
         plot_img = plot_img * (contrast / 127 + 1) - contrast + brightness
         plot_img = np.clip(plot_img, 0, 255).astype(np.uint8)
+        self.compl_roi = False
 
         # ---------- Try OpenCV GUI ----------
         try:
+
 
             window_name = f"roiFinder_{title}"
 
@@ -448,19 +456,20 @@ class BaseFish:
                     if len(self.ptlist) > 2:
                         cv2.line(plot_img, self.ptlist[-1], self.ptlist[0], (255, 255, 255), 2)
                         cv2.imshow(window_name, plot_img)
-                    cv2.waitKey(500)
-                    cv2.destroyAllWindows()
+
+                    self.compl_roi = True
 
             cv2.namedWindow(window_name)
             cv2.setMouseCallback(window_name, roigrabber)
 
-            cv2.imshow(window_name, plot_img)
-            cv2.waitKey(0)
+            while not self.compl_roi:
+                cv2.imshow(window_name, plot_img)
+                cv2.waitKey(1)
             cv2.destroyAllWindows()
 
         except Exception as e:
             print(f"[INFO] OpenCV GUI not available ({e}). Falling back to Matplotlib ROI selection.")
-            import matplotlib
+            
             matplotlib.use("Qt5Agg")
 
             import matplotlib.pyplot as plt
@@ -480,8 +489,9 @@ class BaseFish:
         # Save ROI after selection
         self.save_roi(title, overwrite)
 
+
     def save_roi(self, save_name, overwrite):
-        print("save_roi starts")
+
         savePathFolder = self.folder_path.joinpath("rois")
         if not os.path.exists(savePathFolder):
             os.mkdir(savePathFolder)
@@ -492,23 +502,21 @@ class BaseFish:
         else:
             np.save(savePath, self.ptlist)
             print(f"saved {save_name}")
-        print("saved rois successfully")
+
 
     def load_saved_rois(self):
-        print("loading saved rois")
+
         self.roi_dict = {}
         with os.scandir(self.folder_path.joinpath("rois")) as entries:
             for entry in entries:
                 self.roi_dict[Path(entry.path).stem] = entry.path
-        print("loaded saved rois")
+
 
     def return_cells_by_saved_roi(self, roi_name, overwrite=False):
         try:
-            print("attempting to load savedrois")
             self.load_saved_rois()
+
         except FileNotFoundError:
-            print("No ROI file found.  Launching ROI function")
-            # self.draw_roi("brain")
             pass
         
         if overwrite:
@@ -517,14 +525,18 @@ class BaseFish:
                 self.draw_roi2(title=roi_name)
                 self.load_saved_rois()
 
+
         roi_points = np.load(self.roi_dict[roi_name])
 
         path = mpltPath.Path(roi_points)
 
         all_cells = self.return_cells_by_location()
         all_rois = self.return_cell_rois(all_cells)
+        roi_coords = np.array(all_rois)[:, 1:]
+        roi_ids = np.array(all_rois)[:, 0]
 
-        cell_in_roi = path.contains_points(all_rois)
+        cell_in_roi = path.contains_points(roi_coords)
+        print(cell_in_roi.shape, all_cells.shape)
 
         selected_cells = all_cells[cell_in_roi]
         return selected_cells
