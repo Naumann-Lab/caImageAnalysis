@@ -685,17 +685,22 @@ class TailTrackedFish(BaseFish):
         super().__init__(*args, **kwargs)
 
         self.add_tail_paths(tail_key)
+
         self.tail_df = pd.read_hdf(self.data_paths["tail"])
+
         self.add_bout_analysis()
 
         if 'frame' not in self.tail_df.columns:
+            print("beep 1")
             self.tail_df = self.tail_df[(self.tail_df.t_dt > self.frametimes_df.time.values[0]) &
                                                 (self.tail_df.t_dt < self.frametimes_df.time.values[-1])]
+            print("beep 2")
             self.tail_df = self.tag_frames_to_df(self.frametimes_df, self.tail_df, 't_dt')
+            print("beep 3")
             self.tail_df.to_hdf(self.data_paths['tail'], key='tail')
         else:
             print('tail df already has frames')
-        
+
         # self.tail_pearsonr_correlation(select_cells = None)
 
     def add_tail_paths(self, tail_key):
