@@ -15,6 +15,8 @@ import matplotlib.pyplot as plt
 from bcdict import BCDict
 import cv2
 import matplotlib
+import tempfile
+import shutil
 
 import sys
 # sys.path.append(r'C:\Users\Kaitlyn\PyCharmProjects\imaging\caImageAnalysis')
@@ -278,8 +280,8 @@ class BaseFish:
             ischanging_index = np.where(np.amax(self.f_cells, 1) != np.amin(self.f_cells, 1))
             iscell_index = np.intersect1d(iscell_index, ischanging_index)
 
-            self.f_cells = {k:v for k, v in enumerate(self.f_cells)}
-            self.df_f_cells = {k:v for k, v in enumerate(self.df_f_cells)}
+            # self.f_cells = {k:v for k, v in enumerate(self.f_cells)}
+            # self.df_f_cells = {k:v for k, v in enumerate(self.df_f_cells)}
   
             # iscell_index = iscell_index[0]
 
@@ -289,7 +291,7 @@ class BaseFish:
                 toiter = self.stats.keys()
             else: 
                 toiter = self.stats
-            print(1)
+
             for e, x in enumerate(toiter):
                 if vtest:
                     x = self.stats[x]
@@ -299,24 +301,20 @@ class BaseFish:
                         notcell_index.append(e)
             iscell_index = [int(index) for index in iscell_index if index not in notcell_index]
 
-            self.f_cells = {int(cell) : self.f_cells[int(cell)] for cell in iscell_index}
-            print(2)
-            if vtest:
-                self.stats = {int(cell) : self.stats[int(cell)] for cell in iscell_index}
+            # self.f_cells = {int(cell) : self.f_cells[int(cell)] for cell in iscell_index}
+
+            # if vtest:
+            #     self.stats = {int(cell) : self.stats[int(cell)] for cell in iscell_index}
             
-            else:
-                self.stats = self.stats[iscell_index]
-            if hasattr(self, 'df_f_cells'):
-                self.df_f_cells = {int(cell) : self.df_f_cells[int(cell)] for cell in iscell_index}
-            print(3)
-            print(self.data_paths)
+            # else:
+            #     self.stats = self.stats[iscell_index]
+
 
             # 4 - with caiman data, make sure that these cells are within the brain region
 
             try:
                 iscell_inbrain_index = np.array(self.return_cells_by_saved_roi('brain')) # if there is a good brain ROI
 
- 
             except KeyError:
 
                 self.draw_roi2('brain', overwrite=True) # in case you need to get the brain ROI again
@@ -324,15 +322,20 @@ class BaseFish:
 
             iscell_index_2 = np.intersect1d(np.array(iscell_index), iscell_inbrain_index)
 
+            self.f_cells = self.f_cells[iscell_index_2]
 
-            self.f_cells = {int(cell) : self.f_cells[int(cell)] for cell in iscell_index_2}
 
 
             if vtest:
-                self.stats = {int(cell) : self.stats[int(cell)] for cell in iscell_index_2}
+
+                self.stats = {int(newk) : self.stats[int(cell)] for newk, cell in enumerate(iscell_index_2)}
+
+
             else:
                 self.stats = self.stats[iscell_index_2]
-            self.df_f_cells = {int(cell) : self.df_f_cells[int(cell)] for cell in iscell_index_2}
+            if hasattr(self, 'df_f_cells'):
+                self.df_f_cells = self.df_f_cells[iscell_index_2]
+
 
 
 
@@ -348,7 +351,7 @@ class BaseFish:
             xpix = self.stats[cell]["xpix"]
             mean_y = int(np.nanmean(ypix))
             mean_x = int(np.nanmean(xpix))
-            rois.append([cell, mean_x, mean_y])
+            rois.append([mean_x, mean_y])
         return rois
     
     def return_singlecell_rois(self, single_cell):
@@ -363,18 +366,30 @@ class BaseFish:
         return roi
 
     def return_cells_by_location(self, xmin=0, xmax=99999, ymin=0, ymax=99999):
+        if type(self.f_cells) == dict:
+            fcelllist = [int(k) for k in self.f_cells.keys()]
 
-        fcelllist = [int(k) for k in self.f_cells.keys()]
+            cell_df = pd.DataFrame(
+                self.return_cell_rois(fcelllist), columns=["cell_id", "x", "y"]
+            )
 
-        cell_df = pd.DataFrame(
-            self.return_cell_rois(fcelllist), columns=["cell_id", "x", "y"]
-        )
+            return cell_df[
+                    (cell_df.y >= ymin)
+                    & (cell_df.y <= ymax)
+                    & (cell_df.x >= xmin)
+                    & (cell_df.x <= xmax)]["cell_id"].values
+        
+        elif type(self.f_cells) == np.ndarray:
 
-        return cell_df[
-                (cell_df.y >= ymin)
-                & (cell_df.y <= ymax)
-                & (cell_df.x >= xmin)
-                & (cell_df.x <= xmax)]["cell_id"].values
+            cell_df = pd.DataFrame(
+                self.return_cell_rois(np.arange(0, len(self.f_cells))), columns=["x", "y"]
+            )
+
+            return cell_df[
+                    (cell_df.y >= ymin)
+                    & (cell_df.y <= ymax)
+                    & (cell_df.x >= xmin)
+                    & (cell_df.x <= xmax)].index.values
 
     def draw_roi(self, title="blank", overwrite=False, brightness = 50, contrast =30):
    
@@ -532,8 +547,9 @@ class BaseFish:
 
         all_cells = self.return_cells_by_location()
         all_rois = self.return_cell_rois(all_cells)
-        roi_coords = np.array(all_rois)[:, 1:]
-        roi_ids = np.array(all_rois)[:, 0]
+
+        roi_coords = np.array(all_rois)
+
 
         cell_in_roi = path.contains_points(roi_coords)
         print(cell_in_roi.shape, all_cells.shape)
@@ -678,6 +694,7 @@ class TailTrackedFish(BaseFish):
     def __init__(
         self,
         tail_key="tail",  # key to find tail data
+        tmp_path=None,
         # peak_threshold = None,
         *args,
         **kwargs,
@@ -687,17 +704,31 @@ class TailTrackedFish(BaseFish):
         self.add_tail_paths(tail_key)
 
         self.tail_df = pd.read_hdf(self.data_paths["tail"])
+        
 
         self.add_bout_analysis()
 
+
         if 'frame' not in self.tail_df.columns:
-            print("beep 1")
+
             self.tail_df = self.tail_df[(self.tail_df.t_dt > self.frametimes_df.time.values[0]) &
                                                 (self.tail_df.t_dt < self.frametimes_df.time.values[-1])]
-            print("beep 2")
+
             self.tail_df = self.tag_frames_to_df(self.frametimes_df, self.tail_df, 't_dt')
-            print("beep 3")
-            self.tail_df.to_hdf(self.data_paths['tail'], key='tail')
+            if "smb-share:server" in str(self.data_paths["tail"]):
+                if type(tmp_path) !=  str:
+                    tmp_path = os.getcwd()
+                print(f"It seems that you are trying to write directly to Isilon.  Instantiating temporary save to {tmp_path}")
+                with tempfile.NamedTemporaryFile(suffix=".h5", mode="w") as tmp:
+                    tmp_name = Path(tmp.name)
+                    self.tail_df.to_hdf(tmp_name, key='tail')
+                    if tmp_name.is_file():
+                        Path(self.data_paths['tail']).write_bytes(tmp_name.read_bytes())
+
+            
+            else:
+                self.tail_df.to_hdf(self.data_paths['tail'], key='tail')
+
         else:
             print('tail df already has frames')
 
@@ -775,7 +806,13 @@ class VizStimFish(TailTrackedFish):
                 self.load_caiman()
                 self.is_cell()
         self.stim_fxn_args = stim_fxn_args
-        self.add_stims(stim_key, stim_fxn, legacy)
+        self.add_stims(stim_key, stim_fxn, legacy) #this is where the stim_df gets defined
+        if 'rep' not in self.stimulus_df.columns:
+            self.stimulus_df = stimuli.add_repetitions_to_stimulus_df(self.stimulus_df) # add unique rep numbers to the stimulus df
+            print(self.stimulus_df.rep.unique())
+
+        self.rep_mode = rep_mode
+
 
         self.rep_mode = rep_mode
         if self.rep_mode == 'common':
@@ -784,6 +821,7 @@ class VizStimFish(TailTrackedFish):
         else:
             print('keeping all stimulus reps')
             print(self.stimulus_df.rep.unique())
+
 
         self.r_type = r_type
 
@@ -805,6 +843,7 @@ class VizStimFish(TailTrackedFish):
         self.offsets = used_offsets
         self.baseline_offset = baseline_offset
         # self.diff_image = self.make_difference_image()
+
 
 
 
@@ -1424,7 +1463,10 @@ class WorkingFish(VizStimFish):
                 self.is_cell()
 
         # create different fluorescence arrays
-        self.zdiff_cells = [arrutils.zdiffcell(i) for i in self.f_cells]
+        if type(self.f_cells) == dict:
+            self.zdiff_cells = [arrutils.zdiffcell(self.f_cells[i]) for i in self.f_cells.keys()]
+        else:
+            self.zdiff_cells = [arrutils.zdiffcell(z) for z in self.f_cells]
         self.normcells = arrutils.norm_0to1(self.f_cells)
 
         if ref_image is not None:
@@ -1434,7 +1476,7 @@ class WorkingFish(VizStimFish):
         if self.stim_order is None:
             self.stim_order = self.stimulus_df.stim_name.unique()
         stimuli.add_reps_to_stimulus_df(self.stimulus_df)
-        # self.neuron_each_stim_rep_arrays(stim_order)
+
         self.stim_start_frames = stimuli.stimulus_start_frames_for_plots(frames_motion_on = int(self.img_hz*seconds_motion_is_on), # 5 sec motion is on 
                                                                          length_of_total_frame_arr = np.diff(self.offsets)[0], 
                                                                          number_of_stims_in_set = len(self.stim_order))
