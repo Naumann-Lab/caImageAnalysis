@@ -29,7 +29,7 @@ def pandastim_to_df(pstimpath, minimode=False, addvelocity=True):
         pd.Timestamp(i).time() for i in stimulus_df.datetime.values
     ]
 
-    mini_stim = stimulus_df[["stim_name", "time"]]
+    mini_stim = stimulus_df.loc[:, ["stim_name", "time"]]
     mini_stim.stim_name = pd.Series(mini_stim.stim_name, dtype="category")
 
     mini_stim_vel = stimulus_df[["stim_name", "velocity", "time"]]
@@ -132,7 +132,7 @@ def csv_to_df(csvpath, minimode=False, addvelocity=False):
     if minimode:
         return mini_stim
     elif addvelocity:
-        mini_stim_vel = stimulus_df[["stim_name", "velocity", "time"]]
+        mini_stim_vel = stimulus_df.loc[["stim_name", "velocity", "time"]] 
         mini_stim_vel.stim_name = pd.Series(mini_stim.stim_name, dtype="category")
         return mini_stim_vel
     else:
