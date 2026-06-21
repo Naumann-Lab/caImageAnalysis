@@ -12,15 +12,22 @@ def run_image_rotation(base_fish, angle=0, crop=0.075):
     :param crop: percentage of image cropped on the fly back side (which is the left side with how it saves)
     :return:
     """
-
-    print("Rotating", base_fish.data_paths["original_image"])
+    if ("original_image" in base_fish.data_paths.keys()) and ("image" not in base_fish.data_paths.keys()):
+        path2use = base_fish.data_paths["original_image"]
+    elif ("original_image" not in base_fish.data_paths.keys()) and ("image" in base_fish.data_paths.keys()):
+        path2use = base_fish.data_paths["image"]
+    else:
+        print("Unclear which .tif file to access. Check if both \"original_image\" and \"image\" exist.")
+        return 1
+    
+    print("Rotating", path2use)
     with tifffile.TiffWriter(base_fish.folder_path.joinpath("img_rotated.tif"), bigtiff=True, imagej=True) as output:
-        with tifffile.TiffFile(base_fish.data_paths["original_image"]) as tiff:
+        with tifffile.TiffFile(path2use) as tiff:
             for page in tiff.pages:
-                apage = page.asarray().astype("uint32")
+                apage = page.asarray().astype(np.float32)
                 if crop != 0:
                     apage = apage[:, int(apage.shape[1]*crop):]
-                rot = scipy.ndimage.rotate(apage, reshape=False, angle=angle).astype(apage.dtype)
+                rot = scipy.ndimage.rotate(apage, reshape=False, angle=angle).astype(np.float32)
                 output.write(rot, contiguous=True)
 
     ##########ARCHIVED:
@@ -242,7 +249,7 @@ def run_suite2p_normal(imagepath, imageHz, input_tau=1.5, custom_parameter_dict=
 
     output_ops = run_s2p(ops=ops, db=db)
 
-def run_caiman_cnmf(base_fish, custom_parameter_dict = None, match_suite2p = True, keep_mmaps = False, force = True, tmp_save_path=None):
+def run_caiman_cnmf(base_fish, custom_parameter_dict = None, match_suite2p = True, keep_mmaps = False, force = True, tmp_save_path=None, pseudo_sweep_save=None):
     '''
     base_fish: some BaseFish class that needs to be processed
     custom_parameter_dict: dictionary with custom parameters for caiman source extraction 
@@ -335,6 +342,8 @@ def run_caiman_cnmf(base_fish, custom_parameter_dict = None, match_suite2p = Tru
         savePath = tmp_save_path
         str_atth  = f"caiman_{os.path.basename(base_fish.folder_path)}"
         moveto_folder = Path(savePath).joinpath(str_atth)
+    elif type(pseudo_sweep_save) ==str:
+        moveto_folder = pseudo_sweep_save
     else:
         savePath = base_fish.folder_path
         moveto_folder = Path(savePath).joinpath("caiman")
@@ -383,8 +392,8 @@ def run_caiman_cnmf(base_fish, custom_parameter_dict = None, match_suite2p = Tru
             status = ~np.isnan(coordarr)
             comb_stat = status[:,0]*status[:,1]
             cleaned_arr = coordarr[comb_stat,:]
-            cd_entry = {"xpix": cleaned_arr[0],
-                "ypix": cleaned_arr[1]}
+            cd_entry = {"xpix": cleaned_arr[:, 0],
+                "ypix": cleaned_arr[:, 1]}
             cleaned_dict[k] = cd_entry
             coordinates_list.append(int(k))
 
