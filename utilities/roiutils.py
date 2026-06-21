@@ -3,6 +3,11 @@ import os
 import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
+import scipy
+from skimage.filters import threshold_otsu
+from skimage.morphology import remove_small_objects
+import sys
+from bruker_images import collect_img_array_from_individual_volumes
 
 
 def create_circular_mask(img_shape, x, y, radius):
@@ -58,16 +63,13 @@ def make_red_channel_image_masks(reference_stack_path, otsu_thresh_factor = 1.1,
     :param save_mask_directory: folder to save the mask, titled 'rschrmine_mask.npy'
     :return: plot of the original red channel images, and the mask images
     '''
-    import scipy
-    from skimage.filters import threshold_otsu
-    from skimage.morphology import remove_small_objects
-    import sys
-    sys.path.append(r'C:\Users\Kaitlyn\PyCharmProjects\imaging\caImageAnalysis')
-    from bruker_images import collect_img_array_from_individual_volumes
+
 
     ch1_img_stack = collect_img_array_from_individual_volumes(reference_stack_path, n=50,
                                                                             plane_idx=None, channel='Ch1')
     ch1_img_stack = [scipy.ndimage.rotate(img, angle=90) for img in ch1_img_stack]
+
+    each_plane_mask = []
 
     fig, ax = plt.subplots(2, len(ch1_img_stack), figsize=(20, 10))
     for i in range(len(ch1_img_stack)):
@@ -81,9 +83,12 @@ def make_red_channel_image_masks(reference_stack_path, otsu_thresh_factor = 1.1,
         # save the mask in the folder to use later
         if save_mask_directory is not None:
             np.save(Path(save_mask_directory).joinpath(f'output_folders/plane_{i}/rschrmine_mask.npy'), mask)
+        each_plane_mask.append(mask)
     [a.axis('off') for a in ax.flatten()]
+    epm = np.array(each_plane_mask)
 
-    return plt.show()
+
+    return epm, plt.show()
 
 
 def cells_per_mask(cell_dicts, mask, min_frac=0.2):
@@ -92,19 +97,30 @@ def cells_per_mask(cell_dicts, mask, min_frac=0.2):
     Here we use the masks to find the cells
 
     cell_dicts: list of cell dictionaries with 'ypix' and 'xpix' (stats attribute in the BaseFish class)
-    mask: 2D boolean array
+    mask: 2D boolean array.  Indexed out of make_red_channel_image_masks object
     min_frac: fraction of overlap to call a cell 'positive'
     Returns: list of cell_ids that are overlapping with the mask and all the fraction of overlap for the cell_dicts
     """
     overlapping_cells = []
     overlapping_fracs = []
-    for i, cell in enumerate(cell_dicts):
-        ypix, xpix = cell['ypix'], cell['xpix']
-        overlap = mask[ypix, xpix]
-        frac = overlap.mean()
-        if frac >= min_frac:
-            overlapping_cells.append(i)
-        overlapping_fracs.append(frac)
+    if type(cell_dicts) != dict:
+        for i, cell in enumerate(cell_dicts):
+            ypix, xpix = cell['ypix'], cell['xpix']
+            overlap = mask[ypix, xpix]
+            frac = overlap.mean()
+            if frac >= min_frac:
+                overlapping_cells.append(i)
+            overlapping_fracs.append(frac)
+    else:
+
+        for k, v in cell_dicts.items():
+            ypix, xpix = np.trunc(v["ypix"]), np.trunc(v["xpix"])
+            overlap = np.array([mask[int(ypix[n]), int(i)] for n, i in enumerate(xpix)])
+            frac = overlap.mean()
+            if frac >= min_frac:
+                overlapping_cells.append(k)
+            overlapping_fracs.append(frac)
+
 
     return overlapping_cells, overlapping_fracs
 
