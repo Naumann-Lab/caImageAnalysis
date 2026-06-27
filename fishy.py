@@ -224,51 +224,6 @@ class BaseFish:
         """
         # 0 - remove cells that are too close to the edge - for all sources
         vtest = Version(np.__version__) > Version("1.19")
-        # height, width = self.ops['refImg'].shape
-        # edge_cell_indices = []
-        # for idx, location_info in enumerate(self.stats):
-            
-        #     if vtest:
-        #         location_info = self.stats[location_info]
-
-        #     x = location_info['xpix']
-        #     y = location_info['ypix']
-        #     # Compute min and max of the cell location
-        #     xmin = np.min(x)
-        #     xmax = np.max(x)
-        #     ymin = np.min(y)
-        #     ymax = np.max(y)
-        #     # Check if any pixel touches the margin
-        #     if (xmin < edge_margin or xmax > (width - edge_margin - 1) or ymin < edge_margin or ymax > (height - edge_margin - 1)):
-        #         edge_cell_indices.append(idx)
-
-        #     # Check if there is a nan location
-
-        #     for value in location_info.values():
-        #         if isinstance(value, float) and np.isnan(value):
-        #             edge_cell_indices.append(idx)
-        # iscell_index = [index for index in range(len(self.f_cells)) if index not in edge_cell_indices]
-
-        # try:
-        #     self.load_saved_rois()
-        #     if 'brain' in list(self.roi_dict.keys()): # if there is a large brain ROI
-        #         print('brain ROI found')
-        #         iscell_inbrain_index = np.array(self.return_cells_by_saved_roi('brain'))
-        #         iscell_index_2 = np.intersect1d(np.array(iscell_index), iscell_inbrain_index)
-        #         iscell_index = iscell_index_2
-        # except:
-        #     print('no brain ROI found')
-
-        # self.f_cells = self.f_cells[iscell_index]
-
-
-        # if vtest:
-        #     self.stats = {int(cell) : self.stats[int(cell)] for cell in iscell_index} 
-
-        # else:
-        #     self.stats = self.stats[iscell_index]
-        # if hasattr(self, 'df_f_cells'):
-        #     self.df_f_cells = self.df_f_cells[iscell_index]
 
         if 'caiman' in self.data_paths.keys(): # this does not overwrite the original caiman output
 
@@ -294,20 +249,23 @@ class BaseFish:
 
             for e, x in enumerate(toiter):
                 if vtest:
+                    n = x
                     x = self.stats[x]
 
                 for value in x.values():
                     if isinstance(value, float) and np.isnan(value):
-                        notcell_index.append(e)
+                        if vtest:
+                            notcell_index.append(n)
+                        else:
+                            notcell_index.append(e)
+                if (len(x["xpix"]) == 0) or (len(x["ypix"]) == 0):
+                    notcell_index.append(n)
+
             iscell_index = [int(index) for index in iscell_index if index not in notcell_index]
 
-            # self.f_cells = {int(cell) : self.f_cells[int(cell)] for cell in iscell_index}
+            temp_hold = self.f_cells
+            self.f_cells = {k:v for k, v in enumerate(self.f_cells)}
 
-            # if vtest:
-            #     self.stats = {int(cell) : self.stats[int(cell)] for cell in iscell_index}
-            
-            # else:
-            #     self.stats = self.stats[iscell_index]
 
 
             # 4 - with caiman data, make sure that these cells are within the brain region
@@ -322,12 +280,13 @@ class BaseFish:
 
             iscell_index_2 = np.intersect1d(np.array(iscell_index), iscell_inbrain_index)
 
+            self.f_cells = temp_hold
             self.f_cells = self.f_cells[iscell_index_2]
 
 
 
-            if vtest:
 
+            if vtest:
                 self.stats = {int(newk) : self.stats[int(cell)] for newk, cell in enumerate(iscell_index_2)}
 
 
@@ -344,14 +303,29 @@ class BaseFish:
             
             cells = [cells]
 
+
         rois = []
 
         for cell in cells:
+
             ypix = self.stats[cell]["ypix"]
             xpix = self.stats[cell]["xpix"]
-            mean_y = int(np.nanmean(ypix))
-            mean_x = int(np.nanmean(xpix))
-            rois.append([mean_x, mean_y])
+            
+            if type(self.f_cells) == dict:
+
+                ypix = self.stats[cell]["ypix"]
+                xpix = self.stats[cell]["xpix"]
+                if len(ypix) > 0 or len(xpix) > 0:
+                    mean_y = int(np.nanmean(ypix))
+                    mean_x = int(np.nanmean(xpix))
+                    rois.append([cell, mean_x, mean_y])
+            else:
+
+                ypix = self.stats[cell]["ypix"]
+                xpix = self.stats[cell]["xpix"]
+                mean_y = int(np.nanmean(ypix))
+                mean_x = int(np.nanmean(xpix))
+                rois.append([mean_x, mean_y])
         return rois
     
     def return_singlecell_rois(self, single_cell):
@@ -369,6 +343,7 @@ class BaseFish:
         if type(self.f_cells) == dict:
             fcelllist = [int(k) for k in self.f_cells.keys()]
 
+
             cell_df = pd.DataFrame(
                 self.return_cell_rois(fcelllist), columns=["cell_id", "x", "y"]
             )
@@ -382,7 +357,7 @@ class BaseFish:
         elif type(self.f_cells) == np.ndarray:
 
             cell_df = pd.DataFrame(
-                self.return_cell_rois(np.arange(0, len(self.f_cells))), columns=["x", "y"]
+                self.return_cell_rois([int(k) for k in self.stats.keys()]), columns=["x", "y"]
             )
 
             return cell_df[
@@ -540,18 +515,18 @@ class BaseFish:
                 self.draw_roi2(title=roi_name)
                 self.load_saved_rois()
 
-
         roi_points = np.load(self.roi_dict[roi_name])
 
         path = mpltPath.Path(roi_points)
 
+        self.f_cells = {k:v for k, v in enumerate(self.f_cells)}
         all_cells = self.return_cells_by_location()
         all_rois = self.return_cell_rois(all_cells)
 
         roi_coords = np.array(all_rois)
 
 
-        cell_in_roi = path.contains_points(roi_coords)
+        cell_in_roi = path.contains_points(roi_coords[:,1:])
         print(cell_in_roi.shape, all_cells.shape)
 
         selected_cells = all_cells[cell_in_roi]
