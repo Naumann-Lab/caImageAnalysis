@@ -69,7 +69,7 @@ def make_red_channel_image_masks(reference_stack_path, otsu_thresh_factor = 1.1,
                                                                             plane_idx=None, channel='Ch1')
     ch1_img_stack = [scipy.ndimage.rotate(img, angle=90) for img in ch1_img_stack]
 
-    each_plane_mask = []
+    each_plane_mask = {}
 
     fig, ax = plt.subplots(2, len(ch1_img_stack), figsize=(20, 10))
     for i in range(len(ch1_img_stack)):
@@ -83,12 +83,12 @@ def make_red_channel_image_masks(reference_stack_path, otsu_thresh_factor = 1.1,
         # save the mask in the folder to use later
         if save_mask_directory is not None:
             np.save(Path(save_mask_directory).joinpath(f'output_folders/plane_{i}/rschrmine_mask.npy'), mask)
-        each_plane_mask.append(mask)
+        each_plane_mask[i] = mask
     [a.axis('off') for a in ax.flatten()]
-    epm = np.array(each_plane_mask)
+    #epm = np.array(each_plane_mask)
 
 
-    return epm, plt.show()
+    return each_plane_mask, plt.show()
 
 
 def cells_per_mask(cell_dicts, mask, min_frac=0.2):
