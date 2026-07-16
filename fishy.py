@@ -754,8 +754,8 @@ class VizStimFish(TailTrackedFish):
         seconds_motion_is_on = 5,
         used_offsets=(-10, 14),
         baseline_offset=-4, # adding a baseline number of frames 
-        r_type="median",  # response type - can be median, mean, peak of the stimulus response, default is median
-        rep_mode="common",
+        r_type="median",# response type - can be median, mean, peak of the stimulus response, default is median
+        rep_mode = 'common',  # if you want all equal number of stim reps
         *args,
         **kwargs,
     ):
@@ -781,13 +781,10 @@ class VizStimFish(TailTrackedFish):
                 self.load_caiman()
                 self.is_cell()
         self.stim_fxn_args = stim_fxn_args
-        self.add_stims(stim_key, stim_fxn, legacy) #this is where the stim_df gets defined
+        self.add_stims(stim_key, stim_fxn, legacy)
         if 'rep' not in self.stimulus_df.columns:
             self.stimulus_df = stimuli.add_repetitions_to_stimulus_df(self.stimulus_df) # add unique rep numbers to the stimulus df
             print(self.stimulus_df.rep.unique())
-
-        self.rep_mode = rep_mode
-
 
         self.rep_mode = rep_mode
         if self.rep_mode == 'common':
@@ -797,8 +794,8 @@ class VizStimFish(TailTrackedFish):
             print('keeping all stimulus reps')
             print(self.stimulus_df.rep.unique())
 
-
         self.r_type = r_type
+        self.seconds_motion_is_on = seconds_motion_is_on
 
         # set up inversions
         if self.invert:
@@ -812,15 +809,12 @@ class VizStimFish(TailTrackedFish):
 
         # set up offsets
         if stim_offset == None:
-            self.stim_offset = int(seconds_motion_is_on * self.img_hz)
+            self.stim_offset = int(self.seconds_motion_is_on * self.img_hz)
         else:
             self.stim_offset = stim_offset
         self.offsets = used_offsets
         self.baseline_offset = baseline_offset
         # self.diff_image = self.make_difference_image()
-
-
-
 
     def add_stims(self, stim_key, stim_fxn, legacy):
         with os.scandir(self.folder_path) as entries:
@@ -984,7 +978,9 @@ class VizStimFish(TailTrackedFish):
         final_image /= np.max(final_image)
 
         return final_image * brightnessFactor
+    
 
+    
 class PhotostimFish(TailTrackedFish):
     def __init__(
         self,
@@ -1422,11 +1418,10 @@ class WorkingFish(VizStimFish):
     def __init__(self, corr_threshold=0.65, 
                  bool_data_type = 'normf', 
                  stim_order = None, 
-                 seconds_motion_is_on = 5, 
-                 ref_image=None, *args, **kwargs):
+                 ref_image=None,
+                 *args, **kwargs):
         super().__init__(*args, **kwargs)
         
-        self.seconds_motion_is_on = seconds_motion_is_on
         if "move_corrected_image" not in self.data_paths:
             print('no movement corrected image')
         self.corr_threshold = corr_threshold
@@ -1438,10 +1433,7 @@ class WorkingFish(VizStimFish):
                 self.is_cell()
 
         # create different fluorescence arrays
-        if type(self.f_cells) == dict:
-            self.zdiff_cells = [arrutils.zdiffcell(self.f_cells[i]) for i in self.f_cells.keys()]
-        else:
-            self.zdiff_cells = [arrutils.zdiffcell(z) for z in self.f_cells]
+        self.zdiff_cells = [arrutils.zdiffcell(i) for i in self.f_cells]
         self.normcells = arrutils.norm_0to1(self.f_cells)
 
         if ref_image is not None:
@@ -1450,9 +1442,9 @@ class WorkingFish(VizStimFish):
         self.stim_order = stim_order # order to stimuli for average trace plots
         if self.stim_order is None:
             self.stim_order = self.stimulus_df.stim_name.unique()
-        stimuli.add_reps_to_stimulus_df(self.stimulus_df)
 
-        self.stim_start_frames = stimuli.stimulus_start_frames_for_plots(frames_motion_on = int(self.img_hz*seconds_motion_is_on), # 5 sec motion is on 
+        # self.neuron_each_stim_rep_arrays(stim_order)
+        self.stim_start_frames = stimuli.stimulus_start_frames_for_plots(baseline_offset = -self.offsets[0],
                                                                          length_of_total_frame_arr = np.diff(self.offsets)[0], 
                                                                          number_of_stims_in_set = len(self.stim_order))
 
@@ -1461,6 +1453,8 @@ class WorkingFish(VizStimFish):
         self.zdiff_stim_dict, self.zdiff_err_dict, self.zdiff_neuron_dict = self.build_stimdicts(self.zdiff_cells)
         self.normf_stim_dict, self.normf_err_dict, self.normf_neuron_dict = self.build_stimdicts(self.normcells)
         self.f_stim_dict, self.f_err_dict, self.f_neuron_dict = self.build_stimdicts(self.f_cells)
+        # if hasattr(self, 'dff_cells'):
+        #     self.dff_stim_dict, self.dff_err_dict, self.dff_neuron_dict = self.build_stimdicts(self.dff_cells)
 
         if self.bool_data_type == 'zdiff':
             self.analysis_stim_dict = self.zdiff_stim_dict
@@ -1471,6 +1465,9 @@ class WorkingFish(VizStimFish):
         elif self.bool_data_type == 'f':
             self.analysis_stim_dict = self.f_stim_dict
             self.analysis_neuron_dict = self.f_neuron_dict
+        elif self.bool_data_type == 'df/f':
+            self.analysis_stim_dict = self.dff_stim_dict
+            self.analysis_neuron_dict = self.dff_neuron_dict
 
         self.build_stimdicts_extended_zdiff()
         self.build_stimdicts_extended_normf()
@@ -1480,28 +1477,25 @@ class WorkingFish(VizStimFish):
         self.build_booldf_baseline()
         # self.build_booldf_cluster()
 
-    def neuron_each_stim_rep_arrays(self, stim_order, traces = 'normf'):
+    def neuron_each_stim_rep_arrays(self, stim_order, trace_type = None):
         '''
-        ARGS:
-            stim_order: 
-            traces
-
-
-
         output -- array of shape: # of neurons, each repetition, and each stim (in the order of the stim_order) 
                 array of activity (length of offsets * num of stims) 
         '''
-        if traces == 'normf':
+        if trace_type is None:
+            trace_type = self.bool_data_type
+        if trace_type == 'normf':
             traces = self.normcells
-        elif traces == 'zdiff':
+        elif trace_type == 'zdiff':
             traces = self.zdiff_cells
-        elif traces == 'raw':
+        elif trace_type == 'raw':
             traces = self.f_cells
-        elif traces == 'df/f':
-            traces = self.df_f_cells
+        elif trace_type == 'df/f':
+            traces = self.dff_cells
 
-        self.stimulus_df = stimuli.add_repetitions_to_stimulus_df(self.stimulus_df)
-        self.stimulus_df = self.stimulus_df[self.stimulus_df.rep != -1]
+        if 'rep' not in self.stimulus_df.columns:
+            self.stimulus_df = stimuli.add_repetitions_to_stimulus_df(self.stimulus_df)
+            self.stimulus_df = self.stimulus_df[self.stimulus_df.rep != -1]
 
         # set up the array
         n_neurons = len(traces)
@@ -1776,6 +1770,17 @@ class WorkingFish(VizStimFish):
         self.normf_cluster_booldf = pd.DataFrame(bool_dict)
 
     def build_dsi_analysis_df(self, roi_name = None, cutoff_val = 0.25, stim_list = None):
+        '''
+        building a dsi, color, peak motion response dataframe
+        dsi is calculated from 4 cardinal directions
+        responses to motion are from the analysis_neuron_dict which will be the mean/median/max of the neuron to each stimulus
+        that type of response is set by the r_type keyword
+        color is calculated from a weighted mean of the responses to the stim_list
+        :param roi_name: if you want to get only the dsi from a specific region of interest
+        :param cutoff_val: if the neuron does not pass this threshold in its response value for any of the stimuli in stimlist, becomes gray
+        :param stim_list: a list of stimulus names that you want to use to get the color combinations from
+        :return: dataframe
+        '''
 
         if stim_list is None:
             monoc_stims = list(constants.monocular_dict.keys())
@@ -1796,24 +1801,23 @@ class WorkingFish(VizStimFish):
                                                                                 'color',
                                                                                 'location', 'degree_response'])
 
+        dsi_per_neuron = angles.calc_dsi_cardinaldirs(self, base_sec = 4, motion_on_sec = self.seconds_motion_is_on,
+                                                      dsi_threshold = cutoff_val, use_df_f = False)
         for r, neuron in enumerate(select_neurs):
             one_neuron_resps = df[neuron][monoc_stims]
             mean_resps_dict = dict(zip(monoc_stims, one_neuron_resps))
             degree_responses = [np.clip(mean_resps_dict[i], a_min=0, a_max=999) for i in monoc_stims]
             neuron_peak = angles.weighted_mean_angle(degree_ids, degree_responses)
             
-            try:
-                dsi = angles.calc_dsi(mean_resps_dict)
-            except:
-                dsi = np.nan
+            dsi = dsi_per_neuron[r]
             
-            try:
-                if np.nanmax(one_neuron_resps) <= cutoff_val: # make grey if at least one stimulus clears the cutoff
+            if dsi == 0: # make non selective neurons gray
+                color = [0.5, 0.5, 0.5, 0.15]
+            else:
+                if np.nanmax(one_neuron_resps) <= cutoff_val: # make grey if not responsive enough (below cut off)
                     color = [0.5, 0.5, 0.5, 0.15]
                 else:
-                    color = angles.continuous_clr_array(dsi, neuron_peak, continuous_colors)
-            except:
-                color = [0.5, 0.5, 0.5, 0.15]
+                    color = angles.continuous_clr_array(dsi, neuron_peak, continuous_colors) # otherwise get the color
 
             # add info to the analysis df
             self.dsi_df.iloc[r]['neuron_id'] = neuron
@@ -1881,7 +1885,6 @@ class WorkingFish(VizStimFish):
 
         # if not hasattr(self, "corrdf"):
         self.build_booldf_corr() # create correlation (not interested in the booldf) dataframes
-        # self.find_general_motion_resp_neurons(frames_motion_on = 5, r_val = thresh)
 
         data = self.corrdf
 
@@ -1993,8 +1996,7 @@ class WorkingFish(VizStimFish):
         return xpos, ypos, colors, neurons
 
     def make_computed_image_data_by_loc(
-        self, xmin=0, xmax=99999, ymin=0, ymax=9999, *args, **kwargs
-    ):
+        self, xmin=0, xmax=99999, ymin=0, ymax=9999, *args, **kwargs):
         xpos, ypos, colors, neurons = self.make_computed_image_data(*args, **kwargs)
         loc_cells = self.return_cells_by_location(
             xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax
@@ -2134,31 +2136,32 @@ class WorkingFish(VizStimFish):
         return o_t_base, o_t_base_std, o_t_on_avg, o_t_on_max, o_t_diff_mean
 
     def find_general_motion_resp_neurons(self,
-                                        frames_motion_on=7,
-                                        r_val=0.65,
-                                        base_frames=0,
-                                         rep_mode="all"):
+                                        frames_motion_on=7, # length in imaging frames for motion on window
+                                        base_frames=0, # number of baseline frames from self.offsets[0] to compute baseline window
+                                        rep_mode=None, # number of stimulus reps to include for analysis
+                                         trace_type = None):  # the type of trace that you want to find these neurons with
 
         '''
         Allows for multiple number of reps per stimulus
         Identifying motion responsive neurons based on:
         1. correlation during stim-on
         2. peak > baseline + 1.8 * std
-        3. response in >= 80% of available trials (per stim)
+        3. response in >= 60% of available trials (per stim)
 
         o_t shape:
         [# neurons, # reps (can include missing), # stim * frames]
         '''
 
         if not hasattr(self, "neur_resps_each_stim_rep"):
-            self.neur_resps_each_stim_rep = self.neuron_each_stim_rep_arrays(self.stim_order)
+            self.neur_resps_each_stim_rep = self.neuron_each_stim_rep_arrays(self.stim_order, trace_type)
 
         o_t = self.neur_resps_each_stim_rep
 
         n_neurons = o_t.shape[0]
-        n_reps_total = o_t.shape[1]
         n_stim = len(self.stim_order)
 
+        if rep_mode is None:
+            rep_mode = self.rep_mode
         if rep_mode == "common":
             rep_idx = stimuli.get_common_reps(self, frames_motion_on)
         else:
@@ -2176,86 +2179,57 @@ class WorkingFish(VizStimFish):
                 rep_mode=rep_mode
             )
 
-        resp_dict = BCDict()
-        bool_dict = BCDict()
-        corr_dict = BCDict()
-        self.motion_responsive_neurons = []
+        resp_dict = BCDict() # boolean, neuron responses to each stimuli
+        corr_dict = BCDict() # correlation values with a linear regresssion over the stim on window
+        self.motion_responsive_neurons = [] # list of neurons if anything is true
 
+        # basic stim template where the activity increases over the duration of the motion on window
         stim_template = np.linspace(0, 1, frames_motion_on)
 
         for i in range(n_neurons):
-
             resp_dict[i] = BCDict()
             corr_dict[i] = BCDict()
-            bool_dict[i] = BCDict()
-
             for j in range(n_stim):
-
                 corr_lst = []
                 resp_lst = []
-
                 for k in rep_idx:
-
                     # --- grab this rep's stim-on window ---
                     trace = o_t[i, k]
                     if np.all(np.isnan(trace)):
                         continue  # missing rep entirely
-
                     win0 = length_subset * j + before_stim
                     win1 = win0 + frames_motion_on
                     cell_arr = trace[win0:win1]
-
                     if np.all(np.isnan(cell_arr)):
                         continue  # stim missing for this rep
-
                     # -------- 1. correlation ----------
                     if np.nanstd(cell_arr) == 0:
                         corr_val = np.nan
                     else:
                         corr_val = np.corrcoef(stim_template, cell_arr)[0, 1]
-
                     corr_lst.append(corr_val)
-
                     # -------- 2. peak vs baseline ----------
                     if np.isnan(o_t_base[i, j, k]) or np.isnan(o_t_base_std[i, j, k]):
                         continue
-
                     if o_t_on_max[i, j, k] >= (o_t_base[i, j, k] + 1.8 * o_t_base_std[i, j, k]):
                         resp_lst.append(True)
                     else:
                         resp_lst.append(False)
-
-                # ---- per-stim valid rep count ----
-                n_valid_reps = len(resp_lst)
-
-                if n_valid_reps == 0:
-                    corr_dict[i][j] = np.nan
-                    bool_dict[i][j] = False
-                    resp_dict[i][j] = False
-                    continue
-
                 # -------- summary stats ----------
                 mean_corr = np.nanmean(corr_lst)
-                corr_dict[i][j] = mean_corr
-
-                bool_dict[i][j] = mean_corr >= r_val
-
+                corr_dict[i][j] = mean_corr # the correlations with the stim_template
                 # >= 60% of *available* trials
+                n_valid_reps = len(resp_lst) # tells us the number of reps of stimuli for this neuron, could change
                 if sum(resp_lst) >= int(np.ceil(n_valid_reps * 0.60)):
                     resp_dict[i][j] = True
                 else:
                     resp_dict[i][j] = False
-
             # neuron-level call: responsive to ANY stim
             if any(resp_dict[i].values()):
                 self.motion_responsive_neurons.append(i)
-
-        self.booldf = pd.DataFrame(bool_dict)
         self.corrdf = pd.DataFrame(corr_dict)
 
-        return self.corrdf, self.booldf, self.motion_responsive_neurons
-
-
+        return self.corrdf, self.motion_responsive_neurons
 
     def run_barcoding(self, stim_order, choice_barcode_dict, n_reps = 4, sec_motion_on = 8, response_threshold = 1.8,
                       baseline_frames = 4, response_type = 'median', trace_type = 'norm'):
@@ -2309,7 +2283,11 @@ class WorkingFish(VizStimFish):
         self.barcoding_df['supp_opposite_dir'] = [False] * len(self.barcoding_df)
         self.barcoding_df['side'] = ['R'] * len(self.barcoding_df)
 
-        pt_neurons = self.return_cells_by_saved_roi('Pt')
+        try:
+            pt_neurons = self.return_cells_by_saved_roi('Pt')
+        except:
+            pt_neurons = []
+            print('no Pt on this plane')
         for m, n in enumerate(self.barcoding_df.neur_ids.values):
             # 1 - if pt neurons
             if n in pt_neurons:
@@ -2343,6 +2321,115 @@ class WorkingFish(VizStimFish):
             self.barcoding_df['side'].iloc[m] = _side
         
         return self.barcoding_df
+
+    def find_bout_reducing_neurons(self, stim_order= constants.bouting_stims,
+                                   sec_motion_on=5, std_thresh=1.8,
+                                   baseline_frames = None, n_reps=None,
+                                   response_type = 'mean',):
+        '''
+        finding the bout reducing neurons for an opposite barcoded group to stimulate, only from visual motion tuning
+        basically just the neurons only responsive to backward
+        right now hardcoded to use local df/f for determining responsitivity
+
+        :param stim_order: the stimulus order to follow for gathering responses
+        :param sec_motion_on: how long the motion is on for in seconds to determine how many frames to use for barcoding
+        :param std_thresh: the threshold to determine if responsive or not
+        :param n_reps: number of stimulus reps that the neuron has to pass the threshold for
+        :param response_type: 'mean' or 'median' or 'max' for determining if responsive or not
+        :return: a list of the neuron indices that are bout reducing
+        '''
+
+        from utilities import barcoding
+
+        frames_motion_on = int(self.img_hz * sec_motion_on)
+        if n_reps == None:
+            n_reps = self.stimulus_df.rep.nunique()
+        if baseline_frames == None:
+            baseline_frames  = -self.offsets[0]
+
+        inducing_idx = [stim_order.index(s) for s in constants.bout_inducing_stims if s in stim_order]
+        reducing_idx = [stim_order.index(s) for s in constants.bout_reducing_stims if s in stim_order]
+        backward_idx = stim_order.index('backward') if 'backward' in stim_order else None
+
+        new_stim_resp_each_cell_arr = WorkingFish.neuron_each_stim_rep_arrays(self, stim_order)
+        new_stim_start_frames = stimuli.stimulus_start_frames_for_plots(baseline_offset=-self.offsets[0],
+                                                                        length_of_total_frame_arr=np.diff(self.offsets)[
+                                                                            0],
+                                                                        number_of_stims_in_set=len(stim_order))
+        bout_reducing_neurons = []
+        for n, neuron_arr in enumerate(new_stim_resp_each_cell_arr):
+            neuron_binary_code = barcoding.barcode_binary_score_df_f(self,
+                                                                     neuron_arr,
+                                                                     stims=stim_order,
+                                                                     stim_start_frames=new_stim_start_frames,
+                                                                     frames_motion_on=frames_motion_on,
+                                                                     base_length=baseline_frames,
+                                                                     std_thresh=std_thresh,
+                                                                     num_responding_trials=int(n_reps * 0.8),
+                                                                     evoked_resp=response_type)
+            neuron_binary_code = np.array(neuron_binary_code)
+            # 1 - not responsive to any bout inducing stimuli
+            no_bout_inducing = not neuron_binary_code[inducing_idx].any()
+
+            # 2 - responsive to wholefield backward motion
+            has_backward = neuron_binary_code[backward_idx] if backward_idx is not None else False
+
+            # 3 - responsive to any of the bout reducing stimuli?
+            has_bout_reducing = neuron_binary_code[reducing_idx].any()
+
+            keep_neuron = no_bout_inducing and has_backward
+            if keep_neuron:
+                bout_reducing_neurons.append(n)
+
+        return bout_reducing_neurons
+
+    def add_bout_reducing_barcodes_to_barcoding_df(self, bout_reducing_neurons):
+        '''
+        add the bout reducing neurons to the barcoding df, so that i can have all the information together for experiments
+        :param bout_reducing_neurons: the neuron ids of the bout reducing neurons from the function before
+        :return: the same barcoding df with these new 'barcoded' neurons added
+        note - the barcode_corr column is now a magnitude of response for the backward responses
+        '''
+
+        add_df = pd.DataFrame(columns=self.barcoding_df.columns,
+                              index=range(len(bout_reducing_neurons)))
+        add_df['plane'] = self.folder_path.name
+        add_df['neur_ids'] = bout_reducing_neurons
+        add_df['neur_coords'] = self.return_cell_rois(bout_reducing_neurons)
+        add_df['barcoding'] = 'bout_reducing'
+        add_df['back_resp'] = True
+        add_df['forw_resp'] = False
+        pt_neurons = self.return_cells_by_saved_roi('Pt')
+        for m, n in enumerate(add_df.neur_ids.values):
+            # if a Pt neuron
+            if n in pt_neurons:
+                add_df.at[m, 'Pt'] = True
+
+            # gathering intensity of backward response for later sorting, choosing the most responsive neurons
+            # this is being put into the df at 'barcode_corr'
+            backward_array = np.array(self.extended_responses_normf['backward'][n])
+            avg_intensity = []
+            for each_rep in backward_array:
+                base_mean = np.nanmean(each_rep[:-self.offsets[0]])
+                # right now hardcoded for just 5 sec, should be find to finding the magnitude of response
+                evoked_mean = np.nanmean(
+                    each_rep[-self.offsets[0]: -self.offsets[0] + int(self.img_hz * 5)])
+                intensity = evoked_mean - base_mean
+                avg_intensity.append(intensity)
+            add_df.at[m, 'barcode_corr'] = np.nanmean(avg_intensity)
+
+            # add in the sidedness
+
+            if add_df.iloc[m]['neur_coords'][0] > self.return_x_midline():
+                side = 'R'
+            else:
+                side = 'L'
+            add_df.at[m, 'side'] = side
+
+        self.barcoding_df = pd.concat([self.barcoding_df, add_df]).reset_index(drop=True)
+        self.barcoding_df = self.barcoding_df.drop_duplicates(subset=['neur_ids'], keep='first')
+
+
 
 ## THIS DOES NOT WORK WELL BUT KEEPING FOR FUTURE ITERATIONS ##
 class WorkingFish_Tail(WorkingFish, TailTrackedFish):

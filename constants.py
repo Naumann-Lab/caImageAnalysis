@@ -321,3 +321,6 @@ stim_title_dict = {
     "x_backward" : r' ---$\Downarrow$',
     "backward_x" : r'$\Downarrow$--- ',
 }
+
+bout_inducing_stims = ['forward', 'forward_x', 'x_forward', 'forward_right', 'forward_left','right', 'medial_right', 'left', 'medial_left', 'converging']
+bout_reducing_stims = ['backward', 'backward_right', 'backward_left', 'x_backward', 'backward_x', 'lateral_right', 'lateral_left', 'diverging']

@@ -87,6 +87,8 @@ def tail_df_creator(bhvr_data_folder, saving = True):
     else:
         all_tail_data = bhvr_df
     
+    all_tail_data = all_tail_data.sort_values("t")
+    
     if saving:
         all_tail_data.to_hdf(bhvr_data_folder.joinpath('tail_df.h5'), key='tail')
         print('saved tail dataframe')

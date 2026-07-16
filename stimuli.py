@@ -258,21 +258,21 @@ def stim_shader(some_fish_class):
                     begin, midpt, color=constants.monocular_dict["forward"], alpha=0.4
                 )
 
-def stimulus_start_frames_for_plots(frames_motion_on = 7, length_of_total_frame_arr = 21, number_of_stims_in_set = 8):
+def stimulus_start_frames_for_plots(baseline_offset = 7, length_of_total_frame_arr = 21, number_of_stims_in_set = 8):
     '''
-    frames_motion_on -- the first frame that motion starts in the series of frames you want to shade
-    length_of_total_frame_arr -- the total number of frames that is taken from the neural trace before and after the stimulus is on (typically diff between offsets, i.e. 21)
+    baseline_offset -- the relative frames before the stimulus starts (-fishy.offset[0])
+    length_of_total_frame_arr -- the total number of frames that is taken from the neural trace before and after the stimulus is on
+    (typically diff between offsets, i.e. 21)
     number_of_stims_in_set -- the number of stimuli in the experiment (8 for the 8 barcoded stimuli)
 
     returns a list of the starting frames for each stimulus in the set, this is what starts the shading in the plots
     '''
-    stim_start_frames = []
-    start_value = frames_motion_on
-    for _ in range(number_of_stims_in_set):
-        stim_start_frames.append(start_value)
-        start_value += length_of_total_frame_arr
 
-    return stim_start_frames
+    list = np.linspace(0, length_of_total_frame_arr*(number_of_stims_in_set-1),
+                       number_of_stims_in_set) + baseline_offset
+    list = [int(i) for i in list]
+
+    return list
 
 def flexible_stim_shader(frames, stimmies, frames_motion_on, fs = 14, subplot = None, label = True,
                          ylabel_pos = None, label_offset_x = -6, alpha = 0.3):
@@ -428,6 +428,33 @@ def add_reps_to_stimulus_df(stim_df):
     for i in range(no_repetitions):
         stim_df.iloc[(n_stims*i):(n_stims*i+n_stims)]['rep'] = i
     return stim_df
+
+def combine_shearing_stims_for_tail_df(df, column_name = 'tail_angle'):
+    '''
+    Combine all the binocular stimuli together
+    Requires flipping all the left tail angles
+    '''
+    df_copy = df.copy()
+
+    # Define rename mapping
+    stim_map = {
+        'forward_x': 'forward_x',
+        'x_forward': 'forward_x',
+        'backward_x': 'x_backward',
+        'x_backward': 'x_backward',
+        'forward_backward': 'forward_backward',
+        'backward_forward':'forward_backward'
+    }
+
+    # Flip sign for the counter-clockwise versions
+    flip_stimuli = {'x_forward', 'backward_x', 'backward_forward'}
+    if column_name is not None: # only if you need to flip the sign of the data
+        df_copy.loc[df_copy['tail_stimuli'].isin(flip_stimuli), column_name] *= -1
+
+    # Apply renaming for all cases
+    df_copy['tail_stimuli'] = df_copy['tail_stimuli'].replace(stim_map)
+
+    return df_copy
 
 
 def kaitlyn_pandastim_to_df(

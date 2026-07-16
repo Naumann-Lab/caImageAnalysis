@@ -140,7 +140,7 @@ def bruker_img_organization(folder_path, testkey = 'Cycle', safe=False, single_p
             for tiffany in fls:
                 with tifffile.TiffFile(tiffany) as tiff:
                     for page in tiff.pages:
-                        output.write(page.asarray().astype("uint16"),
+                        output.write(page.asarray().astype("uint32"),
                                     contiguous=True)
 
 
